@@ -674,7 +674,11 @@
     const data = createMemo(() => {
       const v = view(), m = model();
       const formIdx = new Map(m.parsed.forms.map((f, i) => [f.id, i]));
-      const nodes = v.nodes.map((n, i) => ({ ...n, i })).sort((a, b) => ((formIdx.get(a.form) ?? 999) - (formIdx.get(b.form) ?? 999)) || a.i - b.i);
+      // "Group fields by" event / arm re-bands the matrix by that group instead of by form
+      const gs = v.level === 'field' && (groupBy() === 'event' || groupBy() === 'arm') ? v.groups : [];
+      const gOf = new Map(); gs.forEach((g, gi) => g.nodes.forEach((id) => gOf.set(id, { gi, g })));
+      const nodes = v.nodes.map((n, i) => { const o = gOf.get(n.id); return o ? { ...n, i, form: o.g.id, gLabel: o.g.label, gi: o.gi } : { ...n, i, gi: 999 }; })
+        .sort((a, b) => (gs.length ? a.gi - b.gi : (formIdx.get(a.form) ?? 999) - (formIdx.get(b.form) ?? 999)) || a.i - b.i);
       const pos = new Map(nodes.map((n, k) => [n.id, k]));
       const N = nodes.length, cells = new Map();
       v.edges.forEach((e) => { const r = pos.get(e.to), c = pos.get(e.from); if (r != null && c != null) cells.set(r * N + c, e); });
@@ -700,7 +704,7 @@
           if ((nodes[start].form && formIdxOdd(start))) { x.fillStyle = '#f3f4f6'; x.fillRect(L, T + start * cell, N * cell, band * cell); x.fillRect(L + start * cell, T, band * cell, N * cell); }
           x.fillStyle = '#374151'; x.font = 'bold 10px system-ui,sans-serif'; x.textAlign = 'left'; x.textBaseline = 'middle';
           const fm = model().formsById.get(nodes[start].form);
-          const lab = (nodes[start].kind === 'missing' ? '(unknown)' : fm ? fm.label : nodes[start].form);
+          const lab = (nodes[start].gLabel || (nodes[start].kind === 'missing' ? '(unknown)' : fm ? fm.label : nodes[start].form));
           x.fillText(lab.length > 26 ? lab.slice(0, 25) + '…' : lab, 4, T + (start + Math.min(band, 2) / 2) * cell);
           x.strokeStyle = '#9ca3af'; x.lineWidth = 1; x.beginPath();
           x.moveTo(0, T + start * cell + .5); x.lineTo(L + N * cell, T + start * cell + .5);
@@ -753,7 +757,7 @@
       <div class="mxnote small"><label>Cell size <input type="range" min="1" max=${() => Math.min(20, Math.max(1, Math.floor(MAXPX / Math.max(1, data().N))))} value=${() => data().cell} onInput=${(e) => setMxCell(+e.target.value)} style="vertical-align:middle;width:160px"></label>
         <span class="muted">${() => data().cell}px · ${() => data().N} fields</span> <button class="link" onClick=${() => setMxCell(0)}>auto</button>
         <span class="muted"> — labels appear at 9px or more; at small sizes hover for names.</span></div>
-      <p class="muted small mxnote">Each <b>row</b> depends on the <b>columns</b> where it has a coloured cell (reads: row ← column). Colour = dependency type; a <span style="color:#dc2626;font-weight:600">red outline</span> means the pair depend on each other (circular). Fields are grouped by form (alternating bands). Uses the same filters as the graph.</p>
+      <p class="muted small mxnote">Each <b>row</b> depends on the <b>columns</b> where it has a coloured cell (reads: row ← column). Colour = dependency type; a <span style="color:#dc2626;font-weight:600">red outline</span> means the pair depend on each other (circular). Fields are grouped by form (alternating bands), or by event / arm when chosen under Group fields by. Uses the same filters as the graph.</p>
       <${Show} when=${() => data().N > MAXN} fallback=${html`<div class="mxwrap">
           <div class="mxscroll" ref=${(el) => (scroller = el)}>
             <${Show} when=${() => data().N} fallback=${html`<p style="padding:16px;color:#555">Nothing to show with the current filters.</p>`}>
