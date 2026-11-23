@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ODM xmlns="http://www.cdisc.org/ns/odm/v1.3" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:redcap="https://projectredcap.org" xsi:schemaLocation="http://www.cdisc.org/ns/odm/v1.3 schema/odm/ODM1-3-1.xsd" ODMVersion="1.3.1" FileOID="000-00-0000" FileType="Snapshot" Description="Sample Study" AsOfDateTime="2026-01-01T00:00:00" CreationDateTime="2026-01-01T00:00:00" SourceSystem="REDCap" SourceSystemVersion="14.0.0">
+<Study OID="Project.SAMPLE">
+<GlobalVariables>
+	<StudyName>Sample Cohort Study</StudyName>
+	<StudyDescription>Demo</StudyDescription>
+	<ProtocolName>Sample Cohort Study</ProtocolName>
+</GlobalVariables>
+<MetaDataVersion OID="Metadata.SAMPLE" Name="Sample Cohort Study" redcap:RecordIdField="record_id">
+	<FormDef OID="Form.demographics" Name="Demographics" Repeating="No" redcap:FormName="demographics">
+		<ItemGroupRef ItemGroupOID="demographics.record_id" Mandatory="No"/>
+		<ItemGroupRef ItemGroupOID="demographics.dob" Mandatory="No"/>
+	</FormDef>
+	<FormDef OID="Form.baseline" Name="Baseline Visit" Repeating="No" redcap:FormName="baseline">
+		<ItemGroupRef ItemGroupOID="baseline.visit_date" Mandatory="No"/>
+	</FormDef>
+	<FormDef OID="Form.followup" Name="Follow-up" Repeating="No" redcap:FormName="followup">
+		<ItemGroupRef ItemGroupOID="followup.fu_date" Mandatory="No"/>
+	</FormDef>
+	<ItemGroupDef OID="demographics.record_id" Name="Demographics" Repeating="No">
+		<ItemRef ItemOID="record_id" Mandatory="No" redcap:Variable="record_id"/>
+		<ItemRef ItemOID="first_name" Mandatory="No" redcap:Variable="first_name"/>
+		<ItemRef ItemOID="dob" Mandatory="No" redcap:Variable="dob"/>
+		<ItemRef ItemOID="sex" Mandatory="No" redcap:Variable="sex"/>
+		<ItemRef ItemOID="pregnant" Mandatory="No" redcap:Variable="pregnant"/>
+		<ItemRef ItemOID="consent" Mandatory="No" redcap:Variable="consent"/>
+	</ItemGroupDef>
+	<ItemGroupDef OID="demographics.dob" Name="Demographics (more)" Repeating="No">
+		<ItemRef ItemOID="notes" Mandatory="No" redcap:Variable="notes"/>
+	</ItemGroupDef>
+	<ItemGroupDef OID="baseline.visit_date" Name="Baseline Visit" Repeating="No">
+		<ItemRef ItemOID="visit_date" Mandatory="No" redcap:Variable="visit_date"/>
+		<ItemRef ItemOID="age" Mandatory="No" redcap:Variable="age"/>
+		<ItemRef ItemOID="height_cm" Mandatory="No" redcap:Variable="height_cm"/>
+		<ItemRef ItemOID="weight_kg" Mandatory="No" redcap:Variable="weight_kg"/>
+		<ItemRef ItemOID="bmi" Mandatory="No" redcap:Variable="bmi"/>
+		<ItemRef ItemOID="bmi_cat" Mandatory="No" redcap:Variable="bmi_cat"/>
+		<ItemRef ItemOID="smoker" Mandatory="No" redcap:Variable="smoker"/>
+		<ItemRef ItemOID="pack_years" Mandatory="No" redcap:Variable="pack_years"/>
+		<ItemRef ItemOID="symptoms" Mandatory="No" redcap:Variable="symptoms"/>
+		<ItemRef ItemOID="symptom_other" Mandatory="No" redcap:Variable="symptom_other"/>
+		<ItemRef ItemOID="risk_a" Mandatory="No" redcap:Variable="risk_a"/>
+		<ItemRef ItemOID="risk_b" Mandatory="No" redcap:Variable="risk_b"/>
+	</ItemGroupDef>
+	<ItemGroupDef OID="followup.fu_date" Name="Follow-up" Repeating="No">
+		<ItemRef ItemOID="fu_date" Mandatory="No" redcap:Variable="fu_date"/>
+		<ItemRef ItemOID="fu_weight" Mandatory="No" redcap:Variable="fu_weight"/>
+		<ItemRef ItemOID="weight_change" Mandatory="No" redcap:Variable="weight_change"/>
+		<ItemRef ItemOID="fu_summary" Mandatory="No" redcap:Variable="fu_summary"/>
+		<ItemRef ItemOID="fu_complications" Mandatory="No" redcap:Variable="fu_complications"/>
+		<ItemRef ItemOID="fu_details" Mandatory="No" redcap:Variable="fu_details"/>
+	</ItemGroupDef>
+
+	<ItemDef OID="record_id" Name="record_id" DataType="text" Length="999" redcap:Variable="record_id" redcap:FieldType="text">
+		<Question><TranslatedText>Record ID</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="first_name" Name="first_name" DataType="text" Length="999" redcap:Variable="first_name" redcap:FieldType="text">
+		<Question><TranslatedText>First name</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="dob" Name="dob" DataType="date" Length="999" redcap:Variable="dob" redcap:FieldType="text" redcap:TextValidationType="date_ymd">
+		<Question><TranslatedText>Date of birth</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sex" Name="sex" DataType="text" Length="1" redcap:Variable="sex" redcap:FieldType="radio">
+		<Question><TranslatedText>Sex</TranslatedText></Question>
+		<CodeListRef CodeListOID="sex.choices"/>
+	</ItemDef>
+	<ItemDef OID="pregnant" Name="pregnant" DataType="boolean" Length="1" redcap:Variable="pregnant" redcap:FieldType="yesno" redcap:BranchingLogic="[sex] = &quot;2&quot; and [age] &gt;= 12 and [age] &lt;= 55">
+		<Question><TranslatedText>Is the participant pregnant?</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="consent" Name="consent" DataType="boolean" Length="1" redcap:Variable="consent" redcap:FieldType="yesno" redcap:BranchingLogic="[age] &gt;= 18" redcap:FieldAnnotation="@DEFAULT='1'">
+		<Question><TranslatedText>Adult consent obtained?</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="notes" Name="notes" DataType="text" Length="999" redcap:Variable="notes" redcap:FieldType="notes">
+		<Question><TranslatedText>Notes for [first_name]</TranslatedText></Question>
+	</ItemDef>
+
+	<ItemDef OID="visit_date" Name="visit_date" DataType="date" Length="999" redcap:Variable="visit_date" redcap:FieldType="text" redcap:TextValidationType="date_ymd" redcap:FieldAnnotation="@TODAY">
+		<Question><TranslatedText>Visit date</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="age" Name="age" DataType="integer" Length="999" redcap:Variable="age" redcap:FieldType="calc" redcap:Calculation="rounddown(datediff([dob], [visit_date], &quot;y&quot;, true))">
+		<Question><TranslatedText>Age (years)</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="height_cm" Name="height_cm" DataType="float" Length="999" redcap:Variable="height_cm" redcap:FieldType="text">
+		<Question><TranslatedText>Height (cm)</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="weight_kg" Name="weight_kg" DataType="float" Length="999" redcap:Variable="weight_kg" redcap:FieldType="text">
+		<Question><TranslatedText>Weight (kg)</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="bmi" Name="bmi" DataType="float" Length="999" redcap:Variable="bmi" redcap:FieldType="calc" redcap:Calculation="round([weight_kg] / (([height_cm]/100)*([height_cm]/100)), 1)">
+		<Question><TranslatedText>BMI</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="bmi_cat" Name="bmi_cat" DataType="text" Length="999" redcap:Variable="bmi_cat" redcap:FieldType="text" redcap:FieldAnnotation="@CALCTEXT(if([bmi] &gt;= 30, 'Obese', if([bmi] &gt;= 25, 'Overweight', 'Healthy')))">
+		<Question><TranslatedText>BMI category</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="smoker" Name="smoker" DataType="boolean" Length="1" redcap:Variable="smoker" redcap:FieldType="yesno" redcap:BranchingLogic="[age] &gt;= 16">
+		<Question><TranslatedText>Current or former smoker?</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="pack_years" Name="pack_years" DataType="float" Length="999" redcap:Variable="pack_years" redcap:FieldType="text" redcap:BranchingLogic="[smoker] = '1' and [consent] = '1'">
+		<Question><TranslatedText>Pack-years</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="symptoms" Name="symptoms" DataType="text" Length="1" redcap:Variable="symptoms" redcap:FieldType="checkbox">
+		<Question><TranslatedText>Symptoms reported</TranslatedText></Question>
+		<CodeListRef CodeListOID="symptoms.choices"/>
+	</ItemDef>
+	<ItemDef OID="symptom_other" Name="symptom_other" DataType="text" Length="999" redcap:Variable="symptom_other" redcap:FieldType="text" redcap:BranchingLogic="[symptoms(99)] = '1'">
+		<Question><TranslatedText>Specify other symptom</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="risk_a" Name="risk_a" DataType="text" Length="999" redcap:Variable="risk_a" redcap:FieldType="text" redcap:BranchingLogic="[risk_b] = '1'">
+		<Question><TranslatedText>Risk A (deliberate circular branching demo)</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="risk_b" Name="risk_b" DataType="text" Length="999" redcap:Variable="risk_b" redcap:FieldType="text" redcap:BranchingLogic="[risk_a] = '1' and [smoking_status] = '1'">
+		<Question><TranslatedText>Risk B (references undefined field smoking_status)</TranslatedText></Question>
+	</ItemDef>
+
+	<ItemDef OID="fu_date" Name="fu_date" DataType="date" Length="999" redcap:Variable="fu_date" redcap:FieldType="text" redcap:TextValidationType="date_ymd">
+		<Question><TranslatedText>Follow-up date</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="fu_weight" Name="fu_weight" DataType="float" Length="999" redcap:Variable="fu_weight" redcap:FieldType="text">
+		<Question><TranslatedText>Follow-up weight (kg); baseline was [weight_kg] kg</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="weight_change" Name="weight_change" DataType="float" Length="999" redcap:Variable="weight_change" redcap:FieldType="calc" redcap:Calculation="[fu_weight] - [baseline_arm_1][weight_kg]">
+		<Question><TranslatedText>Weight change (kg)</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="fu_summary" Name="fu_summary" DataType="text" Length="999" redcap:Variable="fu_summary" redcap:FieldType="descriptive">
+		<Question><TranslatedText>Summary: BMI was [bmi] at baseline; change is [weight_change] kg.</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="fu_complications" Name="fu_complications" DataType="boolean" Length="1" redcap:Variable="fu_complications" redcap:FieldType="yesno" redcap:BranchingLogic="[weight_change] &lt; -5 or [symptoms(1)] = '1'">
+		<Question><TranslatedText>Any complications?</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="fu_details" Name="fu_details" DataType="text" Length="999" redcap:Variable="fu_details" redcap:FieldType="notes" redcap:BranchingLogic="[fu_complications] = '1'">
+		<Question><TranslatedText>Describe complications</TranslatedText></Question>
+	</ItemDef>
+
+	<CodeList OID="sex.choices" Name="sex" DataType="text">
+		<CodeListItem CodedValue="1"><Decode><TranslatedText>Male</TranslatedText></Decode></CodeListItem>
+		<CodeListItem CodedValue="2"><Decode><TranslatedText>Female</TranslatedText></Decode></CodeListItem>
+	</CodeList>
+	<CodeList OID="symptoms.choices" Name="symptoms" DataType="text">
+		<CodeListItem CodedValue="1"><Decode><TranslatedText>Cough</TranslatedText></Decode></CodeListItem>
+		<CodeListItem CodedValue="99"><Decode><TranslatedText>Other</TranslatedText></Decode></CodeListItem>
+	</CodeList>
+</MetaDataVersion>
+</Study>
+</ODM>
