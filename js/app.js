@@ -33,6 +33,7 @@
   const [focusDepth, setFocusDepthRaw] = createSignal(3);
   const setFocusDepth = (v) => setFocusDepthRaw(Math.min(50, Math.max(1, Math.round(Number(v)) || 1)));
   const [eventsOn, setEventsOn] = createSignal({}); // event id -> bool (absent = on)
+  const [instOnly, setInstOnly] = createSignal(false); // only logic using [current/first/last/previous/next-instance]
   const [crossOnly, setCrossOnly] = createSignal(false); // only references that name another event ([event][var])
   const [formQ, setFormQ] = createSignal('');
   const [pair, setPair] = createSignal(null);       // {from,to} form ids: show only the field links of one form->form edge
@@ -102,7 +103,7 @@
       level: level(), dir: dir(), labelMode: labelMode(), group: groupBy() !== 'none' && level() === 'field', groupBy: groupBy(),
       eventSet: evActive ? new Set(evs.filter((e) => eo[e.id] !== false).map((e) => e.id)) : null, edgeLabels: edgeLabels(),
       hideIsolated: hideIso(), showMissing: showMissing(), types: new Set(TYPE_KEYS.filter((k) => t[k])),
-      forms: on.length === formIds().length ? null : new Set(on), formsNone: on.length === 0, crossOnly: crossOnly(),
+      forms: on.length === formIds().length ? null : new Set(on), formsNone: on.length === 0, crossOnly: crossOnly(), instOnly: instOnly(),
       expanded: level() === 'form' ? expanded() : null, explore: curEx() && { level: level(), set: exVisible(curEx()) }, pair: pair(), focus: focus(), focusDir: focusDir(), focusDepth: Math.max(1, +focusDepth() || 1),
     };
   });
@@ -157,7 +158,7 @@
       Solid.batch(() => {
         setLoadError('');
         setFileBase((name || parsed.projectName).replace(/\.xml$/i, '').replace(/[^\w.-]+/g, '_') || 'redcap');
-        setLevel('form'); setFormQ(''); setFormsOn({}); setEventsOn({}); setCrossOnly(false); setFocus(''); setPair(null); setExplore(null); setExpanded(new Set()); setSelEdge(null); setSelected(null); setTab('graph');
+        setLevel('form'); setFormQ(''); setFormsOn({}); setEventsOn({}); setCrossOnly(false); setInstOnly(false); setFocus(''); setPair(null); setExplore(null); setExpanded(new Set()); setSelEdge(null); setSelected(null); setTab('graph');
         setTypesOn(Object.fromEntries(TYPE_KEYS.map((k) => [k, true])));
         setModel(m);
       });
@@ -272,6 +273,7 @@
         <section>
           <h2>Events &amp; arms <button class="link" onClick=${() => setEvents(true)}>all</button> <button class="link" onClick=${() => setEvents(false)}>none</button></h2>
           ${Check(crossOnly, setCrossOnly, 'Only cross-event references')}
+          ${Check(instOnly, setInstOnly, 'Only repeating-instance logic')}
           <div id="events">
             <${For} each=${() => model().parsed.arms.length ? model().parsed.arms : [{ num: '', name: '' }]}>${(a) => html`
               <div class="armrow">

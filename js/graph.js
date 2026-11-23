@@ -154,6 +154,7 @@
     const A = model.analysis;
     let edges = model.edges.filter((e) => o.types.has(e.type) && (o.showMissing || !e.missing));
     if (o.crossOnly) edges = edges.filter((e) => e.events && e.events.length);
+    if (o.instOnly) edges = edges.filter((e) => (e.smart || []).some((x) => /-instance$/.test(x)));
     const formOf = (v) => nodeInfo(model, v).form;
     if (o.level === 'event') return eventView(model, edges, o, formOf);
     const ex = o.explore && o.explore.level === o.level ? o.explore.set : null; // interactively expanded node set
