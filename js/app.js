@@ -22,7 +22,7 @@
   const [renderer, setRenderer] = createSignal('graphviz');
   const [dir, setDir] = createSignal('LR');
   const [labelMode, setLabelMode] = createSignal('var');
-  const [group, setGroup] = createSignal(true);
+  const [groupBy, setGroupBy] = createSignal('form'); // field level clusters: none | form | event | arm
   const [edgeLabels, setEdgeLabels] = createSignal(false);
   const [hideIso, setHideIso] = createSignal(true);
   const [showMissing, setShowMissing] = createSignal(true);
@@ -99,7 +99,8 @@
     const on = formIds().filter((i) => fo[i] !== false && (!evForms || evForms.has(i)));
     const t = typesOn();
     return {
-      level: level(), dir: dir(), labelMode: labelMode(), group: group() && level() === 'field', edgeLabels: edgeLabels(),
+      level: level(), dir: dir(), labelMode: labelMode(), group: groupBy() !== 'none' && level() === 'field', groupBy: groupBy(),
+      eventSet: evActive ? new Set(evs.filter((e) => eo[e.id] !== false).map((e) => e.id)) : null, edgeLabels: edgeLabels(),
       hideIsolated: hideIso(), showMissing: showMissing(), types: new Set(TYPE_KEYS.filter((k) => t[k])),
       forms: on.length === formIds().length ? null : new Set(on), formsNone: on.length === 0, crossOnly: crossOnly(),
       expanded: level() === 'form' ? expanded() : null, explore: curEx() && { level: level(), set: exVisible(curEx()) }, pair: pair(), focus: focus(), focusDir: focusDir(), focusDepth: Math.max(1, +focusDepth() || 1),
@@ -123,6 +124,7 @@
     const my = ++token;
     setSvgEl(null);
     if (!v.nodes.length) { setRenderMsg('Nothing to show with the current filters.'); return; }
+    if (v.level === 'event' && !v.edges.length) { setRenderMsg('No cross-event references ([event][field]) with the current filters.'); return; }
     if (v.level === 'form' && !v.edges.length) { setRenderMsg('No cross-form dependencies with the current filters.'); return; }
     if (big) { setRenderMsg(''); return; }
     setRenderMsg('Rendering…');
@@ -186,7 +188,7 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
-  const suffix = () => (level() === 'form' ? '_forms' : '_fields');
+  const suffix = () => (level() === 'form' ? '_forms' : level() === 'event' ? '_events' : '_fields');
   const dlMermaid = () => download(fileBase() + suffix() + '.mmd', mermaidSrc());
   const dlDot = () => download(fileBase() + suffix() + '.dot', dotSrc());
   const dlCsv = () => download(fileBase() + '_dependencies.csv', RC.toCsv(model(), model().edges.filter((e) => opts().types.has(e.type))), 'text/csv;charset=utf-8');
@@ -223,11 +225,11 @@
     return html`<aside id="side">
       <section>
         <h2>View</h2>
-        <label>Level ${Select(level, setLevel, [['field', 'Fields'], ['form', 'Forms (aggregated)']])}</label>
+        <label>Level ${Select(level, setLevel, [['field', 'Fields'], ['form', 'Forms (aggregated)'], ['event', 'Events (cross-event links)']])}</label>
         <label>Renderer ${Select(renderer, setRenderer, [['graphviz', 'Graphviz'], ['mermaid', 'Mermaid']])}</label>
         <label>Direction ${Select(dir, setDir, [['LR', 'Left → right'], ['TD', 'Top → down']])}</label>
         <label>Node text ${Select(labelMode, setLabelMode, [['var', 'Variable name'], ['label', 'Name + field label']])}</label>
-        ${Check(group, setGroup, 'Group fields by form')}
+        <label>Group fields by ${Select(groupBy, setGroupBy, [['form', 'Form'], ['event', 'Event (longitudinal)'], ['arm', 'Arm (longitudinal)'], ['none', 'No grouping']])}</label>
         ${Check(edgeLabels, setEdgeLabels, 'Edge labels')}
         ${Check(hideIso, setHideIso, 'Hide fields with no dependencies')}
         ${Check(showMissing, setShowMissing, 'Show undefined references')}
@@ -436,7 +438,7 @@
             const t = cl.querySelector('title');
             const m = (t && /^cluster_(\d+)$/.exec(t.textContent)) || /(?:^|[-_])g(\d+)$/.exec(cl.id || '');
             const gr = m && view().groups[+m[1]];
-            if (gr) setSelected(view().mixed ? gr.id : '@form:' + gr.id);
+            if (gr && !gr.noSelect) setSelected(view().mixed ? gr.id : '@form:' + gr.id);
           } else if (!(e.target.closest && e.target.closest('g.edge, path.flowchart-link, .edgeLabel'))) {
             // click on the empty diagram background: close the detail pane
             Solid.batch(() => { setSelected(null); setSelEdge(null); });
@@ -538,6 +540,8 @@
     const m = model(), A = m.analysis, info = RC.nodeInfo(m, id);
     if (!info) { // form-level node
       if (id === '(unknown)') return html`<div><h3>Undefined fields</h3><div class="muted small">fields referenced by logic but not defined in the project</div>${ExploreButtons(id)}</div>`;
+      const ev = (m.parsed.events || []).find((x) => x.id === id);
+      if (ev) return eventDetail(ev);
       const fm = m.formsById.get(id); if (!fm) return '';
       const cross = m.edges.filter((e) => !e.missing && (RC.nodeInfo(m, e.from).form === id) !== (RC.nodeInfo(m, e.to).form === id));
       return html`<div><h3>${fm.label}</h3><div class="muted small">form <code>${fm.id}</code> · ${fm.fields.length} fields</div>
@@ -562,6 +566,17 @@
       ${!f.branching && !f.calc && !f.annotation ? html`<p class="muted small">No logic code on this field.</p>` : ''}
       ${f.choices.length ? html`<div><h4>Choices</h4><pre>${f.choices.map((c) => c.code + ', ' + c.label).join('\n')}</pre></div>` : ''}
       <h4>Depends on (${up.length})</h4>${Chips(up)}<h4>Used by (${down.length})</h4>${Chips(down)}</div>`;
+  }
+  // an event box clicked in the event-level graph
+  function eventDetail(ev) {
+    const m = model();
+    const out = m.edges.filter((e) => (e.events || []).includes(ev.id));
+    const inn = m.edges.filter((e) => (m.parsed.events.some((x) => x.forms.includes(RC.nodeInfo(m, e.to).form) && x.id === ev.id)) && (e.events || []).some((x) => x !== ev.id));
+    const row = (e) => html`<div class="small" style="margin-bottom:6px"><button class="fieldlink" onClick=${() => jumpToField(e.from)}>${e.from}</button> → <button class="fieldlink" onClick=${() => jumpToField(e.to)}>${e.to}</button> ${tagOf(e.type)} <span class="muted">${(e.events || []).join(', ')}</span><pre>${e.expr}</pre></div>`;
+    return html`<div><h3>${ev.label}</h3><div class="muted small">event <code>${ev.id}</code>${ev.arm ? ' · arm ' + ev.arm + (ev.armName ? ' (' + ev.armName + ')' : '') : ''}${ev.repeating ? ' · repeating' : ''}</div>
+      <p class="small" style="margin:6px 0">Forms: ${ev.forms.map(formLabel).join(', ') || 'none'}</p>
+      <h4>Read from this event (${out.length})</h4>${out.length ? out.map(row) : html`<span class="muted small">none</span>`}
+      <h4>Reads other events (${inn.length})</h4>${inn.length ? inn.map(row) : html`<span class="muted small">none</span>`}</div>`;
   }
   // form-level edge: the fields that make up the link
   function edgeDetail(ed) {

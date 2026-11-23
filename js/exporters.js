@@ -7,11 +7,11 @@
   const KIND_STROKE = { field: '#3b82f6', calc: '#f97316', form: '#6b7280', missing: '#dc2626', status: '#16a34a' };
 
   // line width for form-level edges: 1px for one field, growing logarithmically (cap 10px)
-  const widthOf = (e, view) => (view.level === 'form' && !e.fieldLevel ? Math.min(10, 1 + 1.6 * Math.log2(Math.max(1, e.count))) : null);
+  const widthOf = (e, view) => ((view.level === 'form' || view.level === 'event') && !e.fieldLevel ? Math.min(10, 1 + 1.6 * Math.log2(Math.max(1, e.count))) : null);
   const trunc = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
   const primary = (e) => PRIORITY.find((t) => e.types.includes(t));
   function edgeText(e, o, view) {
-    if (view.level === 'form' && !e.fieldLevel) return e.types.map((t) => `${t} ${e.byType[t]}`).join(', ') + ` · ${e.count} field${e.count === 1 ? '' : 's'}`;
+    if ((view.level === 'form' || view.level === 'event') && !e.fieldLevel) return e.types.map((t) => `${t} ${e.byType[t]}`).join(', ') + ` · ${e.count} field${e.count === 1 ? '' : 's'}`;
     return o.edgeLabels ? e.types.join('+') : '';
   }
   function nodeLines(n, o, wrap) {

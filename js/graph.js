@@ -155,6 +155,7 @@
     let edges = model.edges.filter((e) => o.types.has(e.type) && (o.showMissing || !e.missing));
     if (o.crossOnly) edges = edges.filter((e) => e.events && e.events.length);
     const formOf = (v) => nodeInfo(model, v).form;
+    if (o.level === 'event') return eventView(model, edges, o, formOf);
     const ex = o.explore && o.explore.level === o.level ? o.explore.set : null; // interactively expanded node set
     const pair = !ex && o.level === 'field' ? o.pair : null; // edges of one form -> form link (from form-level click)
     if (ex) edges = edges.filter((e) => ex.has(o.level === 'form' ? formOf(e.from) : e.from) && ex.has(o.level === 'form' ? formOf(e.to) : e.to));
@@ -202,7 +203,22 @@
       return { id: v, label: v, sub: f.label || '', form: f.form, kind: f.ghost ? 'missing' : f.synthetic ? 'status' : f.type === 'calc' ? 'calc' : 'field', focus: v === o.focus };
     });
     const groups = [];
-    if (o.group) {
+    if (o.group && (o.groupBy === 'event' || o.groupBy === 'arm') && (model.parsed.events || []).length) {
+      // a field sits in the first (selected) event / arm whose schedule includes its form
+      const evs = model.parsed.events.filter((e) => !o.eventSet || o.eventSet.has(e.id));
+      const keyOf = (form) => {
+        const e = evs.find((x) => x.forms.includes(form));
+        if (!e) return null;
+        return o.groupBy === 'arm' ? { id: 'arm:' + e.arm, label: 'Arm ' + e.arm + (e.armName ? ': ' + e.armName : '') } : { id: 'event:' + e.id, label: e.label };
+      };
+      const m = new Map();
+      nodes.forEach((n) => {
+        const k = keyOf(n.form) || { id: 'event:(none)', label: '(not in an event)' };
+        if (!m.has(k.id)) m.set(k.id, { id: k.id, label: k.label, nodes: [], noSelect: true });
+        m.get(k.id).nodes.push(n.id);
+      });
+      groups.push(...m.values());
+    } else if (o.group) {
       const m = new Map();
       nodes.forEach((n) => { if (!m.has(n.form)) m.set(n.form, []); m.get(n.form).push(n.id); });
       m.forEach((ids, form) => {
@@ -211,6 +227,40 @@
       });
     }
     return { level: 'field', nodes, edges: vedges, groups };
+  }
+
+  /**
+   * Event-level view: only explicit cross-event references ([event][var]) produce edges.
+   * Edge = source event (the prefix) -> every event that collects the form of the field holding the logic.
+   * References without a prefix stay inside one event and are not drawn (as same-form links are not at form level).
+   */
+  function eventView(model, edges, o, formOf) {
+    const events = model.parsed.events || [];
+    const shown = (e) => !o.eventSet || o.eventSet.has(e.id);
+    const hosts = (form) => events.filter((e) => shown(e) && e.forms.includes(form));
+    const merged = new Map();
+    edges.forEach((e) => {
+      if (!e.events || !e.events.length) return;
+      if (o.forms && o.forms.size && !(o.forms.has(formOf(e.from)) && o.forms.has(formOf(e.to)))) return;
+      const targets = hosts(formOf(e.to));
+      e.events.forEach((src) => {
+        if (!events.some((x) => x.id === src && shown(x))) return;
+        targets.forEach((t) => {
+          if (t.id === src) return;
+          const k = src + '\u0000' + t.id;
+          if (!merged.has(k)) merged.set(k, { from: src, to: t.id, types: [], count: 0, byType: {}, deps: new Set(), typeDeps: {} });
+          const m = merged.get(k);
+          m.deps.add(e.to); (m.typeDeps[e.type] = m.typeDeps[e.type] || new Set()).add(e.to);
+          if (!m.types.includes(e.type)) m.types.push(e.type);
+        });
+      });
+    });
+    const vedges = [...merged.values()];
+    vedges.forEach((m) => { m.count = m.deps.size; Object.keys(m.typeDeps).forEach((t) => { m.byType[t] = m.typeDeps[t].size; }); });
+    const used = new Set(); vedges.forEach((e) => { used.add(e.from); used.add(e.to); });
+    const nodes = events.filter((e) => shown(e) && (!o.hideIsolated || used.has(e.id)))
+      .map((e) => ({ id: e.id, label: e.label + (e.arm ? ' (arm ' + e.arm + ')' : ''), sub: e.forms.length + ' forms' + (e.repeating ? ' · repeating' : ''), form: e.id, kind: 'form' }));
+    return { level: 'event', nodes, edges: vedges, groups: [] };
   }
 
   function formView(model, edges, o) {
