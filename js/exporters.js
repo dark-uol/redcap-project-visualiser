@@ -29,13 +29,17 @@
     const L = [`flowchart ${o.dir}`];
     const node = (n) => `${id.get(n.id)}["${nodeLines(n, o).map(mq).join('<br/>')}"]:::${n.kind}`;
     const grouped = new Set();
-    view.groups.forEach((gr, i) => {
-      L.push(`  subgraph g${i}["${mq(gr.label)}"]`);
-      gr.nodes.forEach((v) => { grouped.add(v); L.push('    ' + node(view.nodes.find((n) => n.id === v))); });
-      L.push('  end');
-    });
+    const emitG = (gr, ind) => { // groups may nest through `parent` (instance clusters inside event bands)
+      const i = view.groups.indexOf(gr);
+      L.push(`${ind}subgraph g${i}["${mq(gr.label)}"]`);
+      gr.nodes.forEach((v) => { grouped.add(v); L.push(ind + '  ' + node(view.nodes.find((n) => n.id === v))); });
+      view.groups.filter((c) => c.parent != null && c.parent === gr.id).forEach((c) => emitG(c, ind + '  '));
+      L.push(ind + 'end');
+    };
+    view.groups.filter((gr) => gr.parent == null).forEach((gr) => emitG(gr, '  '));
     view.nodes.forEach((n) => { if (!grouped.has(n.id)) L.push('  ' + node(n)); });
     const styles = {};
+    const extraLs = [];
     let li = 0;
     view.edges.forEach((e) => {
       if (!id.has(e.from) || !id.has(e.to)) return;
@@ -46,12 +50,17 @@
       const wd = widthOf(e, view);
       if (wd) styles['#' + li] = { idx: li, p, wd };
       else (styles[p] = styles[p] || []).push(li);
+      if (view.instances) {
+        if (e.crossArm) extraLs.push(`  linkStyle ${li} stroke:#dc2626`);
+        if (e.mismatch || e.relative) extraLs.push(`  linkStyle ${li} stroke-dasharray:${e.mismatch ? '6 4' : '2 3'}`);
+      }
       li++;
     });
     Object.keys(styles).forEach((k) => {
       if (k[0] === '#') { const x = styles[k]; L.push(`  linkStyle ${x.idx} stroke:${RC.TYPES[x.p].color},stroke-width:${x.wd.toFixed(1)}px`); }
       else L.push(`  linkStyle ${styles[k].join(',')} stroke:${RC.TYPES[k].color},stroke-width:1.5px`);
     });
+    L.push(...extraLs);
     Object.keys(KIND_FILL).forEach((k) => L.push(`  classDef ${k} fill:${KIND_FILL[k]},stroke:${KIND_STROKE[k]},color:#111${k === 'missing' ? ',stroke-dasharray:4 3' : ''}`));
     const focus = view.nodes.find((n) => n.focus);
     if (focus) L.push(`  style ${id.get(focus.id)} stroke-width:4px`);
@@ -76,19 +85,27 @@
       return `${ind}${id.get(n.id)} [label=${dq(lab)}, fillcolor="${KIND_FILL[n.kind]}", color="${KIND_STROKE[n.kind]}"${extra}${pw}];`;
     };
     const grouped = new Set();
-    view.groups.forEach((gr, i) => {
-      L.push(`  subgraph cluster_${i} {`, `    label=${dq(gr.label)}; style="rounded"; color="#9ca3af"; fontcolor="#374151";`);
-      gr.nodes.forEach((v) => { grouped.add(v); L.push(node(view.nodes.find((n) => n.id === v), '    ')); });
-      L.push('  }');
-    });
+    const emitG = (gr, ind) => {
+      const i = view.groups.indexOf(gr);
+      L.push(`${ind}subgraph cluster_${i} {`, `${ind}  label=${dq(gr.label)}; style="rounded"; color="#9ca3af"; fontcolor="#374151";`);
+      gr.nodes.forEach((v) => { grouped.add(v); L.push(node(view.nodes.find((n) => n.id === v), ind + '  ')); });
+      view.groups.filter((c) => c.parent != null && c.parent === gr.id).forEach((c) => emitG(c, ind + '  '));
+      L.push(ind + '}');
+    };
+    view.groups.filter((gr) => gr.parent == null).forEach((gr) => emitG(gr, '  '));
     view.nodes.forEach((n) => { if (!grouped.has(n.id)) L.push(node(n, '  ')); });
     view.edges.forEach((e) => {
       if (!id.has(e.from) || !id.has(e.to)) return;
       const p = primary(e);
       const t = edgeText(e, o, view);
-      const style = p === 'calc' ? 'bold' : p === 'branching' ? 'solid' : 'dashed';
+      let style = p === 'calc' ? 'bold' : p === 'branching' ? 'solid' : 'dashed';
+      let col = RC.TYPES[p].color;
+      if (view.instances) {
+        if (e.crossArm) col = '#dc2626';
+        if (e.mismatch) style = 'dashed'; else if (e.relative) style = 'dotted';
+      }
       const wd = widthOf(e, view);
-      L.push(`  ${id.get(e.from)} -> ${id.get(e.to)} [color="${RC.TYPES[p].color}", style=${style}${wd ? ', penwidth=' + wd.toFixed(1) : ''}${t ? ', label=' + dq(t) : ''}];`);
+      L.push(`  ${id.get(e.from)} -> ${id.get(e.to)} [color="${col}", style=${style}${wd ? ', penwidth=' + wd.toFixed(1) : ''}${t ? ', label=' + dq(t) : ''}];`);
     });
     L.push('}');
     return L.join('\n') + '\n';

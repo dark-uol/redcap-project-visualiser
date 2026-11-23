@@ -17,7 +17,7 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute
 main{flex:1;display:flex;min-height:0}
 main[hidden],.drop[hidden]{display:none}
 #side{width:270px;flex:none;background:var(--panel);border-right:1px solid var(--line);padding:12px 14px;overflow:auto;max-height:calc(100vh - 53px);position:sticky;top:0}
-#side section{margin-bottom:18px}
+#side .sec{border-bottom:1px solid var(--line);padding:7px 0}#side .sec>summary{cursor:pointer;list-style:none;display:flex;align-items:center}#side .sec>summary::-webkit-details-marker{display:none}#side .sec>summary h2{margin:0;flex:1}#side .sec>summary::after{content:"▸";color:var(--muted);font-size:11px}#side .sec[open]>summary::after{content:"▾"}#side .sec[open]>summary{margin-bottom:8px}#side{padding:8px 14px}
 #side label{display:block;margin-bottom:8px;font-size:13px}
 #side label.chk,#side .row{display:flex;gap:6px;align-items:center}
 #side select,#side input[type=number]{width:100%;margin-top:3px;padding:4px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:4px;font:inherit}
@@ -47,6 +47,7 @@ main[hidden],.drop[hidden]{display:none}
 #stage.drag{cursor:grabbing}
 #canvas{position:absolute;left:0;top:0;transform-origin:0 0}
 #canvas svg{display:block;max-width:none}
+#stage.busy #canvas{opacity:.55;transition:opacity .15s .1s}
 #canvas g.node{cursor:pointer}
 #msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;color:#555;padding:20px;z-index:2;pointer-events:none}
 #msg:empty{display:none}

@@ -34,6 +34,7 @@
   const setFocusDepth = (v) => setFocusDepthRaw(Math.min(50, Math.max(1, Math.round(Number(v)) || 1)));
   const [eventsOn, setEventsOn] = createSignal({}); // event id -> bool (absent = on)
   const [instOnly, setInstOnly] = createSignal(false); // only logic using [current/first/last/previous/next-instance]
+  const [instances, setInstances] = createSignal(false); // form level, longitudinal: one node per form per event
   const [crossOnly, setCrossOnly] = createSignal(false); // only references that name another event ([event][var])
   const [formQ, setFormQ] = createSignal('');
   const [pair, setPair] = createSignal(null);       // {from,to} form ids: show only the field links of one form->form edge
@@ -50,6 +51,8 @@
   const [depQ, setDepQ] = createSignal('');
   const [fieldQ, setFieldQ] = createSignal('');
   const [svgEl, setSvgEl] = createSignal(null);
+  const [svgView, setSvgView] = createSignal(null); // the view svgEl was rendered from (view() may already be newer)
+  const [busy, setBusy] = createSignal(false);
   const [renderMsg, setRenderMsg] = createSignal('');
   const [forcedFor, setForcedFor] = createSignal('');
 
@@ -57,14 +60,15 @@
   const viewAnchor = { capture: null, pending: null, zoomBack: new Map() };
   // ---- interactive expansion of back / forward references ----
   const exVisible = (ex) => new Set([...ex.seeds, ...ex.exp.flatMap((x) => x.added)]);
-  const curEx = () => { const e = explore(); return e && e.level === level() ? e : null; };
+  const instMode = () => instances() && level() === 'form' && !!model() && (model().parsed.events || []).length > 0;
+  const curEx = () => { const e = explore(); return e && e.level === level() && !!e.inst === instMode() ? e : null; };
   function expandRef(t, dir) {
     viewAnchor.capture && viewAnchor.capture(t);
     Solid.batch(() => {
       const ex = curEx() || { level: level(), seeds: [], exp: [] };
       const nb = RC.neighbors(model(), opts(), t, dir);
       const seeds = exVisible(ex).has(t) ? ex.seeds : [...ex.seeds, t];
-      setExplore({ level: ex.level, seeds, exp: [...ex.exp, { node: t, dir, added: nb }] });
+      setExplore({ level: ex.level, inst: instMode(), seeds, exp: [...ex.exp, { node: t, dir, added: nb }] });
       setPair(null); setFocus('');
     });
   }
@@ -81,6 +85,8 @@
     setExplore({ ...ex, exp });
   }
   createEffect(on(level, () => setExplore(null), { defer: true }));
+  // node ids differ between plain and Instances mode (form vs form@event): drop a selection that may no longer exist
+  createEffect(on(instMode, () => { const s = selected(); if (s && (s.includes('@') && !s.startsWith('@form:'))) setSelectedRaw(null); }, { defer: true }));
   function toggleExpandForm(F) {
     const on = expanded().has(F);
     viewAnchor.capture && viewAnchor.capture(F, on ? { back: true } : { zoom: true });
@@ -104,7 +110,7 @@
       eventSet: evActive ? new Set(evs.filter((e) => eo[e.id] !== false).map((e) => e.id)) : null, edgeLabels: edgeLabels(),
       hideIsolated: hideIso(), showMissing: showMissing(), types: new Set(TYPE_KEYS.filter((k) => t[k])),
       forms: on.length === formIds().length ? null : new Set(on), formsNone: on.length === 0, crossOnly: crossOnly(), instOnly: instOnly(),
-      expanded: level() === 'form' ? expanded() : null, explore: curEx() && { level: level(), set: exVisible(curEx()) }, pair: pair(), focus: focus(), focusDir: focusDir(), focusDepth: Math.max(1, +focusDepth() || 1),
+      instances: instMode(), expanded: level() === 'form' ? expanded() : null, explore: curEx() && { level: level(), inst: instMode(), set: exVisible(curEx()) }, pair: pair(), focus: focus(), focusDir: focusDir(), focusDepth: Math.max(1, +focusDepth() || 1),
     };
   });
   const view = createMemo(() => {
@@ -112,40 +118,51 @@
     const o = opts();
     return o.formsNone ? { level: o.level, nodes: [], edges: [], groups: [] } : RC.buildView(model(), o);
   });
-  const mermaidSrc = createMemo(() => (view() ? RC.toMermaid(view(), opts()) : ''));
-  const dotSrc = createMemo(() => (view() ? RC.toDot(view(), opts()) : ''));
+  // lazy: only built when read (the renderer in use, or a download), and only once per view
+  const lazySrc = (fn) => { let v0, o0, out = ''; return () => { const v = view(), o = opts(); if (v !== v0 || o !== o0) { v0 = v; o0 = o; out = v ? fn(v, o) : ''; } return out; }; };
+  const mermaidSrc = lazySrc(RC.toMermaid);
+  const dotSrc = lazySrc(RC.toDot);
+  // string memo: downstream only re-runs when the text sent to the renderer actually changes
+  const graphSrc = createMemo(() => (view() ? (renderer() === 'graphviz' ? dotSrc() : mermaidSrc()) : null));
+  const graphStatus = createMemo(() => {
+    const v = view(); if (!v) return '';
+    if (!v.nodes.length) return 'Nothing to show with the current filters.';
+    if (v.level === 'event' && !v.edges.length) return 'No cross-event references ([event][field]) with the current filters.';
+    if (v.level === 'form' && v.instances && !v.edges.length) return 'No dependencies between form instances with the current filters.';
+    if (v.level === 'form' && !v.edges.length) return 'No cross-form dependencies with the current filters.';
+    return '';
+  });
   const tooBig = createMemo(() => view() && view().edges.length > MAX_AUTO_EDGES && forcedFor() !== dotSrc());
   const formLabel = (id) => { const f = model().formsById.get(id); return f ? f.label : id; };
 
   // ================= graph rendering =================
-  let token = 0;
+  let token = 0, mermaidReady = false;
   createEffect(async () => {
-    const v = view(), r = renderer(), big = tooBig(), dot = dotSrc(), mm = mermaidSrc();
-    if (!v) return;
-    const my = ++token;
-    setSvgEl(null);
-    if (!v.nodes.length) { setRenderMsg('Nothing to show with the current filters.'); return; }
-    if (v.level === 'event' && !v.edges.length) { setRenderMsg('No cross-event references ([event][field]) with the current filters.'); return; }
-    if (v.level === 'form' && !v.edges.length) { setRenderMsg('No cross-form dependencies with the current filters.'); return; }
-    if (big) { setRenderMsg(''); return; }
-    setRenderMsg('Rendering…');
+    const src = graphSrc(), r = renderer(), big = tooBig(), status = graphStatus();
+    if (src == null) return;
+    const my = ++token, v = Solid.untrack(view); // v = the view this SVG is drawn from
+    const clear = (msg) => Solid.batch(() => { setBusy(false); setSvgEl(null); setSvgView(null); setRenderMsg(msg); });
+    if (status) { clear(status); return; }
+    if (big) { clear(''); return; }
+    setRenderMsg(Solid.untrack(svgEl) ? '' : 'Rendering…');
+    setBusy(true); // keep the previous SVG on screen (dimmed) until the new one is ready
     try {
       let svg;
       if (r === 'graphviz') {
         await RC.loadLib('viz');
         const viz = await Viz.instance();
-        svg = viz.renderSVGElement(dot);
+        svg = viz.renderSVGElement(src);
       } else {
         await RC.loadLib('mermaid');
-        mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', maxTextSize: 5e6, maxEdges: 20000, flowchart: { htmlLabels: false, useMaxWidth: false }, theme: 'default' });
-        const out = await mermaid.render('mmd' + my, mm);
+        if (!mermaidReady) { mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', maxTextSize: 5e6, maxEdges: 20000, flowchart: { htmlLabels: false, useMaxWidth: false }, theme: 'default' }); mermaidReady = true; }
+        const out = await mermaid.render('mmd' + my, src);
         const d = document.createElement('div'); d.innerHTML = out.svg; svg = d.querySelector('svg');
       }
       if (my !== token) return;
-      setRenderMsg(''); setSvgEl(svg);
+      Solid.batch(() => { setRenderMsg(''); setBusy(false); setSvgView(v); setSvgEl(svg); });
     } catch (e) {
       if (my !== token) return;
-      setRenderMsg('Could not render graph: ' + e.message + ' (check network or the vendor/ folder). The Mermaid and DOT downloads still work.');
+      clear('Could not render graph: ' + e.message + ' (check network or the vendor/ folder). The Mermaid and DOT downloads still work.');
     }
   });
 
@@ -189,7 +206,7 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
-  const suffix = () => (level() === 'form' ? '_forms' : level() === 'event' ? '_events' : '_fields');
+  const suffix = () => (level() === 'form' ? (instMode() ? '_instances' : '_forms') : level() === 'event' ? '_events' : '_fields');
   const dlMermaid = () => download(fileBase() + suffix() + '.mmd', mermaidSrc());
   const dlDot = () => download(fileBase() + suffix() + '.dot', dotSrc());
   const dlCsv = () => download(fileBase() + '_dependencies.csv', RC.toCsv(model(), model().edges.filter((e) => opts().types.has(e.type))), 'text/csv;charset=utf-8');
@@ -224,39 +241,43 @@
       else e.target.value = focus();
     };
     return html`<aside id="side">
-      <section>
-        <h2>View</h2>
+      <details class="sec" open>
+        <summary><h2>View</h2></summary>
         <label>Level ${Select(level, setLevel, [['field', 'Fields'], ['form', 'Forms (aggregated)'], ['event', 'Events (cross-event links)']])}</label>
         <label>Renderer ${Select(renderer, setRenderer, [['graphviz', 'Graphviz'], ['mermaid', 'Mermaid']])}</label>
         <label>Direction ${Select(dir, setDir, [['LR', 'Left → right'], ['TD', 'Top → down']])}</label>
         <label>Node text ${Select(labelMode, setLabelMode, [['var', 'Variable name'], ['label', 'Name + field label']])}</label>
         <label>Group fields by ${Select(groupBy, setGroupBy, [['form', 'Form'], ['event', 'Event (longitudinal)'], ['arm', 'Arm (longitudinal)'], ['none', 'No grouping']])}</label>
+        <${Show} when=${() => level() === 'form' && (model().parsed.events || []).length > 0}>
+          ${Check(instances, setInstances, 'Instances (one node per form per event)')}
+          <${Show} when=${instances}><p class="muted small" style="margin:0 0 6px">A form collected in several events gets one node per event, banded by event (or by arm via Group by). Select a node to expand its back / forward references or zoom into its fields.</p><//>
+        <//>
         ${Check(edgeLabels, setEdgeLabels, 'Edge labels')}
         ${Check(hideIso, setHideIso, 'Hide fields with no dependencies')}
         ${Check(showMissing, setShowMissing, 'Show undefined references')}
-      </section>
-      <section>
-        <h2>Dependency types</h2>
+      </details>
+      <details class="sec">
+        <summary><h2>Dependency types</h2></summary>
         <${For} each=${() => Object.entries(RC.TYPES)}>${([k, t]) => html`
           <label class="typerow"><input type="checkbox" checked=${() => typesOn()[k]} onChange=${(e) => setTypesOn({ ...typesOn(), [k]: e.target.checked })}>
             <span class="sw" style=${`border-color:${t.color};border-top-style:${k === 'branching' ? 'solid' : k === 'calc' ? 'double' : 'dashed'}`}></span>${t.label}</label>`}<//>
-      </section>
+      </details>
       <${Show} when=${() => curEx()}>
-        <section>
-          <h2>Exploring</h2>
+        <details class="sec" open>
+        <summary><h2>Exploring</h2></summary>
           <p class="small" style="margin:0 0 6px">${() => exVisible(curEx()).size} nodes shown. Select a node and use <b>Expand / Collapse</b> in its panel.</p>
           <button class="btn sm" onClick=${() => setExplore(null)}>✕ Exit exploring</button>
-        </section>
+        </details>
       <//>
       <${Show} when=${pair}>
-        <section>
-          <h2>Form link focus</h2>
+        <details class="sec" open>
+        <summary><h2>Form link focus</h2></summary>
           <p class="small" style="margin:0 0 6px">Showing only the fields linking <b>${() => (pair() ? formLabel(pair().from) : '')}</b> → <b>${() => (pair() ? formLabel(pair().to) : '')}</b></p>
           <button class="btn sm" onClick=${() => setPair(null)}>✕ Clear</button>
-        </section>
+        </details>
       <//>
-      <section>
-        <h2>Focus on a field</h2>
+      <details class="sec">
+        <summary><h2>Focus on a field</h2></summary>
         <label>Field (search)
           <span class="row2"><input type="search" list="fieldlist" placeholder="Type to search fields…" autocomplete="off" value=${focus} onChange=${pickField}>
             <button class="btn sm" title="Clear focus" onClick=${() => setFocus('')}>✕</button></span>
@@ -268,10 +289,10 @@
             <input type="number" inputmode="numeric" min="1" max="50" step="1" value=${focusDepth} onChange=${(e) => { setFocusDepth(e.target.value); e.target.value = focusDepth(); }}>
             <button class="btn sm" onClick=${() => setFocusDepth(focusDepth() + 1)}>+</button></span></label>
         <p class="muted small">Choosing a field switches to the field-level view. Tip: click a node to see its logic code.</p>
-      </section>
+      </details>
       <${Show} when=${() => (model().parsed.events || []).length}>
-        <section>
-          <h2>Events &amp; arms <button class="link" onClick=${() => setEvents(true)}>all</button> <button class="link" onClick=${() => setEvents(false)}>none</button></h2>
+        <details class="sec">
+        <summary><h2>Events &amp; arms <button class="link" onClick=${(e) => { e.preventDefault(); e.stopPropagation(); setEvents(true); }}>all</button> <button class="link" onClick=${(e) => { e.preventDefault(); e.stopPropagation(); setEvents(false); }}>none</button></h2></summary>
           ${Check(crossOnly, setCrossOnly, 'Only cross-event references')}
           ${Check(instOnly, setInstOnly, 'Only repeating-instance logic')}
           <div id="events">
@@ -285,16 +306,16 @@
               </div>`}<//>
           </div>
           <p class="muted small">Keeps forms collected in the ticked events (↻ = repeating). Combines with the Forms list.</p>
-        </section>
+        </details>
       <//>
-      <section>
-        <h2>Forms <button class="link" onClick=${() => setForms(true)}>all</button> <button class="link" onClick=${() => setForms(false)}>none</button></h2>
+      <details class="sec">
+        <summary><h2>Forms <button class="link" onClick=${(e) => { e.preventDefault(); e.stopPropagation(); setForms(true); }}>all</button> <button class="link" onClick=${(e) => { e.preventDefault(); e.stopPropagation(); setForms(false); }}>none</button></h2></summary>
         <input type="search" class="formsearch" placeholder="Search forms…" value=${formQ} onInput=${(e) => setFormQ(e.target.value)}>
         <div id="forms">
           <${For} each=${shownForms}>${(f) => html`
             <label class="chk"><input type="checkbox" checked=${() => formsOn()[f.id] !== false} onChange=${(e) => setFormsOn({ ...formsOn(), [f.id]: e.target.checked })}> ${f.label} <span class="muted small">(${f.fields.length})</span></label>`}<//>
         </div>
-      </section>
+      </details>
     </aside>`;
   }
 
@@ -317,7 +338,7 @@
     };
     // ---- keep zoom and the acted-on node in place across expand/collapse ----
     const elFor = (t) => {
-      const s = svgEl(), v = view(); if (!s || !v) return null;
+      const s = svgEl(), v = svgView(); if (!s || !v) return null;
       if (t.startsWith('@form:')) {
         const gi = v.groups.findIndex((g) => g.id === t.slice(6)); if (gi < 0) return null;
         return [...s.querySelectorAll('g.cluster')].find((c) => { const ti = c.querySelector('title'); return ti && ti.textContent === 'cluster_' + gi; }) || null;
@@ -385,7 +406,7 @@
     const applyHl = () => {
       const s = svgEl(); if (!s) return;
       let key = hover;
-      if (!key && selected() && view()) { const i = view().nodes.findIndex((n) => n.id === selected()); if (i >= 0) key = 'n' + i; }
+      if (!key && selected() && svgView()) { const sn = svgView().nodes; let i = sn.findIndex((n) => n.id === selected()); if (i < 0) i = sn.findIndex((n) => n.field && n.field === selected()); if (i >= 0) key = 'n' + i; }
       const nodes = s.querySelectorAll('g.node'), edges = s.querySelectorAll('g.edge, path.flowchart-link');
       if (!key || nodes.length > 2500) { s.classList.remove('hl'); nodes.forEach((n) => n.classList.remove('on')); edges.forEach((n) => n.classList.remove('on')); return; }
       const keep = new Set([key]);
@@ -397,10 +418,10 @@
       nodes.forEach((n) => n.classList.toggle('on', keep.has(nodeKey(n))));
       s.classList.add('hl');
     };
-    createEffect(() => { svgEl(); selected(); applyHl(); });
+    createEffect(() => { svgEl(); selected(); applyHl(); }); // applyHl reads svgView (set with svgEl), not view()
     // widen the clickable area of form-level edges (thin lines are hard to hit)
     createEffect(() => {
-      const s = svgEl(); if (!s || !view() || view().level !== 'form') return;
+      const s = svgEl(), sv = svgView(); if (!s || !sv || sv.level !== 'form') return;
       s.querySelectorAll('g.edge').forEach((g) => {
         const p = g.querySelector('path'); if (!p) return;
         const h = p.cloneNode(); h.removeAttribute('marker-end'); h.setAttribute('stroke', 'transparent'); h.setAttribute('stroke-width', '14'); h.setAttribute('fill', 'none'); h.style.pointerEvents = 'stroke'; h.style.cursor = 'pointer';
@@ -408,6 +429,7 @@
       });
     });
 
+    createEffect(() => { stage.classList.toggle('busy', busy()); });
     // refit only when returning to the tab; opening the detail panel must not change the view
     createEffect(on(tab, () => requestAnimationFrame(fit), { defer: true }));
 
@@ -427,20 +449,21 @@
       stage.addEventListener('click', (e) => {
         if (moved > 4) return;
         const eg = e.target.closest && e.target.closest('g.edge, path.flowchart-link');
-        if (eg && view().level === 'form') {
+        const sv = svgView(); if (!sv) return;
+        if (eg && sv.level === 'form') {
           const k = edgeKey(eg);
-          const a = k && view().nodes[+k[0].slice(1)], b = k && view().nodes[+k[1].slice(1)];
-          const isForm = (n) => n && n.kind !== 'field' && n.kind !== 'calc' && n.kind !== 'status' && (model().formsById.has(n.id) || n.id === '(unknown)');
-          if (isForm(a) && isForm(b)) { Solid.batch(() => { setSelectedRaw(null); setSelEdge({ from: a.id, to: b.id }); }); return; }
+          const a = k && sv.nodes[+k[0].slice(1)], b = k && sv.nodes[+k[1].slice(1)];
+          const isForm = (n) => n && n.kind !== 'field' && n.kind !== 'calc' && n.kind !== 'status' && (model().formsById.has(n.form || n.id) || n.id === '(unknown)');
+          if (isForm(a) && isForm(b)) { Solid.batch(() => { setSelectedRaw(null); setSelEdge({ from: a.form || a.id, to: b.form || b.id }); }); return; }
         }
         const node = e.target.closest && e.target.closest('g.node');
         if (!node) {
           const cl = e.target.closest && e.target.closest('g.cluster');
-          if (cl && (view().level === 'field' || view().mixed)) {
+          if (cl && (sv.level === 'field' || sv.mixed)) {
             const t = cl.querySelector('title');
             const m = (t && /^cluster_(\d+)$/.exec(t.textContent)) || /(?:^|[-_])g(\d+)$/.exec(cl.id || '');
-            const gr = m && view().groups[+m[1]];
-            if (gr && !gr.noSelect) setSelected(view().mixed ? gr.id : '@form:' + gr.id);
+            const gr = m && sv.groups[+m[1]];
+            if (gr && !gr.noSelect) setSelected(sv.mixed ? gr.id : '@form:' + gr.id);
           } else if (!(e.target.closest && e.target.closest('g.edge, path.flowchart-link, .edgeLabel'))) {
             // click on the empty diagram background: close the detail pane
             Solid.batch(() => { setSelected(null); setSelEdge(null); });
@@ -451,8 +474,8 @@
         const t = node.querySelector('title');
         if (t && /^n\d+$/.test(t.textContent)) id = t.textContent;
         else { const m = /-(n\d+)-/.exec(node.id || ''); if (m) id = m[1]; }
-        const n = id && view().nodes[+id.slice(1)];
-        if (n) setSelected(n.id);
+        const n = id && sv.nodes[+id.slice(1)];
+        if (n) setSelected(n.id); // full node id (variable@@instance) so the right copy is highlighted
       });
     });
 
@@ -505,6 +528,7 @@
 
   function ExploreButtons(id) {
     const m = model();
+    if (instMode()) return InstanceExploreButtons(id);
     // at form level the target is the form owning the selected node
     const isGroup = id.startsWith('@form:');
     const t = level() === 'form' ? (m.formsById.has(id) || id === '(unknown)' ? id : (RC.nodeInfo(m, id) || {}).form) : id;
@@ -524,6 +548,27 @@
       ${level() === 'form' && t !== id ? html`<div class="muted small" style="width:100%">applies to its form: ${formLabel(t)}</div>` : ''}
     </div>`;
   }
+  // Instances mode: the explore target is an instance node (form@event); a plain field or form id resolves to its only instance
+  function InstanceExploreButtons(id) {
+    const m = model(), v = view();
+    const all = v ? [...v.nodes, ...(v.expandedNodes || [])].filter((n) => !n.field) : [];
+    let t = all.some((n) => n.id === id) ? id : null;
+    if (!t) {
+      const fid = id.startsWith('@form:') ? id.slice(6) : (RC.nodeInfo(m, id) || {}).form;
+      const c = all.filter((n) => n.form === fid);
+      if (c.length === 1) t = c[0].id;
+      else return html`<div class="muted small" style="margin:6px 0">${c.length ? 'Select one of this form\'s instance nodes to expand its references.' : ''}</div>`;
+    }
+    const ex = curEx(), vis = ex ? exVisible(ex) : new Set();
+    const btn = (dir, label, tip) => {
+      const nb = RC.neighbors(m, opts(), t, dir);
+      const open = !!(ex && ex.exp.some((x) => x.node === t && x.dir === dir));
+      const fresh = nb.filter((x) => !vis.has(x)).length;
+      return html`<button class="btn sm" title=${tip} disabled=${!nb.length && !open} onClick=${() => (open ? collapseRef(t, dir) : expandRef(t, dir))}>${open ? 'Collapse ' : 'Expand '}${label} (${open ? nb.length : fresh})</button>`;
+    };
+    return html`<div class="exrow">${btn('up', '◀ back refs', 'Add the instances this one depends on')}${btn('down', 'forward refs ▶', 'Add the instances that depend on this one')}
+      ${t !== id ? html`<div class="muted small" style="width:100%">applies to the instance node ${t}</div>` : ''}</div>`;
+  }
   // a form box (cluster) clicked in the field-level graph
   function groupDetail(fid) {
     const m = model(), fm = m.formsById.get(fid), o = opts();
@@ -537,9 +582,13 @@
       ${ExploreButtons('@form:' + fid)}
       <p class="muted small">Focus shows this form's linked fields only; then expand back / forward references from the whole form. Select any node to expand it individually.</p></div>`;
   }
-  function detailContent(id) {
+  function detailContent(id, inst) {
+    // an expanded field node of the Instances view is `variable@@instanceId`: show the field, explore its instance
+    const at = !inst ? id.indexOf('@@') : -1;
+    if (at > 0) return detailContent(id.slice(0, at), id.slice(at + 2));
     if (id.startsWith('@form:')) return groupDetail(id.slice(6));
     const m = model(), A = m.analysis, info = RC.nodeInfo(m, id);
+    if (!info && instMode()) { const d = instanceDetail(id); if (d) return d; }
     if (!info) { // form-level node
       if (id === '(unknown)') return html`<div><h3>Undefined fields</h3><div class="muted small">fields referenced by logic but not defined in the project</div>${ExploreButtons(id)}</div>`;
       const ev = (m.parsed.events || []).find((x) => x.id === id);
@@ -547,27 +596,48 @@
       const fm = m.formsById.get(id); if (!fm) return '';
       const cross = m.edges.filter((e) => !e.missing && (RC.nodeInfo(m, e.from).form === id) !== (RC.nodeInfo(m, e.to).form === id));
       return html`<div><h3>${fm.label}</h3><div class="muted small">form <code>${fm.id}</code> · ${fm.fields.length} fields</div>
-        <p style="margin:8px 0"><button class="btn sm primary" onClick=${() => toggleExpandForm(id)}>${expanded().has(id) ? 'Collapse back to form' : 'Zoom into fields'}</button></p>
+        ${instMode() ? '' : html`<p style="margin:8px 0"><button class="btn sm primary" onClick=${() => toggleExpandForm(id)}>${expanded().has(id) ? 'Collapse back to form' : 'Zoom into fields'}</button></p>`}
         ${ExploreButtons(id)}
         <h4>Cross-form dependencies (${cross.length})</h4>
         ${cross.length ? cross.map((e) => html`<div class="small" style="margin-bottom:6px">
           <button class="fieldlink" onClick=${() => setSelected(e.from)}>${e.from}</button> → <button class="fieldlink" onClick=${() => setSelected(e.to)}>${e.to}</button> ${tagOf(e.type)}<pre>${e.expr}</pre></div>`) : html`<span class="muted small">none</span>`}</div>`;
     }
-    if (info.formNode) return html`<div><h3>Form: ${info.label}</h3><div class="muted small">form display logic target</div>${ExploreButtons(id)}${info.logic.map((l) => CodeBlock('Display condition', l, true))}</div>`;
-    if (info.ghost) return html`<div><h3>${id}</h3><div class="muted small">Referenced but not defined in this project</div>${ExploreButtons(id)}<h4>Used by</h4>${Chips(A.out.get(id).map((e) => ({ id: e.to, t: e.type })))}</div>`;
+    if (info.formNode) return html`<div><h3>Form: ${info.label}</h3><div class="muted small">form display logic target</div>${ExploreButtons(inst || id)}${info.logic.map((l) => CodeBlock('Display condition', l, true))}</div>`;
+    if (info.ghost) return html`<div><h3>${id}</h3><div class="muted small">Referenced but not defined in this project</div>${ExploreButtons(inst || id)}<h4>Used by</h4>${Chips(A.out.get(id).map((e) => ({ id: e.to, t: e.type })))}</div>`;
     const f = info;
     const up = A.inn.get(id).map((e) => ({ id: e.from, t: e.type })), down = A.out.get(id).map((e) => ({ id: e.to, t: e.type }));
     return html`<div>
       <h3>${f.variable}</h3>
       <div class="muted small">${f.type} · form <b>${formLabel(f.form)}</b>${f.required ? ' · required' : ''}</div>
       ${f.label ? html`<p style="margin:6px 0">${f.label}</p>` : ''}
-      ${ExploreButtons(id)}
+      ${ExploreButtons(inst || id)}
       <p style="margin:6px 0"><button class="btn sm" onClick=${() => { Solid.batch(() => { setLevel('field'); setExplore(null); setFocus(id); }); }}>Focus graph on this field</button></p>
       ${CodeBlock('Branching logic', f.branching, true)}${CodeBlock('Calculation', f.calc, true)}${CodeBlock('Action tags / annotation', f.annotation, true)}
       ${CodeBlock('Section header (piping)', f.section)}${CodeBlock('Field note (piping)', f.note)}
       ${!f.branching && !f.calc && !f.annotation ? html`<p class="muted small">No logic code on this field.</p>` : ''}
       ${f.choices.length ? html`<div><h4>Choices</h4><pre>${f.choices.map((c) => c.code + ', ' + c.label).join('\n')}</pre></div>` : ''}
       <h4>Depends on (${up.length})</h4>${Chips(up)}<h4>Used by (${down.length})</h4>${Chips(down)}</div>`;
+  }
+  // a node of the Instances view: form@event (or a plain form id when the form is in one event)
+  function instanceDetail(id) {
+    const v = view(), m = model(); if (!v || !v.instances) return '';
+    const nodes = [...(v.nodes || []), ...(v.expandedNodes || [])].filter((x) => !x.field), n = nodes.find((x) => x.id === id);
+    if (!n || !n.form) return '';
+    const fm = m.formsById.get(n.form), evs = m.parsed.events || [];
+    const evLabel = (eid) => { const e = evs.find((x) => x.id === eid); return e ? e.label : eid || ''; };
+    const nlabel = (nid) => { const x = nodes.find((y) => y.id === nid); return x ? (fm0(x) + (x.event ? ' @ ' + evLabel(x.event) : '')) : nid; };
+    const fm0 = (x) => { const f = m.formsById.get(x.form); return f ? f.label : x.form || x.id; };
+    const others = nodes.filter((x) => x.form === n.form && x.id !== n.id);
+    const ie = v.instEdges || v.edges || [], inn = ie.filter((e) => e.to === id && e.from !== id), out = ie.filter((e) => e.from === id && e.to !== id);
+    const flags = (e) => ['cross', 'mismatch', 'relative', 'crossArm'].filter((k) => e[k]).map((k) => html`<span class="tag" style="background:#6b7280">${k === 'crossArm' ? 'cross-arm' : k}</span> `);
+    const row = (e, other) => html`<div class="small" style="margin-bottom:4px"><button class="fieldlink" onClick=${() => setSelected(other)}>${nlabel(other)}</button> ${flags(e)}</div>`;
+    return html`<div><h3>${fm ? fm.label : n.form}${n.event ? ' @ ' + evLabel(n.event) : ''}</h3>
+      <div class="muted small">form <code>${n.form}</code>${n.event ? html` · event <code>${n.event}</code>` : ''}${fm ? ' · ' + fm.fields.length + ' fields' : ''}</div>
+      <p style="margin:8px 0"><button class="btn sm primary" onClick=${() => toggleExpandForm(id)}>${expanded().has(id) ? 'Collapse back to form' : 'Zoom into fields'}</button></p>
+      ${ExploreButtons(id)}
+      ${others.length ? html`<h4>Also collected in (${others.length})</h4><div class="chips">${others.map((x) => html`<button class="chip" onClick=${() => setSelected(x.id)}>${evLabel(x.event)}</button>`)}</div>` : ''}
+      <h4>Incoming from other instances (${inn.length})</h4>${inn.length ? inn.map((e) => row(e, e.from)) : html`<span class="muted small">none</span>`}
+      <h4>Outgoing to other instances (${out.length})</h4>${out.length ? out.map((e) => row(e, e.to)) : html`<span class="muted small">none</span>`}</div>`;
   }
   // an event box clicked in the event-level graph
   function eventDetail(ev) {
@@ -675,8 +745,8 @@
       const v = view(), m = model();
       const formIdx = new Map(m.parsed.forms.map((f, i) => [f.id, i]));
       // "Group fields by" event / arm re-bands the matrix by that group instead of by form
-      const gs = v.level === 'field' && (groupBy() === 'event' || groupBy() === 'arm') ? v.groups : [];
-      const gOf = new Map(); gs.forEach((g, gi) => g.nodes.forEach((id) => gOf.set(id, { gi, g })));
+      const gs = (v.level === 'field' && (groupBy() === 'event' || groupBy() === 'arm')) || v.instances ? (v.groups || []) : [];
+      const gOf = new Map(); gs.forEach((g, gi) => (g.nodes || []).forEach((id) => gOf.set(id, { gi, g })));
       const nodes = v.nodes.map((n, i) => { const o = gOf.get(n.id); return o ? { ...n, i, form: o.g.id, gLabel: o.g.label, gi: o.gi } : { ...n, i, gi: 999 }; })
         .sort((a, b) => (gs.length ? a.gi - b.gi : (formIdx.get(a.form) ?? 999) - (formIdx.get(b.form) ?? 999)) || a.i - b.i);
       const pos = new Map(nodes.map((n, k) => [n.id, k]));
@@ -744,7 +814,8 @@
       if ((nh && (!hov || hov.r !== nh.r || hov.c !== nh.c)) || (!nh && hov)) { hov = nh; draw(); }
       if (nh) {
         const ed = cells.get(nh.r * N + nh.c);
-        setTip({ x: e.clientX + 14, y: e.clientY + 14, row: nodes[nh.r].id, col: nodes[nh.c].id, e: ed });
+        const nm = (n) => (n.field ? n.field + ' @ ' + (n.event || n.form) : n.id);
+        setTip({ x: e.clientX + 14, y: e.clientY + 14, row: nm(nodes[nh.r]), col: nm(nodes[nh.c]), e: ed });
       } else setTip(null);
     };
     const onClick = (e) => {
@@ -755,7 +826,7 @@
     };
     return html`<div>
       <div class="mxnote small"><label>Cell size <input type="range" min="1" max=${() => Math.min(20, Math.max(1, Math.floor(MAXPX / Math.max(1, data().N))))} value=${() => data().cell} onInput=${(e) => setMxCell(+e.target.value)} style="vertical-align:middle;width:160px"></label>
-        <span class="muted">${() => data().cell}px · ${() => data().N} fields</span> <button class="link" onClick=${() => setMxCell(0)}>auto</button>
+        <span class="muted">${() => data().cell}px · ${() => data().N} ${() => (view() && view().level === 'field' ? 'fields' : 'nodes')}</span> <button class="link" onClick=${() => setMxCell(0)}>auto</button>
         <span class="muted"> — labels appear at 9px or more; at small sizes hover for names.</span></div>
       <p class="muted small mxnote">Each <b>row</b> depends on the <b>columns</b> where it has a coloured cell (reads: row ← column). Colour = dependency type; a <span style="color:#dc2626;font-weight:600">red outline</span> means the pair depend on each other (circular). Fields are grouped by form (alternating bands), or by event / arm when chosen under Group fields by. Uses the same filters as the graph.</p>
       <${Show} when=${() => data().N > MAXN} fallback=${html`<div class="mxwrap">

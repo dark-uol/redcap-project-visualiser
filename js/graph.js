@@ -149,19 +149,27 @@
     return { degree, isolated, hubs, heavy, cycles, maxChain, missing, crossForm, forward, out, inn };
   }
 
-  /** Build the view (nodes/edges/groups) that the exporters and renderers consume. */
-  function buildView(model, o) {
-    const A = model.analysis;
+  /** Model edges that pass the type / missing / cross-event / instance-logic filters. */
+  function baseEdges(model, o) {
     let edges = model.edges.filter((e) => o.types.has(e.type) && (o.showMissing || !e.missing));
     if (o.crossOnly) edges = edges.filter((e) => e.events && e.events.length);
     if (o.instOnly) edges = edges.filter((e) => (e.smart || []).some((x) => /-instance$/.test(x)));
+    return edges;
+  }
+
+  /** Build the view (nodes/edges/groups) that the exporters and renderers consume. */
+  function buildView(model, o) {
+    const A = model.analysis;
+    let edges = baseEdges(model, o);
     const formOf = (v) => nodeInfo(model, v).form;
     if (o.level === 'event') return eventView(model, edges, o, formOf);
-    const ex = o.explore && o.explore.level === o.level ? o.explore.set : null; // interactively expanded node set
+    const instMode = !!o.instances && o.level === 'form' && (model.parsed.events || []).length > 0;
+    const ex = !instMode && o.explore && o.explore.level === o.level && !o.explore.inst ? o.explore.set : null; // interactively expanded node set
+    const exI = instMode && o.explore && o.explore.level === 'form' && o.explore.inst ? o.explore.set : null; // same, as instance node ids
     const pair = !ex && o.level === 'field' ? o.pair : null; // edges of one form -> form link (from form-level click)
     if (ex) edges = edges.filter((e) => ex.has(o.level === 'form' ? formOf(e.from) : e.from) && ex.has(o.level === 'form' ? formOf(e.to) : e.to));
     else if (pair) edges = edges.filter((e) => formOf(e.from) === pair.from && formOf(e.to) === pair.to);
-    else if (o.forms && o.forms.size) edges = edges.filter((e) => o.forms.has(formOf(e.from)) && o.forms.has(formOf(e.to)));
+    else if (!exI && o.forms && o.forms.size) edges = edges.filter((e) => o.forms.has(formOf(e.from)) && o.forms.has(formOf(e.to)));
 
     // focus (field level only)
     let focusSet = null;
@@ -183,6 +191,7 @@
       edges = edges.filter((e) => focusSet.has(e.from) && focusSet.has(e.to));
     }
 
+    if (instMode) return instancesView(model, edges, o, formOf, exI);
     if (o.level === 'form') return formView(model, edges, o);
 
     const merged = new Map();
@@ -264,6 +273,153 @@
     return { level: 'event', nodes, edges: vedges, groups: [] };
   }
 
+  /**
+   * Instance context shared by the Instances view and its neighbours: which shown events host each form, and
+   * `pairs(e)` = the (source instance, target instance) pairs one model edge draws. Edges follow the event
+   * qualifier ([event][var]) when present, otherwise stay within the same event.
+   */
+  function instanceCtx(model, o, formOf) {
+    const allEvents = model.parsed.events || [];
+    const events = allEvents.filter((e) => !o.eventSet || o.eventSet.has(e.id));
+    const hostsOf = new Map(); // form -> shown events collecting it
+    events.forEach((ev) => ev.forms.forEach((f) => { if (!hostsOf.has(f)) hostsOf.set(f, []); if (!hostsOf.get(f).includes(ev)) hostsOf.get(f).push(ev); }));
+    const idOf = (form, ev) => ((hostsOf.get(form) || []).length >= 2 ? form + '@' + ev.id : form);
+    const insts = (form) => (hostsOf.get(form) || []).map((ev) => ({ id: idOf(form, ev), ev }));
+    const pairs = (e) => {
+      const fa = formOf(e.from), fb = formOf(e.to), res = [];
+      const qualified = !!(e.events && e.events.length);
+      const tgts = insts(fb), srcsAll = insts(fa);
+      if (qualified) {
+        // only the named event's instance of the source form; a hidden event or one not collecting the form draws nothing
+        let srcs = [];
+        e.events.forEach((evId) => srcs.push(...srcsAll.filter((i) => i.ev.id === evId)));
+        srcs = srcs.filter((s, i) => srcs.findIndex((x) => x.id === s.id) === i);
+        if (!srcs.length) {
+          if (srcsAll.length) return res;
+          srcs = [{ id: fa, ev: null }]; // source form is in no shown event: keep its plain node
+        }
+        const ts = tgts.length ? tgts : [{ id: fb, ev: null }];
+        srcs.forEach((s) => ts.forEach((t) => res.push({ s, t, cross: true })));
+      } else {
+        const shared = srcsAll.filter((s) => tgts.some((t) => t.ev === s.ev));
+        if (shared.length) shared.forEach((s) => res.push({ s, t: tgts.find((t) => t.ev === s.ev) }));
+        else {
+          const ss = srcsAll.length ? srcsAll : [{ id: fa, ev: null }], ts = tgts.length ? tgts : [{ id: fb, ev: null }];
+          ss.forEach((s) => ts.forEach((t) => res.push({ s, t, mismatch: true })));
+        }
+      }
+      return res;
+    };
+    return { events, hostsOf, idOf, pairs };
+  }
+
+  /**
+   * Form-level "Instances" view: a form collected in several shown events becomes one node per (form, event).
+   * `ex` (explore set of instance ids) restricts the nodes; o.expanded instances open into their linked fields.
+   */
+  function instancesView(model, edges, o, formOf, ex) {
+    const { hostsOf, idOf, pairs } = instanceCtx(model, o, formOf);
+    const xp = o.expanded && o.expanded.size ? o.expanded : null;
+    const fid = (v, inst) => v + '@@' + inst;
+    const relRe = /^(previous|next)-/;
+    const merged = new Map(), imerged = new Map(), usedF = new Map(); // usedF: expanded instance id -> Set(variables)
+    const link = (map, e, a, b, src, tgt, p, fieldLevel) => {
+      const k = a + '\u0000' + b;
+      if (!map.has(k)) map.set(k, { from: a, to: b, types: [], count: 0, byType: {}, deps: new Set(), typeDeps: {} });
+      const m = map.get(k);
+      if (fieldLevel) m.fieldLevel = true;
+      m.deps.add(e.to); (m.typeDeps[e.type] = m.typeDeps[e.type] || new Set()).add(e.to);
+      if (!m.types.includes(e.type)) m.types.push(e.type);
+      if (p.cross) m.cross = true;
+      if (p.mismatch) m.mismatch = true;
+      if ((e.smart || []).some((x) => relRe.test(x))) m.relative = true;
+      if (src.ev && tgt.ev && src.ev.arm !== tgt.ev.arm) m.crossArm = true;
+    };
+    edges.forEach((e) => {
+      const fa = formOf(e.from), fb = formOf(e.to);
+      if (!ex && o.forms && o.forms.size && !(o.forms.has(fa) && o.forms.has(fb))) return;
+      pairs(e).forEach((p) => {
+        const s = p.s, t = p.t;
+        if (ex && !(ex.has(s.id) && ex.has(t.id))) return;
+        if (s.id === t.id) { // inside one instance: only drawn between fields of an expanded instance
+          if (!(xp && xp.has(s.id))) return;
+        }
+        const sx = xp && xp.has(s.id), tx = xp && xp.has(t.id);
+        const a = sx ? fid(e.from, s.id) : s.id, b = tx ? fid(e.to, t.id) : t.id;
+        if (a === b) return;
+        if (sx) { if (!usedF.has(s.id)) usedF.set(s.id, new Set()); usedF.get(s.id).add(e.from); }
+        if (tx) { if (!usedF.has(t.id)) usedF.set(t.id, new Set()); usedF.get(t.id).add(e.to); }
+        link(merged, e, a, b, s, t, p, sx && tx);
+        if (s.id !== t.id) link(imerged, e, s.id, t.id, s, t, p, false);
+      });
+    });
+    const fin = (m) => { m.count = m.deps.size; Object.keys(m.typeDeps).forEach((t) => { m.byType[t] = m.typeDeps[t].size; }); };
+    const vedges = [...merged.values()]; vedges.forEach(fin);
+    const iedges = [...imerged.values()]; iedges.forEach(fin);
+    const used = new Set(); iedges.forEach((e) => { used.add(e.from); used.add(e.to); });
+    usedF.forEach((_, id) => used.add(id));
+    const nodes = [], evOfNode = new Map();
+    model.parsed.forms.forEach((f) => {
+      if (!ex && o.forms && o.forms.size && !o.forms.has(f.id)) return;
+      const hs = hostsOf.get(f.id) || [];
+      const list = hs.length ? hs : [null];
+      list.forEach((ev) => {
+        const id = ev ? idOf(f.id, ev) : f.id;
+        if (ex ? !ex.has(id) : (o.hideIsolated && !used.has(id))) return;
+        const sub = ev ? ev.label + (ev.repeating ? ' ↻' : '') + (o.groupBy === 'arm' && ev.arm ? ' (arm ' + ev.arm + ')' : '') : f.fields.length + ' fields';
+        nodes.push({ id, label: f.label, sub, form: f.id, event: ev ? ev.id : null, kind: 'form' });
+        evOfNode.set(id, ev);
+      });
+    });
+    if (used.has(UNKNOWN_FORM) || (ex && ex.has(UNKNOWN_FORM))) {
+      const names = [...new Set(edges.filter((e) => formOf(e.from) === UNKNOWN_FORM).map((e) => e.from))];
+      const extra = names.slice(0, 6).map((n) => '[' + n + ']');
+      if (names.length > 6) extra.push('+' + (names.length - 6) + ' more');
+      nodes.push({ id: UNKNOWN_FORM, label: 'Undefined fields', sub: '', extra, form: UNKNOWN_FORM, event: null, kind: 'missing' });
+    }
+    const gm = new Map();
+    nodes.forEach((n) => {
+      const ev = evOfNode.get(n.id);
+      let k;
+      if (!ev) k = { id: 'event:(none)', label: '(not in an event)' };
+      else if (o.groupBy === 'arm') k = { id: 'arm:' + ev.arm, label: 'Arm ' + ev.arm + (ev.armName ? ': ' + ev.armName : '') };
+      else k = { id: 'event:' + ev.id, label: ev.label };
+      if (!gm.has(k.id)) gm.set(k.id, { id: k.id, label: k.label, nodes: [], noSelect: true });
+      gm.get(k.id).nodes.push(n.id);
+      n.band = k.id;
+    });
+    const groups = o.groupBy === 'none' ? [] : [...gm.values()];
+    let outNodes = nodes;
+    const expandedNodes = [];
+    if (xp) {
+      outNodes = [];
+      const clusters = [];
+      nodes.forEach((n) => {
+        const used0 = xp.has(n.id) && usedF.get(n.id);
+        if (!used0 || !used0.size) { outNodes.push(n); return; }
+        const fm = model.formsById.get(n.form), order = fm ? fm.fields : [];
+        const vs = [...order.filter((v) => used0.has(v)), ...[...used0].filter((v) => !order.includes(v))];
+        const ids = [];
+        vs.forEach((v) => {
+          const f = nodeInfo(model, v), id = fid(v, n.id);
+          ids.push(id);
+          outNodes.push(f.formNode
+            ? { id, label: 'Form: ' + f.label, sub: 'display logic', form: n.form, event: n.event, field: v, kind: 'form' }
+            : { id, label: v, sub: f.label || '', form: n.form, event: n.event, field: v, kind: f.synthetic ? 'status' : f.type === 'calc' ? 'calc' : 'field' });
+        });
+        expandedNodes.push(n);
+        const band = groups.find((g) => g.id === n.band);
+        if (band) band.nodes = band.nodes.filter((x) => x !== n.id);
+        clusters.push({ id: n.id, label: n.label + (n.event ? ' @ ' + n.sub : ''), nodes: ids, parent: band ? band.id : undefined });
+      });
+      groups.push(...clusters);
+    }
+    nodes.forEach((n) => { delete n.band; });
+    const view = { level: 'form', instances: true, nodes: outNodes, edges: vedges, groups, instEdges: iedges };
+    if (expandedNodes.length) { view.mixed = true; view.expandedNodes = expandedNodes; }
+    return view;
+  }
+
   function formView(model, edges, o) {
     const merged = new Map();
     edges.forEach((e) => {
@@ -342,6 +498,15 @@
     const formOf = (v) => nodeInfo(model, v).form;
     const key = o.level === 'form' ? formOf : (v) => v;
     const out = new Set();
+    if (o.instances && o.level === 'form' && (dir === 'up' || dir === 'down')) { // Instances: adjacent instance nodes
+      const ctx = instanceCtx(model, o, formOf);
+      baseEdges(model, o).forEach((e) => ctx.pairs(e).forEach((p) => {
+        if (p.s.id === p.t.id) return;
+        if (dir === 'up' && p.t.id === id) out.add(p.s.id);
+        if (dir === 'down' && p.s.id === id) out.add(p.t.id);
+      }));
+      return [...out];
+    }
     if (dir === 'fup' || dir === 'fdown') { // field level: every cross-form link into / out of this node's form (both endpoints)
       const F = id.startsWith('@form:') ? id.slice(6) : formOf(id);
       model.edges.forEach((e) => {
