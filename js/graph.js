@@ -19,7 +19,9 @@
     const ghosts = new Map();
     const edges = [];
     const seen = new Set();
+    const edgeByKey = new Map();
     const selfRefs = [];
+    const eventIds = new Set((parsed.events || []).map((e) => e.id));
 
     // <form>_complete status pseudo-fields are valid references but not ItemDefs
     parsed.forms.forEach((fm) => {
@@ -34,9 +36,10 @@
       }
       if (from === to) { selfRefs.push({ field: to, type, expr }); return; }
       const key = from + '\u0000' + to + '\u0000' + type;
-      if (seen.has(key)) return;
+      if (seen.has(key)) return edgeByKey.get(key);
       seen.add(key);
       const edge = { from, to, type, expr, cross, missing };
+      edgeByKey.set(key, edge);
       edges.push(edge);
       return edge;
     }
@@ -51,11 +54,20 @@
       sources.forEach(([type, text]) => {
         if (!text) return;
         const crossRef = /\]\s*\[/.test(text) && type !== 'piping';
-        RC.extractRefs(text).forEach((r) => {
+        const smart = RC.extractSmart(text);
+        const toks = RC.extractRefs(text);
+        toks.forEach((r, i) => {
+          // the event applies only to the token it directly prefixes
+          const prev = toks[i - 1];
+          const evs = prev && prev.adjNext && eventIds.has(prev.name) ? [prev.name] : [];
           // [event][var]: an unknown name directly followed by another token is an event prefix
           if (r.adjNext && !byVar.has(r.name)) return;
           const e = add(r.name, f.variable, type, text.trim(), false);
           if (e && crossRef) e.cross = true;
+          if (e) {
+            if (evs.length) e.events = [...new Set([...(e.events || []), ...evs])];
+            if (smart.length) e.smart = [...new Set([...(e.smart || []), ...smart])];
+          }
         });
       });
     });
@@ -141,6 +153,7 @@
   function buildView(model, o) {
     const A = model.analysis;
     let edges = model.edges.filter((e) => o.types.has(e.type) && (o.showMissing || !e.missing));
+    if (o.crossOnly) edges = edges.filter((e) => e.events && e.events.length);
     const formOf = (v) => nodeInfo(model, v).form;
     const ex = o.explore && o.explore.level === o.level ? o.explore.set : null; // interactively expanded node set
     const pair = !ex && o.level === 'field' ? o.pair : null; // edges of one form -> form link (from form-level click)

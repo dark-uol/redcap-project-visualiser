@@ -32,6 +32,8 @@
   const [focusDir, setFocusDir] = createSignal('both');
   const [focusDepth, setFocusDepthRaw] = createSignal(3);
   const setFocusDepth = (v) => setFocusDepthRaw(Math.min(50, Math.max(1, Math.round(Number(v)) || 1)));
+  const [eventsOn, setEventsOn] = createSignal({}); // event id -> bool (absent = on)
+  const [crossOnly, setCrossOnly] = createSignal(false); // only references that name another event ([event][var])
   const [formQ, setFormQ] = createSignal('');
   const [pair, setPair] = createSignal(null);       // {from,to} form ids: show only the field links of one form->form edge
   const [selEdge, setSelEdge] = createSignal(null); // form-level edge clicked in the graph
@@ -90,12 +92,16 @@
   const opts = createMemo(() => {
     if (!model()) return null;
     const fo = formsOn();
-    const on = formIds().filter((i) => fo[i] !== false);
+    // event/arm filter narrows the form set: only forms collected in at least one selected event stay
+    const evs = model().parsed.events || [], eo = eventsOn();
+    const evActive = evs.some((e) => eo[e.id] === false);
+    const evForms = evActive ? new Set(evs.filter((e) => eo[e.id] !== false).flatMap((e) => e.forms)) : null;
+    const on = formIds().filter((i) => fo[i] !== false && (!evForms || evForms.has(i)));
     const t = typesOn();
     return {
       level: level(), dir: dir(), labelMode: labelMode(), group: group() && level() === 'field', edgeLabels: edgeLabels(),
       hideIsolated: hideIso(), showMissing: showMissing(), types: new Set(TYPE_KEYS.filter((k) => t[k])),
-      forms: on.length === formIds().length ? null : new Set(on), formsNone: on.length === 0,
+      forms: on.length === formIds().length ? null : new Set(on), formsNone: on.length === 0, crossOnly: crossOnly(),
       expanded: level() === 'form' ? expanded() : null, explore: curEx() && { level: level(), set: exVisible(curEx()) }, pair: pair(), focus: focus(), focusDir: focusDir(), focusDepth: Math.max(1, +focusDepth() || 1),
     };
   });
@@ -149,7 +155,7 @@
       Solid.batch(() => {
         setLoadError('');
         setFileBase((name || parsed.projectName).replace(/\.xml$/i, '').replace(/[^\w.-]+/g, '_') || 'redcap');
-        setLevel('form'); setFormQ(''); setFormsOn({}); setFocus(''); setPair(null); setExplore(null); setExpanded(new Set()); setSelEdge(null); setSelected(null); setTab('graph');
+        setLevel('form'); setFormQ(''); setFormsOn({}); setEventsOn({}); setCrossOnly(false); setFocus(''); setPair(null); setExplore(null); setExpanded(new Set()); setSelEdge(null); setSelected(null); setTab('graph');
         setTypesOn(Object.fromEntries(TYPE_KEYS.map((k) => [k, true])));
         setModel(m);
       });
@@ -205,6 +211,9 @@
     });
     // all / none apply to the forms currently listed (so you can search, then select the matches)
     const setForms = (val) => setFormsOn({ ...formsOn(), ...Object.fromEntries(shownForms().map((f) => [f.id, val])) });
+    const armEvents = (a) => model().parsed.events.filter((e) => !a.num || e.arm === a.num);
+    const setEvents = (val) => setEventsOn(Object.fromEntries(model().parsed.events.map((e) => [e.id, val])));
+    const setArm = (a, val) => setEventsOn({ ...eventsOn(), ...Object.fromEntries(armEvents(a).map((e) => [e.id, val])) });
     const pickField = (e) => {
       const v = e.target.value.trim();
       if (!v) { setFocus(''); return; }
@@ -257,6 +266,23 @@
             <button class="btn sm" onClick=${() => setFocusDepth(focusDepth() + 1)}>+</button></span></label>
         <p class="muted small">Choosing a field switches to the field-level view. Tip: click a node to see its logic code.</p>
       </section>
+      <${Show} when=${() => (model().parsed.events || []).length}>
+        <section>
+          <h2>Events &amp; arms <button class="link" onClick=${() => setEvents(true)}>all</button> <button class="link" onClick=${() => setEvents(false)}>none</button></h2>
+          ${Check(crossOnly, setCrossOnly, 'Only cross-event references')}
+          <div id="events">
+            <${For} each=${() => model().parsed.arms.length ? model().parsed.arms : [{ num: '', name: '' }]}>${(a) => html`
+              <div class="armrow">
+                <${Show} when=${() => a.num}>
+                  <label class="chk"><input type="checkbox" checked=${() => armEvents(a).every((e) => eventsOn()[e.id] !== false)} onChange=${(e) => setArm(a, e.target.checked)}> <b>${a.name}</b> <span class="muted small">arm ${a.num}</span></label>
+                <//>
+                <${For} each=${() => armEvents(a)}>${(ev) => html`
+                  <label class="chk" style="margin-left:14px"><input type="checkbox" checked=${() => eventsOn()[ev.id] !== false} onChange=${(e) => setEventsOn({ ...eventsOn(), [ev.id]: e.target.checked })}> ${ev.label}${ev.repeating ? ' ↻' : ''} <span class="muted small">(${ev.forms.length})</span></label>`}<//>
+              </div>`}<//>
+          </div>
+          <p class="muted small">Keeps forms collected in the ticked events (↻ = repeating). Combines with the Forms list.</p>
+        </section>
+      <//>
       <section>
         <h2>Forms <button class="link" onClick=${() => setForms(true)}>all</button> <button class="link" onClick=${() => setForms(false)}>none</button></h2>
         <input type="search" class="formsearch" placeholder="Search forms…" value=${formQ} onInput=${(e) => setFormQ(e.target.value)}>

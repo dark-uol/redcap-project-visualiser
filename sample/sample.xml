@@ -7,6 +7,25 @@
 	<ProtocolName>Sample Cohort Study</ProtocolName>
 </GlobalVariables>
 <MetaDataVersion OID="Metadata.SAMPLE" Name="Sample Cohort Study" redcap:RecordIdField="record_id">
+	<Protocol>
+		<StudyEventRef StudyEventOID="Event.baseline_arm_1" OrderNumber="1" Mandatory="No"/>
+		<StudyEventRef StudyEventOID="Event.followup_arm_1" OrderNumber="2" Mandatory="No"/>
+		<StudyEventRef StudyEventOID="Event.enrol_arm_2" OrderNumber="3" Mandatory="No"/>
+		<StudyEventRef StudyEventOID="Event.followup_arm_2" OrderNumber="4" Mandatory="No"/>
+	</Protocol>
+	<StudyEventDef OID="Event.baseline_arm_1" Name="Baseline" Type="Common" Repeating="No" redcap:EventName="Baseline" redcap:UniqueEventName="baseline_arm_1" redcap:ArmNum="1" redcap:ArmName="Mother" redcap:DayOffset="0">
+		<FormRef FormOID="Form.demographics" OrderNumber="1" Mandatory="No" redcap:FormName="demographics"/>
+		<FormRef FormOID="Form.baseline" OrderNumber="2" Mandatory="No" redcap:FormName="baseline"/>
+	</StudyEventDef>
+	<StudyEventDef OID="Event.followup_arm_1" Name="Follow-up" Type="Common" Repeating="Yes" redcap:EventName="Follow-up" redcap:UniqueEventName="followup_arm_1" redcap:ArmNum="1" redcap:ArmName="Mother" redcap:DayOffset="30">
+		<FormRef FormOID="Form.followup" OrderNumber="1" Mandatory="No" redcap:FormName="followup"/>
+	</StudyEventDef>
+	<StudyEventDef OID="Event.enrol_arm_2" Name="Enrolment" Type="Common" Repeating="No" redcap:EventName="Enrolment" redcap:UniqueEventName="enrol_arm_2" redcap:ArmNum="2" redcap:ArmName="Partner" redcap:DayOffset="0">
+		<FormRef FormOID="Form.demographics" OrderNumber="1" Mandatory="No" redcap:FormName="demographics"/>
+	</StudyEventDef>
+	<StudyEventDef OID="Event.followup_arm_2" Name="Follow-up" Type="Common" Repeating="No" redcap:EventName="Follow-up" redcap:UniqueEventName="followup_arm_2" redcap:ArmNum="2" redcap:ArmName="Partner" redcap:DayOffset="30">
+		<FormRef FormOID="Form.followup" OrderNumber="1" Mandatory="No" redcap:FormName="followup"/>
+	</StudyEventDef>
 	<FormDef OID="Form.demographics" Name="Demographics" Repeating="No" redcap:FormName="demographics">
 		<ItemGroupRef ItemGroupOID="demographics.record_id" Mandatory="No"/>
 		<ItemGroupRef ItemGroupOID="demographics.dob" Mandatory="No"/>
@@ -49,6 +68,8 @@
 		<ItemRef ItemOID="fu_summary" Mandatory="No" redcap:Variable="fu_summary"/>
 		<ItemRef ItemOID="fu_complications" Mandatory="No" redcap:Variable="fu_complications"/>
 		<ItemRef ItemOID="fu_details" Mandatory="No" redcap:Variable="fu_details"/>
+		<ItemRef ItemOID="fu_trend" Mandatory="No" redcap:Variable="fu_trend"/>
+		<ItemRef ItemOID="partner_note" Mandatory="No" redcap:Variable="partner_note"/>
 	</ItemGroupDef>
 
 	<ItemDef OID="record_id" Name="record_id" DataType="text" Length="999" redcap:Variable="record_id" redcap:FieldType="text">
@@ -129,6 +150,12 @@
 	</ItemDef>
 	<ItemDef OID="fu_details" Name="fu_details" DataType="text" Length="999" redcap:Variable="fu_details" redcap:FieldType="notes" redcap:BranchingLogic="[fu_complications] = '1'">
 		<Question><TranslatedText>Describe complications</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="fu_trend" Name="fu_trend" DataType="float" Length="999" redcap:Variable="fu_trend" redcap:FieldType="calc" redcap:BranchingLogic="[event-name] = 'followup_arm_1'" redcap:Calculation="[fu_weight] - [fu_weight][previous-instance]">
+		<Question><TranslatedText>Weight change since previous follow-up (repeating event, smart variables)</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="partner_note" Name="partner_note" DataType="text" Length="999" redcap:Variable="partner_note" redcap:FieldType="text" redcap:BranchingLogic="[enrol_arm_2][consent] = '1'">
+		<Question><TranslatedText>Partner note (cross-arm reference)</TranslatedText></Question>
 	</ItemDef>
 
 	<CodeList OID="sex.choices" Name="sex" DataType="text">

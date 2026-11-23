@@ -166,9 +166,36 @@
     });
     if (noForm.fields.length) forms.push(noForm);
     const formLogic = parseFormDisplayLogic(doc, forms);
-    return { projectName: projectName || 'REDCap project', redcapVersion, forms, fields, formLogic };
+
+    // Events / arms (longitudinal projects): StudyEventDef carries redcap:UniqueEventName, ArmNum, ArmName.
+    const formByOid = {};
+    all(doc, 'FormDef').forEach((fd, i) => { formByOid[attr(fd, 'OID')] = forms[i] && forms[i].id; });
+    const events = all(doc, 'StudyEventDef').map((se) => {
+      const oid = attr(se, 'OID');
+      return {
+        id: attr(se, 'UniqueEventName') || oid.replace(/^Event\./, ''),
+        label: attr(se, 'Name') || oid,
+        arm: attr(se, 'ArmNum'),
+        armName: attr(se, 'ArmName'),
+        repeating: /^y/i.test(attr(se, 'Repeating')),
+        forms: all(se, 'FormRef').map((r) => formByOid[attr(r, 'FormOID')]).filter(Boolean),
+      };
+    });
+    const arms = [];
+    events.forEach((e) => { if (e.arm && !arms.some((a) => a.num === e.arm)) arms.push({ num: e.arm, name: e.armName || 'Arm ' + e.arm }); });
+    return { projectName: projectName || 'REDCap project', redcapVersion, forms, fields, formLogic, events, arms };
   }
 
+  /** Smart variables ([event-name], [current-instance] …): hyphenated tokens, skipped by extractRefs. */
+  function extractSmart(text) {
+    const out = [];
+    const re = /\[([a-z]+(?:-[a-z]+)+)\]/g;
+    let m;
+    while ((m = re.exec(text || ''))) out.push(m[1]);
+    return out;
+  }
+
+  RC.extractSmart = extractSmart;
   RC.extractRefs = extractRefs;
   RC.parseODM = parseODM;
 })(window);
