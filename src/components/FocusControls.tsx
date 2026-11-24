@@ -1,7 +1,7 @@
 /** Focus controls shared by the sidebar and the detail panel: direction, depth, and a note when depth hides part of the chain. */
 import { For, Show } from 'solid-js';
-import { focusing, view, clampDepth, setExplore } from '../store';
-import { MAX_FOCUS_DEPTH } from '../lib/graph';
+import { focusing, view, clampDepth, setExplore, model, selection } from '../store';
+import { MAX_FOCUS_DEPTH, focusKind } from '../lib/graph';
 import type { FocusDir } from '../lib/types';
 import { HintHeading, Labeled, Select } from './controls';
 
@@ -29,6 +29,7 @@ export function DepthControls() {
     setFocusDepth(MAX_FOCUS_DEPTH);
   };
   const hiddenCount = (): number => view()?.focusHidden ?? 0;
+  const noun = (): string => (selection.level() === 'event' && model() && focusKind(model() as NonNullable<ReturnType<typeof model>>, focus()) === 'event' ? 'event' : 'field');
   return (
     <>
       <Labeled label="Max depth" hint="How many steps along the dependency links to follow from the field. Raise it to reach further along the chain.">
@@ -36,7 +37,7 @@ export function DepthControls() {
           <input type="number" inputmode="numeric" min="1" max={MAX_FOCUS_DEPTH} step="1" value={focusDepth()} onChange={onDepthInput} />
           <button class="btn sm" onClick={onDepthUp}>+</button></span></Labeled>
       <Show when={hiddenCount() > 0}>
-        <p class="small focus-note">Depth {focusDepth()} hides {hiddenCount()} more field{hiddenCount() === 1 ? '' : 's'}. <button class="link" onClick={onShowFullChain}>Show full chain</button></p>
+        <p class="small focus-note">Depth {focusDepth()} hides {hiddenCount()} more {noun()}{hiddenCount() === 1 ? '' : 's'}. <button class="link" onClick={onShowFullChain}>Show full chain</button></p>
       </Show>
     </>
   );
@@ -53,7 +54,7 @@ export default function FocusControls() {
 }
 
 /** Detail-panel form: one segmented control. Clicking a direction focuses the graph on this field; clicking the active one clears the focus. */
-export function TraceControl(props: { id: string }) {
+export function TraceControl(props: { id: string; what: 'field' | 'form' | 'event' }) {
   const isActive = (direction: FocusDir): boolean => focus() === props.id && focusDir() === direction;
   const onTrace = function onTrace(direction: FocusDir): void {
     if (isActive(direction)) { setFocus(''); return; }
@@ -64,7 +65,7 @@ export function TraceControl(props: { id: string }) {
   };
   return (
     <div class="focus-box">
-      <HintHeading title="Show chain" hint="Narrows the graph to this field's chain of dependencies, as many steps as the depth allows. Stays at the current level and keeps what is expanded." />
+      <HintHeading title="Show chain" hint={'Narrows the graph to the chain of dependencies running through this ' + props.what + (props.what === 'field' ? '' : ' (through any of its fields)') + ', as many steps as the depth allows. Stays at the current level and keeps what is expanded.'} />
       <span class="seg">
         <For each={TRACE_DIRECTIONS}>{([direction, label, tip]) => (
           <button class={isActive(direction) ? 'btn sm primary' : 'btn sm'} title={tip} onClick={() => onTrace(direction)}>{label}</button>

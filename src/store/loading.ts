@@ -9,9 +9,9 @@ export function createLoading(state: State, navigation: ReturnType<typeof create
   const {
     setModel, setFileBase, setLoadError, setExplore, setExpanded, nextModelSequence,
   } = state;
-  const { setFormQ, setFormsOn, setEventsOn, setCrossOnly, setInstanceOnly, setTypesOn } = state.filters;
+  const { setFormQ, setFormsOn, setEventsOn, setCrossOnly, setInstanceOnly, setTypesOn } = state.rawFilters;
   const { setDir, setRenderer } = state.presentation;
-  const { setInstances } = state;
+  const { rawSetInstances: setInstances } = state;
   const { resetNav } = navigation;
 
   function loadText(text: string, name?: string): void {

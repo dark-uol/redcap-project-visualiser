@@ -190,6 +190,7 @@ function formDetail(fm: Form) {
       <ExploreRow id={id} />
       {instanceMode() ? '' : <div class="focus-box"><HintHeading title="Zoom" hint="Shows this form's fields inside the graph." />
         <span class="seg"><button class="btn sm" onClick={() => toggleExpandForm(id)}>{expanded().has(id) ? 'back to form' : 'into fields'}</button></span></div>}
+      <TraceControl id={id} what="form" />
       <Section title="Cross-form dependencies" count={cross.length} empty={!cross.length}>
         {cross.map((e) => <EdgeRow edge={e} onOpen={(x) => setSelected(x)} />)}
       </Section></div>
@@ -233,7 +234,7 @@ function fieldDetail(f: Field, id: string, exploreId: string) {
       {f.label ? <p style="margin:6px 0">{f.label}</p> : ''}
       {f.media && (f.media.inlineImage || f.media.videoUrl) ? <div class="muted small" style="margin:6px 0">Media: {[f.media.inlineImage ? 'inline image ' + f.media.inlineImage : '', f.media.videoUrl ? 'video ' + f.media.videoUrl + (f.media.videoInline ? ' (inline)' : '') : ''].filter(Boolean).join(' · ')}</div> : ''}
       <ExploreRow id={exploreId} />
-      <TraceControl id={id} />
+      <TraceControl id={id} what="field" />
       <CodeBlock title="Branching logic" text={f.branching} copyable={true} /><CodeBlock title="Calculation" text={f.calc} copyable={true} /><CodeBlock title="Action tags / annotation" text={f.annotation} copyable={true} />
       <CodeBlock title="Section header (piping)" text={f.section} /><CodeBlock title="Field note (piping)" text={f.note} />
       {!f.branching && !f.calc && !f.annotation ? <p class="muted small">No logic code on this field.</p> : ''}
@@ -310,6 +311,7 @@ function eventDetail(ev: EventDef) {
       <p class="small" style="margin:6px 0">Forms: {ev.forms.map(formLabel).join(', ') || 'none'}</p>
       {level() === 'event' ? <div class="focus-box"><HintHeading title="Zoom" hint="Shows this event's forms inside the graph." />
         <span class="seg"><button class="btn sm" onClick={() => toggleExpandEvent(ev.id)}>{expandedEvents().has(ev.id) ? 'back to event' : 'into forms'}</button></span></div> : ''}
+      <TraceControl id={ev.id} what="event" />
       {repInstr.length ? <p class="small" style="margin:6px 0">Repeating instruments: {repInstr.map((r) => r.label || formLabel(r.form)).join(', ')}</p> : ''}
       <Section title="Read from this event" count={out.length} empty={!out.length}>
         {out.map((e) => <EdgeRow edge={e} onOpen={(x) => jumpToField(x)} detail={eventsOf(e)} />)}

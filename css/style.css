@@ -103,3 +103,4 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 .focus-box{margin:6px 0;padding:6px 0}.focus-box label{display:block;margin-top:6px}.focus-note{margin:6px 0;color:var(--muted)}
 .seg{display:inline-flex;gap:0}.exhead{display:block;width:100%;margin:2px 0 4px}.exhead b{margin-right:4px}.seg .btn{border-radius:0;margin-left:-1px}.seg .btn:first-child{border-radius:4px 0 0 4px}.seg .btn:last-child{border-radius:0 4px 4px 0}.exrow .chk{margin-left:4px}
 .hint-toggle{background:none;border:0;padding:0 4px;color:var(--muted);cursor:pointer;font-size:13px;line-height:1}.hint-toggle:hover{color:inherit}.hint-text{display:block;margin:2px 0 8px}
+.navstate{list-style:none;margin:0 0 8px;padding:0}.navstate li{display:flex;justify-content:space-between;gap:8px;align-items:baseline;font-size:12px;padding:3px 0;border-bottom:1px dotted var(--line)}

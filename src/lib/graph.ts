@@ -278,9 +278,11 @@ export function buildView(model: Model, o: ViewOptions): View {
   const formOf = (v: string): string => nodeInfo(model, v).form;
   if (o.level === 'event') {
     // "show chain" keeps the event graph: only the links between the fields of the chain are drawn
-    if (!o.focus || !model.byVar.has(o.focus)) return eventView(model, edges, o, formOf);
-    const reach = focusReach(edges, o.focus, o.focusDir, o.focusDepth);
-    const fullReach = focusReach(edges, o.focus, o.focusDir, MAX_FOCUS_DEPTH);
+    if (focusKind(model, o.focus) === 'event') return eventFocusView(model, edges, o, formOf);
+    const starts = focusStarts(model, edges, o.focus);
+    if (focusKind(model, o.focus) === null) return eventView(model, edges, o, formOf);
+    const reach = focusReach(edges, starts, o.focusDir, o.focusDepth);
+    const fullReach = focusReach(edges, starts, o.focusDir, MAX_FOCUS_DEPTH);
     const view = eventView(model, edges.filter((e) => reach.has(e.from) && reach.has(e.to)), o, formOf);
     return fullReach.size > reach.size ? { ...view, focusHidden: fullReach.size - reach.size } : view;
   }
@@ -300,10 +302,11 @@ export function buildView(model: Model, o: ViewOptions): View {
   // focus: at field level the chain's fields are the nodes; at form level only the links between the chain's fields are kept
   let focusSet: Set<string> | null = null;
   let focusHidden = 0;
-  if (!ex && o.focus && model.byVar.has(o.focus)) {
-    const fs = focusReach(edges, o.focus, o.focusDir, o.focusDepth);
+  const starts = ex ? [] : focusStarts(model, edges, o.focus);
+  if (!ex && focusKind(model, o.focus) !== null) { // a form or event with no links has an empty chain: nothing is shown
+    const fs = focusReach(edges, starts, o.focusDir, o.focusDepth);
     if (o.level === 'field') focusSet = fs;
-    const fullReach = focusReach(edges, o.focus, o.focusDir, MAX_FOCUS_DEPTH);
+    const fullReach = focusReach(edges, starts, o.focusDir, MAX_FOCUS_DEPTH);
     if (fullReach.size > fs.size) focusHidden = fullReach.size - fs.size;
     edges = edges.filter((e) => fs.has(e.from) && fs.has(e.to));
   }
@@ -397,11 +400,38 @@ export const isLogicNode = (n: NodeInfo): n is LogicNode => 'logicNode' in n;
 export const isGhost = (n: NodeInfo): n is GhostNode => 'ghost' in n;
 
 /**
+ * Event-level view focused on one event. Fields cannot say which way an event's links run (a form is collected in many events),
+ * so the chain is walked over event-to-event links: up = the events this one reads from, down = the events that read from it.
+ */
+function eventFocusView(model: Model, edges: Edge[], o: ViewFilter, formOf: (v: string) => string): View {
+  const events = (model.parsed.events || []).filter((event) => !o.eventSet || o.eventSet.has(event.id));
+  const links: { from: string; to: string }[] = [];
+  const linksOf = (e: Edge): { from: string; to: string }[] => {
+    if (!e.events || !e.events.length) return [];
+    const hostIds = events.filter((event) => event.forms.includes(formOf(e.to))).map((event) => event.id);
+    return e.events.flatMap((source) => hostIds.filter((host) => host !== source).map((host) => ({ from: source, to: host })));
+  };
+  edges.forEach((e) => links.push(...linksOf(e)));
+  const reach = focusReach(links, o.focus, o.focusDir, o.focusDepth);
+  const fullReach = focusReach(links, o.focus, o.focusDir, MAX_FOCUS_DEPTH);
+  const expandedEvents = o.expandedEvents ?? new Set<string>();
+  const keep = (e: Edge): boolean => {
+    const own = linksOf(e);
+    if (own.length) return own.some((link) => reach.has(link.from) && reach.has(link.to));
+    // a plain reference is drawn only inside an expanded event that collects both forms
+    return [...expandedEvents].some((eventId) => reach.has(eventId)
+      && !!events.find((event) => event.id === eventId && event.forms.includes(formOf(e.from)) && event.forms.includes(formOf(e.to))));
+  };
+  const view = eventView(model, edges.filter(keep), o, formOf, (source, target) => reach.has(source) && reach.has(target));
+  return fullReach.size > reach.size ? { ...view, focusHidden: fullReach.size - reach.size } : view;
+}
+
+/**
  * Event-level view: only explicit cross-event references ([event][var]) produce edges.
  * Edge = source event (the prefix) -> every event that collects the form of the field holding the logic.
  * References without a prefix stay inside one event and are not drawn (as same-form links are not at form level).
  */
-function eventView(model: Model, edges: Edge[], o: ViewFilter, formOf: (v: string) => string): View {
+function eventView(model: Model, edges: Edge[], o: ViewFilter, formOf: (v: string) => string, keepLink?: (source: string, target: string) => boolean): View {
   const events = model.parsed.events || [];
   const { hostsOf, idOf } = instanceCtx(model, o, formOf);
   const shown = (e: EventDef): boolean => !o.eventSet || o.eventSet.has(e.id);
@@ -447,6 +477,7 @@ function eventView(model: Model, edges: Edge[], o: ViewFilter, formOf: (v: strin
       if (!source) return;
       targets.forEach((target) => {
         // a collapsed event has no link to itself; an expanded one can link its own forms and fields (`[own_event][field]`)
+        if (keepLink && !keepLink(source.id, target.id)) return;
         const withinEvent = target.id === source.id;
         if (withinEvent && !(expandedEvents && expandedEvents.has(source.id))) return;
         usedEvents.add(source.id);
@@ -789,11 +820,34 @@ function mixedView(model: Model, edges: Edge[], o: ViewFilter, formNodes: ViewNo
 /** Largest focus depth the UI allows; also used to measure how much a smaller depth hides. */
 export const MAX_FOCUS_DEPTH = 50;
 
+/** What a focus names: a field, a form, or an event. A field wins over a form, and a form over an event. */
+export type FocusKind = 'field' | 'form' | 'event';
+export function focusKind(model: Model, focus: string): FocusKind | null {
+  if (!focus) return null;
+  if (model.byVar.has(focus)) return 'field';
+  if (model.formsById.has(focus)) return 'form';
+  if ((model.parsed.events || []).some((event) => event.id === focus)) return 'event';
+  return null;
+}
+
+/** The fields a focus starts from: the field itself, or, for a form or event, those of its fields that take part in an edge. */
+export function focusStarts(model: Model, edges: Edge[], focus: string): string[] {
+  const kind = focusKind(model, focus);
+  if (kind === null) return [];
+  if (kind === 'field') return [focus];
+  const formIds = kind === 'form' ? [focus] : (model.parsed.events || []).find((event) => event.id === focus)?.forms ?? [];
+  const linked = new Set<string>();
+  edges.forEach((e) => { linked.add(e.from); linked.add(e.to); });
+  const fields = formIds.flatMap((formId) => model.formsById.get(formId)?.fields ?? []);
+  return [...new Set(fields)].filter((variable) => linked.has(variable));
+}
+
 /** Fields reachable from `start` along `edges` within `depth` hops, upstream and/or downstream, including `start`. */
-export function focusReach(edges: Edge[], start: string, direction: FocusDir, depth: number): Set<string> {
-  const reached = new Set<string>([start]);
+export function focusReach(edges: readonly { from: string; to: string }[], start: string | readonly string[], direction: FocusDir, depth: number): Set<string> {
+  const starts = typeof start === 'string' ? [start] : [...start];
+  const reached = new Set<string>(starts);
   const walk = function walk(way: 'up' | 'down'): void {
-    let frontier = [start];
+    let frontier = starts;
     for (let hop = 0; hop < depth && frontier.length; hop++) {
       const next: string[] = [];
       edges.forEach((e) => {

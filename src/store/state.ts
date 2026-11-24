@@ -42,9 +42,15 @@ export function createState() {
   const [explore, setExplore] = createSignal<Explore | null>(null); // interactive expansion
 
   // Filter signals, grouped so the sidebar and the filtered view read them from one place
+  // Filters re-lay the graph out, so the setters the sidebar uses snapshot it first (captureAnchor('') animates the change).
+  // `rawFilters` skips that; loading a file uses it, since the old graph is not what the new one should animate from.
+  const animated = <T,>(setter: (value: T) => unknown) => (value: T): void => { captureAnchor(''); setter(value); };
+  const rawFilters = { setTypesOn, setFormsOn, setEventsOn, setCrossOnly, setInstanceOnly, setFormQ };
   const filters = {
-    typesOn, setTypesOn, formsOn, setFormsOn, eventsOn, setEventsOn, crossOnly, setCrossOnly, instanceOnly, setInstanceOnly,
-    hideIso, setHideIso, hideIsoNodes, setHideIsoNodes, showMissing, setShowMissing, formQ, setFormQ,
+    typesOn, setTypesOn: animated(setTypesOn), formsOn, setFormsOn: animated(setFormsOn), eventsOn, setEventsOn: animated(setEventsOn),
+    crossOnly, setCrossOnly: animated(setCrossOnly), instanceOnly, setInstanceOnly: animated(setInstanceOnly),
+    hideIso, setHideIso: animated(setHideIso), hideIsoNodes, setHideIsoNodes: animated(setHideIsoNodes),
+    showMissing, setShowMissing: animated(setShowMissing), formQ, setFormQ,
   };
 
   // Focus and presentation signals, grouped the same way as filters
@@ -76,7 +82,7 @@ export function createState() {
   return {
     model, setModel, fileBase, setFileBase, dragOver, setDragOver, loadError, setLoadError,
     focusing, presentation, selection,
-    instances, setInstances, filters,
+    instances, setInstances: animated(setInstances), rawSetInstances: setInstances, filters, rawFilters,
     expanded, setExpanded, expandedEvents, setExpandedEvents, explore, setExplore, downloadMenuOpen, setDownloadMenuOpen,
     depQ, setDepQ, fieldQ, setFieldQ, svgEl, setSvgEl, svgView, setSvgView, busy, setBusy, renderMsg, setRenderMsg,
     forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture, nextModelSequence, currentModelSequence,

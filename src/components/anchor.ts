@@ -3,6 +3,7 @@ import { groupFormIdOf, groupIdFor } from '../lib/selection';
 import type { View } from '../lib/types';
 import { centreInStage, clusterEl, nodeKey } from './svgDom';
 import { zoomToBox, type Pan } from './panzoom';
+import { animateRelayout, snapshotNodeCentres, type Point } from './relayoutMotion';
 
 /** Where the graph was when a node was acted on, so re-rendering can keep that node in place. */
 export interface Anchor {
@@ -10,8 +11,12 @@ export interface Anchor {
   scale: number;
   time: number;
   zoom: boolean;
+  /** No node was acted on (a filter changed): fit the graph, and only animate the nodes. */
+  fitOnly?: boolean;
   stageX?: number;
   stageY?: number;
+  /** Stage position of every node before the change, so the new layout can animate from it. */
+  before?: Map<string, Point>;
 }
 
 export interface AnchorOptions {
@@ -38,6 +43,7 @@ export interface AnchorControllerDeps {
 }
 
 export interface AnchorController {
+  /** An empty target means no node was acted on: the graph is fitted afterwards and the layout change animated. */
   capture: (target: string, options?: AnchorOptions) => void;
   restoreOrFit: () => void;
 }
@@ -68,14 +74,16 @@ export const createAnchorController = (deps: AnchorControllerDeps): AnchorContro
 
   const capture = (target: string, options: AnchorOptions = {}): void => {
     if (!deps.getSvg()) { pendingAnchor = null; return; }
-    const element = elementFor(target), stageRect = deps.getStage().getBoundingClientRect();
+    const element = target ? elementFor(target) : null, stageRect = deps.getStage().getBoundingClientRect();
     const pan = deps.getPan();
-    const anchor: Anchor = { target, scale: pan.scale, time: now(), zoom: !!options.zoom };
+    const anchor: Anchor = { target, scale: pan.scale, time: now(), zoom: !!options.zoom, fitOnly: !target };
     if (options.zoom) zoomBack.set(target, pan.scale);
     if (options.back && zoomBack.has(target)) {
       anchor.scale = zoomBack.get(target) as number;
       zoomBack.delete(target);
     }
+    const svg = deps.getSvg(), view = deps.getView();
+    if (svg && view) anchor.before = snapshotNodeCentres(svg, view, stageRect);
     if (element) {
       const centre = centreInStage(element, stageRect);
       anchor.stageX = centre.x;
@@ -102,6 +110,12 @@ export const createAnchorController = (deps: AnchorControllerDeps): AnchorContro
     const anchor = pendingAnchor;
     pendingAnchor = null;
     if (!anchor || now() - anchor.time > ANCHOR_STALE_MS) { deps.fitToStage(); return; }
+    if (anchor.fitOnly) {
+      deps.fitToStage();
+      const fitSvg = deps.getSvg(), fitView = deps.getView();
+      if (fitSvg && fitView && anchor.before) animateRelayout(fitSvg, fitView, anchor.before, undefined, deps.getPan().scale, deps.getStage().getBoundingClientRect());
+      return;
+    }
     // Apply the scale with no offset first: the node's position is measured under this transform.
     const pan: Pan = { scale: anchor.scale, x: 0, y: 0 };
     deps.setPan(pan);
@@ -113,6 +127,10 @@ export const createAnchorController = (deps: AnchorControllerDeps): AnchorContro
     pan.x = anchor.stageX - centre.x;
     pan.y = anchor.stageY - centre.y;
     deps.applyTransform();
+    const svg = deps.getSvg(), view = deps.getView();
+    if (svg && view && anchor.before) {
+      animateRelayout(svg, view, anchor.before, { x: anchor.stageX, y: anchor.stageY }, pan.scale, stageRect);
+    }
     if (anchor.zoom) animateZoomToCluster(anchor.target, stageRect);
   };
 

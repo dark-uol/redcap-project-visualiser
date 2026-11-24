@@ -55,3 +55,25 @@ describe('focus on a field at form level', () => {
     expect(buildView(model, options({ focus: 'nope' })).edges[0].count).toBe(2);
   });
 });
+
+describe('focus on a form', () => {
+  it('shows the chains through the form\'s linked fields at field level', () => {
+    const view = buildView(model, options({ level: 'field', focus: 'form_a', focusDir: 'down', focusDepth: 1 }));
+    // source and other are the linked fields of form_a; one step down reaches middle and reader
+    expect(view.nodes.map((n) => n.id).sort()).toEqual(['middle', 'other', 'reader', 'source']);
+    expect(view.focusHidden).toBe(1); // last lies beyond depth 1
+  });
+
+  it('keeps the form graph at form level, counting only the chain\'s links', () => {
+    const view = buildView(model, options({ focus: 'form_b', focusDir: 'up', focusDepth: 1 }));
+    expect(view.level).toBe('form');
+    expect(view.edges).toHaveLength(1);
+    expect(view.edges[0].count).toBe(2); // source -> middle, other -> reader
+  });
+
+  it('shows nothing for a form with no links', () => {
+    const lonely: ParsedODM = { ...parsed, forms: [...parsed.forms, { id: 'form_c', label: 'Form C', repeating: false, fields: [] }] };
+    const view = buildView(buildModel(lonely), options({ level: 'field', focus: 'form_c' }));
+    expect(view.nodes).toHaveLength(0);
+  });
+});

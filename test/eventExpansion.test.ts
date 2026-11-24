@@ -180,3 +180,16 @@ describe('show chain at event level', () => {
     expect(opened().focusHidden).toBeUndefined();
   });
 });
+
+describe('focus on an event at event level', () => {
+  const edgesFor = (focusDir: 'up' | 'down' | 'both', focus: string): string[] =>
+    buildView(model, options({ focus, focusDir, focusDepth: 1 })).edges.map((e) => e.from + '>' + e.to).sort();
+
+  it('up shows the events it reads from, down the events that read from it', () => {
+    expect(edgesFor('down', 'baseline_arm_1')).toEqual(['baseline_arm_1>followup_arm_1', 'baseline_arm_1>followup_arm_2']);
+    expect(edgesFor('up', 'baseline_arm_1')).toEqual([]);
+    expect(edgesFor('up', 'followup_arm_1')).toEqual(['baseline_arm_1>followup_arm_1', 'enrol_arm_2>followup_arm_1']);
+    expect(edgesFor('down', 'followup_arm_1')).toEqual([]);
+    expect(edgesFor('both', 'followup_arm_2')).toEqual(['baseline_arm_1>followup_arm_2', 'enrol_arm_2>followup_arm_2']);
+  });
+});
