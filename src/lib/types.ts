@@ -114,6 +114,12 @@ export interface RefToken {
   adjNext: boolean;
 }
 
+/** One `{name}` or `{name:mod}` field embedding found in a label, note or section header. */
+export interface EmbedToken {
+  name: string;
+  mod: string;
+}
+
 // ---------- dependency model ----------
 
 export interface Edge {
