@@ -53,7 +53,7 @@ beforeEach(() => {
   settle(() => {
     store.setInstances(false);
     store.presentation.setRenderer('graphviz');
-    store.presentation.setDir('LR'); // loadText does not reset direction, so an earlier test could leave it changed
+    store.presentation.setDir('LR');
     store.filters.setFormsOn({});
     store.setForcedFor('');
     store.setAnchorCapture(null);

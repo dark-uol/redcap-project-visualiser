@@ -18,8 +18,8 @@ Opening `index.html` directly via `file://` is no longer supported: the app is b
 Dependencies detected: branching logic, calculated fields, piping in labels/notes/headers, action tags (`@CALCTEXT`, `@DEFAULT`, `@IF`…).
 
 ## Project layout
-- `src/main.jsx` – entry point; `src/store.js` – app state (signals, memos, graph-render effect, actions).
+- `src/main.tsx` – entry point; `src/store/` – app state (signals, memos, graph-render effect, actions), entry `index.ts`.
 - `src/components/` – Solid components (Toolbar, FileDrop, Sidebar, Workspace, GraphView, Detail, MatrixTab, AnalysisTab, DepsTab, FieldsTab, Legend, DownloadMenu).
-- `src/lib/` – framework-free ES modules: `parser.js`, `graph.js`, `exporters.js`, plus `renderers.js` (lazy-loads `@viz-js/viz` and `mermaid`).
+- `src/lib/` – framework-free TypeScript modules: `parser.ts`, `graph.ts`, `exporters.ts`, plus `renderers.ts` (lazy-loads `@viz-js/viz` and `mermaid`).
 - `public/sample/sample.xml` – the sample project; `css/style.css` – styles.
 - `solid-js` is pinned to 2.0.3 and compiled with `@solidjs/vite-plugin` (the Solid 2 successor of `vite-plugin-solid`, which only supports Solid 1.x).

@@ -88,6 +88,18 @@ describe('loadText', () => {
     expect(store.focusing.pair()).toBeNull();
   });
 
+  it('resets the view settings (direction, renderer, instances)', () => {
+    settle(() => {
+      store.presentation.setDir('TD');
+      store.presentation.setRenderer('mermaid');
+      store.setInstances(true);
+    });
+    load(sampleXml, 'sample');
+    expect(store.presentation.dir()).toBe('LR');
+    expect(store.presentation.renderer()).toBe('graphviz');
+    expect(store.instances()).toBe(false);
+  });
+
   it('clears a previous load error on success', () => {
     load('<not xml', 'bad');
     expect(store.loadError()).not.toBe('');
@@ -130,9 +142,9 @@ describe('selection', () => {
     expect(store.selection.selectedEdge()).toBe(edge);
   });
 
-  it('setSelectedRaw leaves selectedEdge alone', () => {
+  it('setSelectedKeepingEdge leaves selectedEdge alone', () => {
     settle(() => store.selection.setSelectedEdge(edge));
-    settle(() => store.selection.setSelectedRaw('demographics'));
+    settle(() => store.selection.setSelectedKeepingEdge('demographics'));
     expect(store.selection.selectedEdge()).toBe(edge);
     expect(store.selection.selected()).toBe('demographics');
   });

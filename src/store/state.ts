@@ -1,6 +1,6 @@
 /* Signals and setters for the application state, plus the anchor-capture hook and the file sequence number. */
 import { createSignal } from 'solid-js';
-import { allTypesOn, clampDepth } from './common';
+import { allTypesOn, clampDepth, DEFAULT_DIRECTION, DEFAULT_RENDERER } from './common';
 import type { AnchorCapture, Tab } from './common';
 import type {
   DepType, Direction, Explore, FocusDir, FormPair, GroupBy, LabelMode, Level, Model, Renderer, View,
@@ -16,8 +16,8 @@ export function createState() {
   const [loadError, setLoadError] = createSignal('');
 
   const [level, setLevel] = createSignal<Level>('form'); // open in form-level view
-  const [renderer, setRenderer] = createSignal<Renderer>('graphviz');
-  const [dir, setDir] = createSignal<Direction>('LR');
+  const [renderer, setRenderer] = createSignal<Renderer>(DEFAULT_RENDERER);
+  const [dir, setDir] = createSignal<Direction>(DEFAULT_DIRECTION);
   const [labelMode, setLabelMode] = createSignal<LabelMode>('var');
   const [groupBy, setGroupBy] = createSignal<GroupBy>('form'); // field level clusters: none | form | event | arm
   const [edgeLabels, setEdgeLabels] = createSignal(false);
@@ -52,11 +52,12 @@ export function createState() {
 
   const [tab, setTab] = createSignal<Tab>('graph');
   const [downloadMenuOpen, setDownloadMenuOpen] = createSignal(false);
-  const [selected, setSelectedRaw] = createSignal<string | null>(null);
-  const setSelected = (v: string | null): void => { if (v) setSelectedEdge(null); setSelectedRaw(v); };
+  // setSelectedKeepingEdge sets the selection without clearing selectedEdge; setSelected also clears selectedEdge.
+  const [selected, setSelectedKeepingEdge] = createSignal<string | null>(null);
+  const setSelected = (v: string | null): void => { if (v) setSelectedEdge(null); setSelectedKeepingEdge(v); };
 
   // selection signals, grouped the same way as filters
-  const selection = { selected, setSelected, setSelectedRaw, selectedEdge, setSelectedEdge, tab, setTab, level, setLevel };
+  const selection = { selected, setSelected, setSelectedKeepingEdge, selectedEdge, setSelectedEdge, tab, setTab, level, setLevel };
   const [depQ, setDepQ] = createSignal('');
   const [fieldQ, setFieldQ] = createSignal('');
   const [svgEl, setSvgEl] = createSignal<SVGSVGElement | null>(null);

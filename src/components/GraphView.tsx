@@ -6,7 +6,7 @@ import {
   setForcedFor, dotSrc, setAnchorCapture,
 } from '../store';
 
-const { tab, selected, setSelected, setSelectedRaw, setSelectedEdge } = selection;
+const { tab, selected, setSelected, setSelectedKeepingEdge, setSelectedEdge } = selection;
 import Detail from './Detail';
 import Legend from './Legend';
 import { closestEl, highlightLinks, keyForSelection, nodeKey, normalizeSvg, widenEdgeHits } from './svgDom';
@@ -128,7 +128,7 @@ export default function GraphView() {
       const drawnView = state.view;
       if (!drawnView) return;
       const action = resolveClick(e.target, drawnView, (id) => !!model()?.formsById.has(id));
-      if (action.type === 'edge') { setSelectedRaw(null); setSelectedEdge({ from: action.from, to: action.to }); }
+      if (action.type === 'edge') { setSelectedKeepingEdge(null); setSelectedEdge({ from: action.from, to: action.to }); }
       else if (action.type === 'select') setSelected(action.id);
       else if (action.type === 'clear') { setSelected(null); setSelectedEdge(null); } // empty background closes the detail pane
     };

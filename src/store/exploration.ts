@@ -9,7 +9,7 @@ import type { NeighborDir } from '../lib/types';
 
 export function createExplorationActions(state: State, derived: Derived) {
   const { model, expanded, setExpanded, setExplore, captureAnchor } = state;
-  const { level, selected, setSelectedRaw } = state.selection;
+  const { level, selected, setSelectedKeepingEdge } = state.selection;
   const { setPair, setFocus } = state.focusing;
   const { filter, instanceMode, currentExploration, exploreVisible } = derived;
 
@@ -44,7 +44,7 @@ export function createExplorationActions(state: State, derived: Derived) {
     ([im, s]) => {
       if (im === previousInstanceMode) return;
       previousInstanceMode = im;
-      if (s && isInstanceScopedId(s)) setSelectedRaw(null);
+      if (s && isInstanceScopedId(s)) setSelectedKeepingEdge(null);
     },
   );
   function toggleExpandForm(formId: string): void {

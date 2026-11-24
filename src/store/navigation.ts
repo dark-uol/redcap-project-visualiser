@@ -8,10 +8,10 @@ export function createNavigation(state: State) {
     model, currentModelSequence,
   } = state;
   const { focus, setFocus, pair, setPair } = state.focusing;
-  const { tab, setTab, level, setLevel, selected, setSelected, setSelectedRaw, selectedEdge, setSelectedEdge } = state.selection;
+  const { tab, setTab, level, setLevel, selected, setSelected, setSelectedKeepingEdge, selectedEdge, setSelectedEdge } = state.selection;
 
   const currentNav = (): Navigation => ({ tab: tab(), level: level(), focus: focus(), pair: pair(), selection: selected(), edge: selectedEdge() });
-  const applyNav = (n: Navigation): void => { setTab(n.tab); setLevel(n.level); setFocus(n.focus); setPair(n.pair); setSelectedRaw(n.selection); setSelectedEdge(n.edge); };
+  const applyNav = (n: Navigation): void => { setTab(n.tab); setLevel(n.level); setFocus(n.focus); setPair(n.pair); setSelectedKeepingEdge(n.selection); setSelectedEdge(n.edge); };
   const resetNav = (): void => { setTab('graph'); setLevel('form'); setFocus(''); setPair(null); setSelectedEdge(null); setSelected(null); };
 
   // ================= shared navigation helpers =================
