@@ -6,6 +6,7 @@ import { TYPES, buildModel, buildView, neighbors } from './lib/graph';
 import { toMermaid, toDot, toCsv } from './lib/exporters';
 import { renderDot, renderMermaid } from './lib/renderers';
 import { download } from './lib/download';
+import { isInstanceScopedId } from './lib/selection';
 import type {
   DepType, Direction, Explore, ExploreFilter, FocusDir, FormPair, GroupBy, LabelMode, Level, Model, NeighborDir,
   Renderer, View, ViewFilter, ViewOptions, ViewPresentation,
@@ -222,7 +223,7 @@ const app = createRoot(() => {
     ([im, s]) => {
       if (im === prevInstMode) return;
       prevInstMode = im;
-      if (s && s.includes('@') && !s.startsWith('@form:')) setSelectedRaw(null);
+      if (s && isInstanceScopedId(s)) setSelectedRaw(null);
     },
   );
   function toggleExpandForm(F: string): void {

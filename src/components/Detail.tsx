@@ -1,8 +1,13 @@
 /* Detail panel: logic code, explore buttons, form / instance / event / edge summaries. */
 import { Show } from 'solid-js';
 import type { Element as SolidElement } from 'solid-js';
-import { TYPES, findNode, neighbors, isRepeatingInstance, formIsRepeating, isFormNode, isLogicNode, isGhost, nodeInfo } from '../lib/graph';
-import type { DepType, Edge, EventDef, Field, FormPair, Model, NeighborDir, ViewEdge } from '../lib/types';
+import { TYPES, findNode, neighbors, isRepeatingInstance, formIsRepeating, nodeInfo } from '../lib/graph';
+import { classifyDetail } from '../lib/detailKind';
+import type { DetailFacts } from '../lib/detailKind';
+import { resolveExploreTarget } from '../lib/exploreTarget';
+import type { ExploreContext } from '../lib/exploreTarget';
+import { groupIdFor, parseSelection } from '../lib/selection';
+import type { DepType, Edge, EventDef, Field, Form, FormNode, FormPair, LogicNode, Model, NeighborDir, View, ViewEdge, ViewNode } from '../lib/types';
 import {
   need, model, view, opts, level, selected, selEdge, setSelEdge, setSelected, setLevel, setFocus, setPair, setExplore, expanded,
   curEx, exVisible, instMode, formLabel, expandRef, collapseRef, toggleExpandForm, jumpToField,
@@ -39,13 +44,27 @@ function CodeBlock(props: { title: string; text: string | undefined; copyable?: 
   );
 }
 
-function Chips(props: { items: { id: string; t: string }[] }) {
+/** A titled block: an h4 with an optional count, then the body, or 'none' when it is empty. */
+function Section(props: { title: string; count?: number; empty: boolean; children: SolidElement }) {
   return (
     <>
-      {props.items.length
-        ? <div class="chips">{props.items.map((x) => <button class="chip" title={x.t} onClick={() => setSelected(x.id)}>{x.id}</button>)}</div>
-        : <span class="muted small">none</span>}
+      <h4>{props.title}{props.count === undefined ? '' : ` (${props.count})`}</h4>
+      {props.empty ? <span class="muted small">none</span> : props.children}
     </>
+  );
+}
+
+function ChipList(props: { items: { id: string; t: string }[] }) {
+  return <div class="chips">{props.items.map((x) => <button class="chip" title={x.t} onClick={() => setSelected(x.id)}>{x.id}</button>)}</div>;
+}
+
+/** One dependency edge as `from → to`, with its type tag and expression; `detail` adds trailing text. */
+function EdgeRow(props: { edge: Edge; onOpen: (id: string) => void; detail?: SolidElement }) {
+  return (
+    <div class="small" style="margin-bottom:6px">
+      <button class="fieldlink" onClick={() => props.onOpen(props.edge.from)}>{props.edge.from}</button> → <button class="fieldlink" onClick={() => props.onOpen(props.edge.to)}>{props.edge.to}</button> <Tag type={props.edge.type} /> {props.detail}
+      <pre>{props.edge.expr}</pre>
+    </div>
   );
 }
 
@@ -62,111 +81,121 @@ function exploreButton(m: Model, t: string, dir: NeighborDir, label: string, tip
   );
 }
 
-function ExploreButtons(props: { id: string }) {
-  return <>{exploreRow(props.id)}</>;
+/** The Instances view's non-field nodes (the ones the explore buttons can target). */
+function viewInstanceNodes(v: View | null): ViewNode[] {
+  if (!v) return [];
+  return [...(v.nodes || []), ...(v.expandedNodes || [])].filter((x) => !x.field);
 }
 
-function exploreRow(id: string) {
+/** The Instances-view node with this id, when the view is in instance mode and has it. */
+function instanceNodeFor(id: string): ViewNode | undefined {
+  const v = view();
+  if (!v || !v.instances) return undefined;
+  const node = viewInstanceNodes(v).find((x) => x.id === id);
+  return node && node.form ? node : undefined;
+}
+
+function exploreContext(): ExploreContext {
   const m = need(model());
-  if (instMode()) return instanceExploreRow(id);
-  // at form level the target is the form owning the selected node
-  const isGroup = id.startsWith('@form:');
-  const t = level() === 'form'
-    ? (m.formsById.has(id) || id === '(unknown)' ? id : findNode(m, id)?.form)
-    : id;
-  const fid = isGroup ? id.slice(6) : findNode(m, id)?.form;
-  if (!t) return '';
-  const btn = (dir: NeighborDir, label: string, tip: string) => exploreButton(m, t, dir, label, tip);
-  return (
-    <div class="exrow">
-      {isGroup ? '' : <>{btn('up', '◀ back refs', 'Add what this depends on')}{btn('down', 'forward refs ▶', 'Add what depends on this')}</>}
-      {level() === 'field' && fid ? <>{isGroup ? '' : <div class="muted small" style="width:100%">Whole form <b>{formLabel(fid)}</b>:</div>}
-        {btn('fup', '◀ form back refs', 'Add every field in other forms that this form depends on (with the fields in this form they feed)')}{btn('fdown', 'form forward refs ▶', 'Add every field in other forms that depends on this form (with the fields in this form they use)')}</> : ''}
-      {level() === 'form' && t !== id ? <div class="muted small" style="width:100%">applies to its form: {formLabel(t)}</div> : ''}
-    </div>
-  );
+  const instanceMode = instMode();
+  return {
+    level: level(),
+    instanceMode,
+    isFormId: (id) => m.formsById.has(id),
+    formOf: (id) => findNode(m, id)?.form,
+    instanceNodes: instanceMode ? viewInstanceNodes(view()) : [],
+  };
 }
 
-// Instances mode: the explore target is an instance node (form@event); a plain field or form id resolves to its only instance
-function instanceExploreRow(id: string) {
-  const m = need(model()), v = view();
-  const all = v ? [...v.nodes, ...(v.expandedNodes || [])].filter((n) => !n.field) : [];
-  let found: string | null = all.some((n) => n.id === id) ? id : null;
-  if (!found) {
-    const fid = id.startsWith('@form:') ? id.slice(6) : findNode(m, id)?.form;
-    const c = all.filter((n) => n.form === fid);
-    if (c.length === 1) found = c[0].id;
-    else return <div class="muted small" style="margin:6px 0">{c.length ? "Select one of this form's instance nodes to expand its references." : ''}</div>;
-  }
-  const t: string = found;
-  const btn = (dir: NeighborDir, label: string, tip: string) => exploreButton(m, t, dir, label, tip);
-  return (
-    <div class="exrow">{btn('up', '◀ back refs', 'Add the instances this one depends on')}{btn('down', 'forward refs ▶', 'Add the instances that depend on this one')}
-      {t !== id ? <div class="muted small" style="width:100%">applies to the instance node {t}</div> : ''}</div>
-  );
+/** The explore buttons for the selected id. Rendered reactively, so it follows level, mode and explore state. */
+function ExploreRow(props: { id: string }) {
+  const renderExploreRow = (): SolidElement => {
+    const plan = resolveExploreTarget(exploreContext(), props.id);
+    if (plan.kind === 'none') return '';
+    if (plan.kind === 'hint') return <div class="muted small" style="margin:6px 0">{plan.message}</div>;
+    const m = need(model());
+    const btn = (dir: NeighborDir, label: string, tip: string) => exploreButton(m, plan.target, dir, label, tip);
+    if (plan.kind === 'instance') {
+      return (
+        <div class="exrow">{btn('up', '◀ back refs', 'Add the instances this one depends on')}{btn('down', 'forward refs ▶', 'Add the instances that depend on this one')}
+          {plan.appliesTo ? <div class="muted small" style="width:100%">applies to the instance node {plan.appliesTo}</div> : ''}</div>
+      );
+    }
+    return (
+      <div class="exrow">
+        {plan.isGroup ? '' : <>{btn('up', '◀ back refs', 'Add what this depends on')}{btn('down', 'forward refs ▶', 'Add what depends on this')}</>}
+        {plan.wholeFormId ? <>{plan.isGroup ? '' : <div class="muted small" style="width:100%">Whole form <b>{formLabel(plan.wholeFormId)}</b>:</div>}
+          {btn('fup', '◀ form back refs', 'Add every field in other forms that this form depends on (with the fields in this form they feed)')}{btn('fdown', 'form forward refs ▶', 'Add every field in other forms that depends on this form (with the fields in this form they use)')}</> : ''}
+        {plan.appliesTo ? <div class="muted small" style="width:100%">applies to its form: {formLabel(plan.appliesTo)}</div> : ''}
+      </div>
+    );
+  };
+  return <>{renderExploreRow}</>;
 }
 
 // a form box (cluster) clicked in the field-level graph
-function groupDetail(fid: string) {
-  const m = need(model()), fm = m.formsById.get(fid), o = need(opts());
-  const label = fm ? fm.label : fid;
+function groupDetail(formId: string) {
+  const m = need(model()), fm = m.formsById.get(formId), o = need(opts());
+  const label = fm ? fm.label : formId;
   const linked = new Set<string>();
   m.edges.forEach((e) => { if (o.types.has(e.type) && (o.showMissing || !e.missing)) { linked.add(e.from); linked.add(e.to); } });
   const inForm = fm ? fm.fields.filter((v) => linked.has(v)) : [];
-  const seeds = ['@form:' + fid, ...(inForm.length ? inForm : fm ? fm.fields : [])];
+  const seeds = [groupIdFor(formId), ...(inForm.length ? inForm : fm ? fm.fields : [])];
   return (
-    <div><h3>{label}</h3><div class="muted small">form <code>{fid}</code> · {fm ? fm.fields.length : 0} fields · {inForm.length} with dependencies</div>
+    <div><h3>{label}</h3><div class="muted small">form <code>{formId}</code> · {fm ? fm.fields.length : 0} fields · {inForm.length} with dependencies</div>
       <p style="margin:8px 0"><button class="btn sm primary" onClick={() => { setPair(null); setFocus(''); setExplore({ level: 'field', seeds, exp: [] }); }}>Focus on this form</button></p>
-      <ExploreButtons id={'@form:' + fid} />
+      <ExploreRow id={groupIdFor(formId)} />
       <p class="muted small">Focus shows this form's linked fields only; then expand back / forward references from the whole form. Select any node to expand it individually.</p></div>
   );
 }
 
-function detailContent(id: string, inst?: string): SolidElement {
-  // an expanded field node of the Instances view is `variable@@instanceId`: show the field, explore its instance
-  const at = !inst ? id.indexOf('@@') : -1;
-  if (at > 0) return detailContent(id.slice(0, at), id.slice(at + 2));
-  if (id.startsWith('@form:')) return groupDetail(id.slice(6));
-  const m = need(model()), A = m.analysis;
-  const info = findNode(m, id);
-  if (!info && instMode()) {
-    const d = instanceDetail(id);
-    if (d) return d;
-  }
-  if (!info) { // form-level node
-    if (id === '(unknown)') return <div><h3>Undefined fields</h3><div class="muted small">fields referenced by logic but not defined in the project</div><ExploreButtons id={id} /></div>;
-    const ev = (m.parsed.events || []).find((x) => x.id === id);
-    if (ev) return eventDetail(ev);
-    const fm = m.formsById.get(id);
-    if (!fm) return '';
-    const cross = m.edges.filter((e) => !e.missing && e.type !== 'logicsrc' && (nodeInfo(m, e.from).form === id) !== (nodeInfo(m, e.to).form === id));
-    return (
-      <div><h3>{fm.label}</h3><div class="muted small">form <code>{fm.id}</code> · {fm.fields.length} fields{formIsRepeating(m.parsed, fm) ? ' · repeating' + (repEvents(m.parsed, fm) ? ' in ' + repEvents(m.parsed, fm) : '') : ''}</div>
-        {instMode() ? '' : <p style="margin:8px 0"><button class="btn sm primary" onClick={() => toggleExpandForm(id)}>{expanded().has(id) ? 'Collapse back to form' : 'Zoom into fields'}</button></p>}
-        <ExploreButtons id={id} />
-        <h4>Cross-form dependencies ({cross.length})</h4>
-        {cross.length ? cross.map((e) => <div class="small" style="margin-bottom:6px">
-          <button class="fieldlink" onClick={() => setSelected(e.from)}>{e.from}</button> → <button class="fieldlink" onClick={() => setSelected(e.to)}>{e.to}</button> <Tag type={e.type} /><pre>{e.expr}</pre></div>) : <span class="muted small">none</span>}</div>
-    );
-  }
-  if (isFormNode(info)) {
-    return (
-      <div><h3>Form: {info.label}</h3><div class="muted small">form display logic target</div><ExploreButtons id={inst || id} />{info.logic.map((l, i) => <>
-        <CodeBlock title="Display condition" text={l} copyable={true} /><div class="muted small" style="margin:-2px 0 8px">Applies in event{(info.logicEvents[i] || []).length === 1 ? '' : 's'}: {(info.logicEvents[i] || []).length ? (info.logicEvents[i]).map((ev) => <><code>{ev}</code> </>) : 'all events'}</div></>)}</div>
-    );
-  }
-  if (isLogicNode(info)) {
-    const reads = A.inn.get(id) ?? [];
-    return (
-      <div><h3>{info.label}</h3><div class="muted small">logic source · <code>{info.kind}</code></div><ExploreButtons id={inst || id} />
-        <CodeBlock title="Logic" text={info.logic} copyable={true} />
-        <h4>Reads fields ({reads.length})</h4><Chips items={reads.map((e) => ({ id: e.from, t: e.type }))} /></div>
-    );
-  }
-  if (isGhost(info)) {
-    return <div><h3>{id}</h3><div class="muted small">Referenced but not defined in this project</div><ExploreButtons id={inst || id} /><h4>Used by</h4><Chips items={(A.out.get(id) ?? []).map((e) => ({ id: e.to, t: e.type }))} /></div>;
-  }
-  const f: Field = info;
+function undefinedFieldsDetail(id: string) {
+  return <div><h3>Undefined fields</h3><div class="muted small">fields referenced by logic but not defined in the project</div><ExploreRow id={id} /></div>;
+}
+
+// a form (not a field) clicked in the field-level graph
+function formDetail(fm: Form) {
+  const m = need(model()), id = fm.id;
+  const cross = m.edges.filter((e) => !e.missing && e.type !== 'logicsrc' && (nodeInfo(m, e.from).form === id) !== (nodeInfo(m, e.to).form === id));
+  const repeatingIn = repEvents(m.parsed, fm);
+  return (
+    <div><h3>{fm.label}</h3><div class="muted small">form <code>{fm.id}</code> · {fm.fields.length} fields{formIsRepeating(m.parsed, fm) ? ' · repeating' + (repeatingIn ? ' in ' + repeatingIn : '') : ''}</div>
+      {instMode() ? '' : <p style="margin:8px 0"><button class="btn sm primary" onClick={() => toggleExpandForm(id)}>{expanded().has(id) ? 'Collapse back to form' : 'Zoom into fields'}</button></p>}
+      <ExploreRow id={id} />
+      <Section title="Cross-form dependencies" count={cross.length} empty={!cross.length}>
+        {cross.map((e) => <EdgeRow edge={e} onOpen={(x) => setSelected(x)} />)}
+      </Section></div>
+  );
+}
+
+function formDisplayLogicDetail(info: FormNode, exploreId: string) {
+  return (
+    <div><h3>Form: {info.label}</h3><div class="muted small">form display logic target</div><ExploreRow id={exploreId} />{info.logic.map((l, i) => <>
+      <CodeBlock title="Display condition" text={l} copyable={true} /><div class="muted small" style="margin:-2px 0 8px">Applies in event{(info.logicEvents[i] || []).length === 1 ? '' : 's'}: {(info.logicEvents[i] || []).length ? (info.logicEvents[i]).map((ev) => <><code>{ev}</code> </>) : 'all events'}</div></>)}</div>
+  );
+}
+
+function logicSourceDetail(info: LogicNode, id: string, exploreId: string) {
+  const reads = need(model()).analysis.inn.get(id) ?? [];
+  return (
+    <div><h3>{info.label}</h3><div class="muted small">logic source · <code>{info.kind}</code></div><ExploreRow id={exploreId} />
+      <CodeBlock title="Logic" text={info.logic} copyable={true} />
+      <Section title="Reads fields" count={reads.length} empty={!reads.length}>
+        <ChipList items={reads.map((e) => ({ id: e.from, t: e.type }))} />
+      </Section></div>
+  );
+}
+
+function ghostDetail(id: string, exploreId: string) {
+  const usedBy = (need(model()).analysis.out.get(id) ?? []).map((e) => ({ id: e.to, t: e.type }));
+  return (
+    <div><h3>{id}</h3><div class="muted small">Referenced but not defined in this project</div><ExploreRow id={exploreId} />
+      <Section title="Used by" empty={!usedBy.length}><ChipList items={usedBy} /></Section></div>
+  );
+}
+
+function fieldDetail(f: Field, id: string, exploreId: string) {
+  const A = need(model()).analysis;
   const up = (A.inn.get(id) ?? []).map((e) => ({ id: e.from, t: e.type }));
   const down = (A.out.get(id) ?? []).map((e) => ({ id: e.to, t: e.type }));
   return (
@@ -175,54 +204,66 @@ function detailContent(id: string, inst?: string): SolidElement {
       <div class="muted small">{f.type} · form <b>{formLabel(f.form)}</b>{f.required ? ' · required' : ''}</div>
       {f.label ? <p style="margin:6px 0">{f.label}</p> : ''}
       {f.media && (f.media.inlineImage || f.media.videoUrl) ? <div class="muted small" style="margin:6px 0">Media: {[f.media.inlineImage ? 'inline image ' + f.media.inlineImage : '', f.media.videoUrl ? 'video ' + f.media.videoUrl + (f.media.videoInline ? ' (inline)' : '') : ''].filter(Boolean).join(' · ')}</div> : ''}
-      <ExploreButtons id={inst || id} />
+      <ExploreRow id={exploreId} />
       <p style="margin:6px 0"><button class="btn sm" onClick={() => { setLevel('field'); setExplore(null); setFocus(id); }}>Focus graph on this field</button></p>
       <CodeBlock title="Branching logic" text={f.branching} copyable={true} /><CodeBlock title="Calculation" text={f.calc} copyable={true} /><CodeBlock title="Action tags / annotation" text={f.annotation} copyable={true} />
       <CodeBlock title="Section header (piping)" text={f.section} /><CodeBlock title="Field note (piping)" text={f.note} />
       {!f.branching && !f.calc && !f.annotation ? <p class="muted small">No logic code on this field.</p> : ''}
       {f.choices.length ? <div><h4>Choices</h4><pre>{f.choices.map((c) => c.code + ', ' + c.label).join('\n')}</pre></div> : ''}
-      <h4>Depends on ({up.length})</h4><Chips items={up} /><h4>Used by ({down.length})</h4><Chips items={down} /></div>
+      <Section title="Depends on" count={up.length} empty={!up.length}><ChipList items={up} /></Section>
+      <Section title="Used by" count={down.length} empty={!down.length}><ChipList items={down} /></Section></div>
+  );
+}
+
+function eventLabel(events: EventDef[], eventId: string | null | undefined): string {
+  const event = events.find((x) => x.id === eventId);
+  return event ? event.label : eventId || '';
+}
+
+function instanceNodeFormLabel(model: Model, node: { form: string; id: string }): string {
+  const form = model.formsById.get(node.form);
+  return form ? form.label : node.form || node.id;
+}
+
+function instanceNodeLabel(model: Model, nodes: ViewNode[], nodeId: string): string {
+  const node = nodes.find((y) => y.id === nodeId);
+  return node ? (instanceNodeFormLabel(model, node) + (node.event ? ' @ ' + eventLabel(model.parsed.events || [], node.event) : '')) : nodeId;
+}
+
+function EdgeFlags(props: { edge: ViewEdge }) {
+  return (['cross', 'mismatch', 'relative', 'crossArm'] as const)
+    .filter((k) => props.edge[k])
+    .map((k) => <><span class="tag" style="background:#6b7280">{k === 'crossArm' ? 'cross-arm' : k}</span> </>);
+}
+
+function InstanceEdgeRow(props: { edge: ViewEdge; other: string; label: string }) {
+  return (
+    <div class="small" style="margin-bottom:4px"><button class="fieldlink" onClick={() => setSelected(props.other)}>{props.label}</button> <EdgeFlags edge={props.edge} /></div>
   );
 }
 
 /** A node of the Instances view: a form@event node, or a plain form id when the form is in one event. */
-function instanceDetail(id: string) {
-  const v = view(), m = need(model());
-  if (!v || !v.instances) return '';
-  const nodes = [...(v.nodes || []), ...(v.expandedNodes || [])].filter((x) => !x.field);
-  const n = nodes.find((x) => x.id === id);
-  if (!n || !n.form) return '';
-  const fm = m.formsById.get(n.form), evs = m.parsed.events || [];
-  const evLabel = (eid: string | null | undefined): string => {
-    const e = evs.find((x) => x.id === eid);
-    return e ? e.label : eid || '';
-  };
-  const fm0 = (x: { form: string; id: string }): string => {
-    const f = m.formsById.get(x.form);
-    return f ? f.label : x.form || x.id;
-  };
-  const nlabel = (nid: string): string => {
-    const x = nodes.find((y) => y.id === nid);
-    return x ? (fm0(x) + (x.event ? ' @ ' + evLabel(x.event) : '')) : nid;
-  };
-  const others = nodes.filter((x) => x.form === n.form && x.id !== n.id);
+function instanceDetail(node: ViewNode) {
+  const v = need(view()), m = need(model());
+  const nodes = viewInstanceNodes(v);
+  const id = node.id;
+  const fm = m.formsById.get(node.form), evs = m.parsed.events || [];
+  const others = nodes.filter((x) => x.form === node.form && x.id !== node.id);
   const ie: ViewEdge[] = v.instEdges || v.edges || [];
   const inn = ie.filter((e) => e.to === id && e.from !== id);
   const out = ie.filter((e) => e.from === id && e.to !== id);
-  const flags = (e: ViewEdge) => (['cross', 'mismatch', 'relative', 'crossArm'] as const)
-    .filter((k) => e[k])
-    .map((k) => <><span class="tag" style="background:#6b7280">{k === 'crossArm' ? 'cross-arm' : k}</span> </>);
-  const row = (e: ViewEdge, other: string) => (
-    <div class="small" style="margin-bottom:4px"><button class="fieldlink" onClick={() => setSelected(other)}>{nlabel(other)}</button> {flags(e)}</div>
-  );
   return (
-    <div><h3>{fm ? fm.label : n.form}{n.event ? ' @ ' + evLabel(n.event) : ''}</h3>
-      <div class="muted small">form <code>{n.form}</code>{n.event ? <> · event <code>{n.event}</code></> : ''}{fm ? ' · ' + fm.fields.length + ' fields' : ''}{fm && (n.event ? isRepeatingInstance(m.parsed, fm, n.event) : fm.repeating) ? ' · repeating' : ''}</div>
+    <div><h3>{fm ? fm.label : node.form}{node.event ? ' @ ' + eventLabel(evs, node.event) : ''}</h3>
+      <div class="muted small">form <code>{node.form}</code>{node.event ? <> · event <code>{node.event}</code></> : ''}{fm ? ' · ' + fm.fields.length + ' fields' : ''}{fm && (node.event ? isRepeatingInstance(m.parsed, fm, node.event) : fm.repeating) ? ' · repeating' : ''}</div>
       <p style="margin:8px 0"><button class="btn sm primary" onClick={() => toggleExpandForm(id)}>{expanded().has(id) ? 'Collapse back to form' : 'Zoom into fields'}</button></p>
-      <ExploreButtons id={id} />
-      {others.length ? <><h4>Also collected in ({others.length})</h4><div class="chips">{others.map((x) => <button class="chip" onClick={() => setSelected(x.id)}>{evLabel(x.event)}</button>)}</div></> : ''}
-      <h4>Incoming from other instances ({inn.length})</h4>{inn.length ? inn.map((e) => row(e, e.from)) : <span class="muted small">none</span>}
-      <h4>Outgoing to other instances ({out.length})</h4>{out.length ? out.map((e) => row(e, e.to)) : <span class="muted small">none</span>}</div>
+      <ExploreRow id={id} />
+      {others.length ? <><h4>Also collected in ({others.length})</h4><div class="chips">{others.map((x) => <button class="chip" onClick={() => setSelected(x.id)}>{eventLabel(evs, x.event)}</button>)}</div></> : ''}
+      <Section title="Incoming from other instances" count={inn.length} empty={!inn.length}>
+        {inn.map((e) => <InstanceEdgeRow edge={e} other={e.from} label={instanceNodeLabel(m, nodes, e.from)} />)}
+      </Section>
+      <Section title="Outgoing to other instances" count={out.length} empty={!out.length}>
+        {out.map((e) => <InstanceEdgeRow edge={e} other={e.to} label={instanceNodeLabel(m, nodes, e.to)} />)}
+      </Section></div>
   );
 }
 
@@ -233,15 +274,17 @@ function eventDetail(ev: EventDef) {
   const inn = m.edges.filter((e) =>
     m.parsed.events.some((x) => x.forms.includes(nodeInfo(m, e.to).form) && x.id === ev.id) && (e.events || []).some((x) => x !== ev.id));
   const repInstr = (m.parsed.repeatingInstruments || []).filter((r) => r.event === ev.id);
-  const row = (e: Edge) => (
-    <div class="small" style="margin-bottom:6px"><button class="fieldlink" onClick={() => jumpToField(e.from)}>{e.from}</button> → <button class="fieldlink" onClick={() => jumpToField(e.to)}>{e.to}</button> <Tag type={e.type} /> <span class="muted">{(e.events || []).join(', ')}</span><pre>{e.expr}</pre></div>
-  );
+  const eventsOf = (e: Edge) => <span class="muted">{(e.events || []).join(', ')}</span>;
   return (
     <div><h3>{ev.label}</h3><div class="muted small">event <code>{ev.id}</code>{ev.arm ? ' · arm ' + ev.arm + (ev.armName ? ' (' + ev.armName + ')' : '') : ''}{ev.repeating ? ' · repeating' : ''}</div>
       <p class="small" style="margin:6px 0">Forms: {ev.forms.map(formLabel).join(', ') || 'none'}</p>
       {repInstr.length ? <p class="small" style="margin:6px 0">Repeating instruments: {repInstr.map((r) => r.label || formLabel(r.form)).join(', ')}</p> : ''}
-      <h4>Read from this event ({out.length})</h4>{out.length ? out.map(row) : <span class="muted small">none</span>}
-      <h4>Reads other events ({inn.length})</h4>{inn.length ? inn.map(row) : <span class="muted small">none</span>}</div>
+      <Section title="Read from this event" count={out.length} empty={!out.length}>
+        {out.map((e) => <EdgeRow edge={e} onOpen={(x) => jumpToField(x)} detail={eventsOf(e)} />)}
+      </Section>
+      <Section title="Reads other events" count={inn.length} empty={!inn.length}>
+        {inn.map((e) => <EdgeRow edge={e} onOpen={(x) => jumpToField(x)} detail={eventsOf(e)} />)}
+      </Section></div>
   );
 }
 
@@ -269,6 +312,37 @@ function edgeDetail(ed: FormPair) {
       </div>)}
     </div>
   );
+}
+
+/** Facts about one id for the classifier: its model node, Instances node, event and form. */
+function lookUpDetailFacts(id: string): DetailFacts {
+  const m = need(model());
+  const node = findNode(m, id);
+  return {
+    node,
+    instanceNode: node || !instMode() ? undefined : instanceNodeFor(id),
+    event: (m.parsed.events || []).find((x) => x.id === id),
+    form: m.formsById.get(id),
+  };
+}
+
+function detailContent(selectedId: string): SolidElement {
+  const classified = classifyDetail(parseSelection(selectedId), lookUpDetailFacts);
+  if (classified.kind === 'group') return groupDetail(classified.formId);
+  const { id, instanceId, facts } = classified;
+  // an instance-expanded field explores its instance; otherwise the node itself
+  const exploreId = instanceId || id;
+  switch (classified.kind) {
+    case 'instance': return instanceDetail(need(facts.instanceNode));
+    case 'undefinedFields': return undefinedFieldsDetail(id);
+    case 'event': return eventDetail(need(facts.event));
+    case 'form': return formDetail(need(facts.form));
+    case 'formDisplayLogic': return formDisplayLogicDetail(facts.node as FormNode, exploreId);
+    case 'logicSource': return logicSourceDetail(facts.node as LogicNode, id, exploreId);
+    case 'ghost': return ghostDetail(id, exploreId);
+    case 'field': return fieldDetail(facts.node as Field, id, exploreId);
+    case 'none': return '';
+  }
 }
 
 export default function Detail() {

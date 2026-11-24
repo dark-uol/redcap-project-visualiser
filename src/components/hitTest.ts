@@ -1,4 +1,5 @@
 /* Decides what a click on the graph stage means, without touching app state. */
+import { groupIdFor } from '../lib/selection';
 import type { View } from '../lib/types';
 import { EDGE_SEL, clusterIndex, closestEl, edgeKey, isFormLike, nodeKey } from './svgDom';
 
@@ -29,7 +30,7 @@ export const resolveClick = (target: EventTarget | null, view: View, isForm: (id
   if (cluster && (view.level === 'field' || view.mixed)) {
     const groupIndex = clusterIndex(cluster);
     const group = groupIndex == null ? undefined : view.groups[groupIndex];
-    return group && !group.noSelect ? { type: 'select', id: view.mixed ? group.id : '@form:' + group.id } : { type: 'none' };
+    return group && !group.noSelect ? { type: 'select', id: view.mixed ? group.id : groupIdFor(group.id) } : { type: 'none' };
   }
   return closestEl(target, `${EDGE_SEL}, .edgeLabel`) ? { type: 'none' } : { type: 'clear' };
 };

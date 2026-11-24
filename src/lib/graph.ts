@@ -1,5 +1,6 @@
 /* Dependency model, analysis (cycles, depth, hubs) and view building. */
 import { extractRefs, extractSmart } from './parser';
+import { groupFormIdOf, instanceFieldIdFor, instanceIdFor } from './selection';
 import type {
   Analysis, DepType, Edge, EventDef, Field, Form, FormNode, GhostNode, LogicNode, Model, ModelBase,
   NeighborDir, NodeInfo, ParsedODM, TypeMeta, View, ViewEdge, ViewFilter, ViewGroup, ViewNode, ViewOptions,
@@ -422,7 +423,7 @@ function instanceCtx(model: Model, o: ViewFilter, formOf: (v: string) => string)
     const list = hostsOf.get(f) as EventDef[];
     if (!list.includes(ev)) list.push(ev);
   }));
-  const idOf = (form: string, ev: EventDef): string => ((hostsOf.get(form) || []).length >= 2 ? form + '@' + ev.id : form);
+  const idOf = (form: string, ev: EventDef): string => ((hostsOf.get(form) || []).length >= 2 ? instanceIdFor(form, ev.id) : form);
   const insts = (form: string): Inst[] => (hostsOf.get(form) || []).map((ev) => ({ id: idOf(form, ev), ev }));
   const pairs = (e: Edge): InstPair[] => {
     const fa = formOf(e.from), fb = formOf(e.to), res: InstPair[] = [];
@@ -467,7 +468,7 @@ function instanceCtx(model: Model, o: ViewFilter, formOf: (v: string) => string)
 function instancesView(model: Model, edges: Edge[], o: ViewOptions, formOf: (v: string) => string, ex: Set<string> | null): View {
   const { hostsOf, idOf, pairs } = instanceCtx(model, o, formOf);
   const xp = o.expanded && o.expanded.size ? o.expanded : null;
-  const fid = (v: string, inst: string): string => v + '@@' + inst;
+  const fid = (v: string, inst: string): string => instanceFieldIdFor(v, inst);
   const relRe = /^(previous|next)-/;
   const merged = new Map<string, EdgeAcc>(), imerged = new Map<string, EdgeAcc>();
   const usedF = new Map<string, Set<string>>(); // expanded instance id -> variables
@@ -675,7 +676,7 @@ export function neighbors(model: Model, o: ViewFilter, id: string, dir: Neighbor
     return [...out];
   }
   if (dir === 'fup' || dir === 'fdown') { // field level: every cross-form link into / out of this node's form (both endpoints)
-    const F = id.startsWith('@form:') ? id.slice(6) : formOf(id);
+    const F = groupFormIdOf(id) ?? formOf(id);
     model.edges.forEach((e) => {
       if (!o.types.has(e.type) || (!o.showMissing && e.missing) || e.type === 'logicsrc') return;
       const fa = formOf(e.from), fb = formOf(e.to);
