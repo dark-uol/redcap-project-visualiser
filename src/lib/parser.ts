@@ -67,10 +67,17 @@ export function extractRefs(text: string | null | undefined): RefToken[] {
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) toks.push({ raw: m[1], start: m.index, end: m.index + m[0].length });
   toks.forEach((t, i) => {
-    const p = /^([A-Za-z][A-Za-z0-9_]*)(?:\(([^)]*)\))?(?::([A-Za-z0-9_]+))?$/.exec(t.raw.trim());
-    if (!p) return;
     const next = toks[i + 1];
-    out.push({ name: p[1], code: p[2] || '', mod: p[3] || '', adjNext: !!(next && next.start === t.end) });
+    const adjNext = !!(next && next.start === t.end);
+    const raw = t.raw.trim();
+    // unique event names may start with a digit ([12_months_arm_1][var]); variable names cannot, so such a token is only an event prefix
+    if (adjNext && /^\d[A-Za-z0-9_]*$/.test(raw)) {
+      out.push({ name: raw, code: '', mod: '', adjNext });
+      return;
+    }
+    const p = /^([A-Za-z][A-Za-z0-9_]*)(?:\(([^)]*)\))?(?::([A-Za-z0-9_]+))?$/.exec(raw);
+    if (!p) return;
+    out.push({ name: p[1], code: p[2] || '', mod: p[3] || '', adjNext });
   });
   return out;
 }
