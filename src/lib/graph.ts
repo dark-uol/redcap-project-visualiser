@@ -2,7 +2,7 @@
 import { extractRefs, extractSmart } from './parser';
 import type {
   Analysis, DepType, Edge, EventDef, Field, Form, FormNode, GhostNode, LogicNode, Model, ModelBase,
-  NeighborDir, NodeInfo, ParsedODM, TypeMeta, View, ViewEdge, ViewGroup, ViewNode, ViewOptions,
+  NeighborDir, NodeInfo, ParsedODM, TypeMeta, View, ViewEdge, ViewFilter, ViewGroup, ViewNode, ViewOptions,
 } from './types';
 
 export type { Model } from './types';
@@ -240,7 +240,7 @@ function analyse(model: ModelBase): Analysis {
 }
 
 /** Model edges that pass the type / missing / cross-event / instance-logic filters. */
-function baseEdges(model: Model, o: ViewOptions): Edge[] {
+function baseEdges(model: Model, o: ViewFilter): Edge[] {
   let edges = model.edges.filter((e) => o.types.has(e.type) && (o.showMissing || !e.missing) && (e.type !== 'logicsrc' || o.level === 'field'));
   if (o.crossOnly) edges = edges.filter((e) => e.events && e.events.length);
   if (o.instOnly) edges = edges.filter((e) => (e.smart || []).some((x) => /-instance$/.test(x)));
@@ -360,7 +360,7 @@ export const isGhost = (n: NodeInfo): n is GhostNode => 'ghost' in n;
  * Edge = source event (the prefix) -> every event that collects the form of the field holding the logic.
  * References without a prefix stay inside one event and are not drawn (as same-form links are not at form level).
  */
-function eventView(model: Model, edges: Edge[], o: ViewOptions, formOf: (v: string) => string): View {
+function eventView(model: Model, edges: Edge[], o: ViewFilter, formOf: (v: string) => string): View {
   const events = model.parsed.events || [];
   const shown = (e: EventDef): boolean => !o.eventSet || o.eventSet.has(e.id);
   const hosts = (form: string): EventDef[] => events.filter((e) => shown(e) && e.forms.includes(form));
@@ -413,7 +413,7 @@ interface InstPair {
  * `pairs(e)` = the (source instance, target instance) pairs one model edge draws. Edges follow the event
  * qualifier ([event][var]) when present, otherwise stay within the same event.
  */
-function instanceCtx(model: Model, o: ViewOptions, formOf: (v: string) => string) {
+function instanceCtx(model: Model, o: ViewFilter, formOf: (v: string) => string) {
   const allEvents = model.parsed.events || [];
   const events = allEvents.filter((e) => !o.eventSet || o.eventSet.has(e.id));
   const hostsOf = new Map<string, EventDef[]>(); // form -> shown events collecting it
@@ -582,7 +582,7 @@ function instancesView(model: Model, edges: Edge[], o: ViewOptions, formOf: (v: 
   return view;
 }
 
-function formView(model: Model, edges: Edge[], o: ViewOptions): View {
+function formView(model: Model, edges: Edge[], o: ViewFilter): View {
   const merged = new Map<string, EdgeAcc>();
   edges.forEach((e) => {
     const a = nodeInfo(model, e.from).form, b = nodeInfo(model, e.to).form;
@@ -618,7 +618,7 @@ function formView(model: Model, edges: Edge[], o: ViewOptions): View {
 }
 
 /** Form-level view where some forms are expanded in place into their linked fields (semantic zoom). */
-function mixedView(model: Model, edges: Edge[], o: ViewOptions, formNodes: ViewNode[], xp: Set<string>): View {
+function mixedView(model: Model, edges: Edge[], o: ViewFilter, formNodes: ViewNode[], xp: Set<string>): View {
   const vis = new Set(formNodes.map((n) => n.id));
   const formOf = (v: string): string => nodeInfo(model, v).form;
   const ep = (v: string): string => (xp.has(formOf(v)) ? v : formOf(v));
@@ -661,7 +661,7 @@ function mixedView(model: Model, edges: Edge[], o: ViewOptions, formNodes: ViewN
 }
 
 /** Ids reachable in one step from `id` ('up' = what it depends on, 'down' = what depends on it) at the view's level. */
-export function neighbors(model: Model, o: ViewOptions, id: string, dir: NeighborDir): string[] {
+export function neighbors(model: Model, o: ViewFilter, id: string, dir: NeighborDir): string[] {
   const formOf = (v: string): string => nodeInfo(model, v).form;
   const key = o.level === 'form' ? formOf : (v: string) => v;
   const out = new Set<string>();
