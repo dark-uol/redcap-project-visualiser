@@ -1,9 +1,9 @@
 /* Serialise a view to Mermaid and Graphviz DOT. */
 import { TYPES, nodeInfo } from './graph.js';
 
-const PRIORITY = ['branching', 'calc', 'formlogic', 'actiontag', 'piping'];
-const KIND_FILL = { field: '#dbeafe', calc: '#ffedd5', form: '#e5e7eb', missing: '#fee2e2', status: '#dcfce7' };
-const KIND_STROKE = { field: '#3b82f6', calc: '#f97316', form: '#6b7280', missing: '#dc2626', status: '#16a34a' };
+const PRIORITY = ['branching', 'calc', 'formlogic', 'actiontag', 'piping', 'logicsrc'];
+const KIND_FILL = { field: '#dbeafe', calc: '#ffedd5', form: '#e5e7eb', missing: '#fee2e2', status: '#dcfce7', logic: '#fce7f3' };
+const KIND_STROKE = { field: '#3b82f6', calc: '#f97316', form: '#6b7280', missing: '#dc2626', status: '#16a34a', logic: '#be185d' };
 
 // line width for form-level edges: 1px for one field, growing logarithmically (cap 10px)
 const widthOf = (e, view) => ((view.level === 'form' || view.level === 'event') && !e.fieldLevel ? Math.min(10, 1 + 1.6 * Math.log2(Math.max(1, e.count))) : null);
@@ -113,7 +113,15 @@ function toDot(view, o) {
 function toCsv(model, edges) {
   const q = (s) => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
   const rows = [['source_field', 'source_form', 'dependent_field', 'dependent_form', 'dependency_type', 'expression']];
-  edges.forEach((e) => rows.push([e.from, nodeInfo(model, e.from).form, e.to, nodeInfo(model, e.to).form, e.type, e.expr]));
+  edges.forEach((e) => {
+    const t = nodeInfo(model, e.to);
+    const logic = t && t.logicNode;
+    rows.push([
+      e.from, nodeInfo(model, e.from).form,
+      logic ? t.label || e.to : e.to, logic ? '' : t.form,
+      logic ? 'logic source' + (t.kind ? ': ' + t.kind : '') : e.type, e.expr,
+    ]);
+  });
   return rows.map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
 }
 export { toMermaid, toDot, toCsv };

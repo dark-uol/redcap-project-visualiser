@@ -5,7 +5,7 @@ import { model, view, groupBy, mxCell, setMxCell, setSelected } from '../store.j
 import Detail from './Detail.jsx';
 
 const L = 230, T = 130, MAXN = 6000, MAXPX = 14000;
-const prim = (e) => ['branching', 'calc', 'formlogic', 'actiontag', 'piping'].find((t) => e.types.includes(t));
+const prim = (e) => ['branching', 'calc', 'formlogic', 'actiontag', 'piping', 'logicsrc'].find((t) => e.types.includes(t));
 
 export default function MatrixTab() {
   let cv;

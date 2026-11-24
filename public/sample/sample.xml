@@ -25,8 +25,12 @@
 		<FormRef FormOID="Form.demographics" OrderNumber="1" Mandatory="No" redcap:FormName="demographics"/>
 	</StudyEventDef>
 	<StudyEventDef OID="Event.followup_arm_2" Name="Follow-up" Type="Common" Repeating="No" redcap:EventName="Follow-up" redcap:UniqueEventName="followup_arm_2" redcap:ArmNum="2" redcap:ArmName="Partner" redcap:DayOffset="30">
+		<FormRef FormOID="Form.baseline" OrderNumber="2" Mandatory="No" redcap:FormName="baseline"/>
 		<FormRef FormOID="Form.followup" OrderNumber="1" Mandatory="No" redcap:FormName="followup"/>
 	</StudyEventDef>
+	<redcap:RepeatingInstruments>
+		<redcap:RepeatingInstrument redcap:UniqueEventName="baseline_arm_1" redcap:FormName="baseline" redcap:CustomLabel="[visit_date]"/>
+	</redcap:RepeatingInstruments>
 	<FormDef OID="Form.demographics" Name="Demographics" Repeating="No" redcap:FormName="demographics">
 		<ItemGroupRef ItemGroupOID="demographics.record_id" Mandatory="No"/>
 		<ItemGroupRef ItemGroupOID="demographics.dob" Mandatory="No"/>
@@ -112,6 +116,9 @@
 		<ItemRef ItemOID="sc_img" Mandatory="No" redcap:Variable="sc_img"/>
 		<ItemRef ItemOID="sc_table" Mandatory="No" redcap:Variable="sc_table"/>
 		<ItemRef ItemOID="sc_ghost" Mandatory="No" redcap:Variable="sc_ghost"/>
+		<ItemRef ItemOID="sc_fmt_only" Mandatory="No" redcap:Variable="sc_fmt_only"/>
+		<ItemRef ItemOID="sc_media_video" Mandatory="No" redcap:Variable="sc_media_video"/>
+		<ItemRef ItemOID="sc_media_image" Mandatory="No" redcap:Variable="sc_media_image"/>
 	</ItemGroupDef>
 
 	<ItemDef OID="record_id" Name="record_id" DataType="text" Length="999" redcap:Variable="record_id" redcap:FieldType="text">
@@ -293,6 +300,15 @@
 	<ItemDef OID="sc_ghost" Name="sc_ghost" DataType="text" Length="999" redcap:Variable="sc_ghost" redcap:FieldType="text" redcap:BranchingLogic="[nonexistent_gate] = '1'" redcap:FieldAnnotation="@DEFAULT='[missing_default]'" redcap:SectionHeader="Header with [missing_header]">
 		<Question><TranslatedText>Piped [missing_pipe]</TranslatedText></Question>
 	</ItemDef>
+	<ItemDef OID="sc_fmt_only" Name="sc_fmt_only" DataType="text" Length="999" redcap:Variable="sc_fmt_only" redcap:FieldType="text">
+		<Question><FormattedTranslatedText>&lt;b&gt;Formatted-only&lt;/b&gt; label</FormattedTranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_media_video" Name="sc_media_video" DataType="text" Length="999" redcap:Variable="sc_media_video" redcap:FieldType="descriptive" redcap:VideoUrl="https://example.org/videos/intro" redcap:VideoDisplayInline="Y">
+		<Question><TranslatedText>Intro video</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_media_image" Name="sc_media_image" DataType="text" Length="999" redcap:Variable="sc_media_image" redcap:FieldType="descriptive" redcap:InlineImage="consent_diagram.png">
+		<Question><TranslatedText>Consent diagram</TranslatedText></Question>
+	</ItemDef>
 
 	<CodeList OID="sex.choices" Name="sex" DataType="text">
 		<CodeListItem CodedValue="1"><Decode><TranslatedText>Male</TranslatedText></Decode></CodeListItem>
@@ -320,6 +336,13 @@
 		<redcap:FormDisplayLogicConditions redcap:apply_to_data_entry="1" redcap:apply_to_survey="0" redcap:apply_to_mycap="0" redcap:control_condition="[consent] = '1'" redcap:forms_events="baseline_arm_1:screening,followup_arm_1:followup"/>
 		<redcap:FormDisplayLogicConditions redcap:apply_to_data_entry="1" redcap:apply_to_survey="1" redcap:apply_to_mycap="0" redcap:control_condition="[demographics_complete] = '2' and [undefined_gate] = '1'" redcap:forms_events="baseline_arm_1:baseline"/>
 	</redcap:FormDisplayLogicConditionsGroup>
+	<!-- SYNTHETIC logic sources for testing: element/attribute names are guesses, not a verified REDCap export format. -->
+	<redcap:AlertsGroup>
+		<redcap:Alert redcap:AlertTitle="Synthetic consent alert" redcap:AlertCondition="[consent] = '1' and [record_id] != ''" redcap:AlertMessage="Consent recorded"/>
+	</redcap:AlertsGroup>
+	<redcap:SurveyQueueGroup>
+		<redcap:SurveyQueueItem redcap:Name="Synthetic follow-up queue" redcap:ActiveConditionLogic="[consent] = '1'"/>
+	</redcap:SurveyQueueGroup>
 </MetaDataVersion>
 </Study>
 </ODM>

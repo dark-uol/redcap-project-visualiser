@@ -6,12 +6,36 @@ function attr(el, name) {
   for (const a of el.attributes) if ((a.localName || a.name).toLowerCase() === l) return a.value;
   return '';
 }
+// tolerant lookup: attribute or child element whose local name equals (preferred) or contains `word`
+function mediaVal(el, word) {
+  const w = word.toLowerCase();
+  let hit = null;
+  const consider = (name, val) => {
+    const n = name.toLowerCase();
+    if (!n.includes(w) || !(val || '').trim()) return;
+    if (!hit || (n === w && !hit.exact)) hit = { exact: n === w, val: val.trim() };
+  };
+  for (const a of el.attributes) consider(a.localName || a.name, a.value);
+  for (const c of el.children) consider(lname(c), c.textContent);
+  return hit ? hit.val : '';
+}
 function kids(el, name) {
   const l = name.toLowerCase();
   return Array.from(el.children).filter((c) => lname(c).toLowerCase() === l);
 }
 function all(doc, name) { return Array.from(doc.getElementsByTagNameNS('*', name)); }
 const stripHtml = (s) => (s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+const ENTITIES = {
+  nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", ndash: '–', mdash: '—', hellip: '…',
+  lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”', copy: '©', reg: '®', trade: '™',
+  middot: '·', bull: '•',
+};
+/** stripHtml + single-pass decode of numeric and common named entities (labels only, never logic). */
+const cleanLabel = (s) => stripHtml(s).replace(/&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|([A-Za-z]+));/g, (m, d, h, n) => {
+  if (n) return Object.prototype.hasOwnProperty.call(ENTITIES, n) ? ENTITIES[n] : m;
+  const cp = d ? parseInt(d, 10) : parseInt(h, 16);
+  return cp > 0 && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff) ? String.fromCodePoint(cp) : m;
+}).replace(/\s+/g, ' ').trim();
 
 /**
  * Find [variable] references in a REDCap logic / piping / action-tag string.
@@ -81,6 +105,60 @@ function parseFormDisplayLogic(doc, forms) {
   return deepest.map((x) => x.r).filter((r) => { const k = r.logic + '|' + r.forms.join(); if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
+// Logic outside fields (alerts, survey queue, ...). Element names are NOT verified against a real export, so match tolerantly.
+const LOGIC_KINDS = [
+  ['survey-queue', /SurveyQueue/i], ['alert', /Alert/i], ['scheduler', /Scheduler/i], ['report', /Report/i],
+  ['dashboard', /Dashboard/i], ['econsent', /EConsent/i], ['pdf-snapshot', /PdfSnapshot/i],
+];
+const LOGIC_MATCH = /Alert|SurveyQueue|Scheduler|Report|Dashboard|EConsent|PdfSnapshot/i;
+function parseLogicSources(doc) {
+  const out = [], counts = {};
+  // A logic element yields a source from its own attributes/text plus non-logic descendants.
+  // Logic-named children are processed recursively, so wrappers (AlertsGroup > Alert) contribute only their children.
+  const process = (el) => {
+    const ln = lname(el);
+    if (!LOGIC_MATCH.test(ln) || /FormDisplayLogic/i.test(ln)) return;
+    let label = '';
+    const vals = [];
+    for (const a of el.attributes) {
+      const n = a.localName || a.name;
+      if (!label && /(name|title|label)$/i.test(n) && !/form/i.test(n) && a.value.trim()) label = a.value.trim();
+      else vals.push(a.value);
+    }
+    for (const n of el.childNodes) if (n.nodeType === 3 || n.nodeType === 4) vals.push(n.nodeValue);
+    // descendants: attributes + leaf text; nested logic-source elements are separate sources, so skip their subtrees
+    const walk = (p) => {
+      for (const c of p.children) {
+        if (LOGIC_MATCH.test(lname(c)) && !/FormDisplayLogic/i.test(lname(c))) { process(c); continue; }
+        for (const a of c.attributes) vals.push(a.value);
+        if (!c.children.length) vals.push(c.textContent);
+        else {
+          for (const n of c.childNodes) if (n.nodeType === 3 || n.nodeType === 4) vals.push(n.nodeValue);
+          walk(c);
+        }
+      }
+    };
+    walk(el);
+    const logics = vals.map((v) => (v || '').trim()).filter((v) => v && extractRefs(v).length);
+    if (!logics.length) return;
+    const logic = logics.join('\n');
+    const refs = [...new Set(extractRefs(logic).map((r) => r.name))];
+    const kind = (LOGIC_KINDS.find(([, re]) => re.test(ln)) || ['other'])[0];
+    counts[kind] = (counts[kind] || 0) + 1;
+    out.push({ id: kind + '-' + counts[kind], kind, label: label || ln, logic, refs });
+  };
+  // start only from top-level logic elements (no logic-named ancestor), so nothing is processed twice
+  Array.from(doc.getElementsByTagNameNS('*', '*')).forEach((el) => {
+    if (!LOGIC_MATCH.test(lname(el)) || /FormDisplayLogic/i.test(lname(el))) return;
+    for (let p = el.parentElement; p; p = p.parentElement) {
+      const pn = lname(p);
+      if (LOGIC_MATCH.test(pn) && !/FormDisplayLogic/i.test(pn)) return;
+    }
+    process(el);
+  });
+  return out;
+}
+
 function parseODM(text) {
   const doc = new DOMParser().parseFromString(text, 'application/xml');
   const err = doc.getElementsByTagName('parsererror')[0];
@@ -118,31 +196,37 @@ function parseODM(text) {
   all(doc, 'FormDef').forEach((fd) => {
     const oid = attr(fd, 'OID');
     const id = attr(fd, 'FormName') || oid.replace(/^Form\./, '');
-    const form = { id, label: attr(fd, 'Name') || id, fields: [] };
+    const form = { id, label: attr(fd, 'Name') || id, repeating: /^y/i.test(attr(fd, 'Repeating')), fields: [] };
     kids(fd, 'ItemGroupRef').forEach((r) => {
       (groupItems[attr(r, 'ItemGroupOID')] || []).forEach((io) => { if (!(io in itemForm)) itemForm[io] = form; });
     });
     forms.push(form);
   });
-  const noForm = { id: '(no form)', label: '(no form)', fields: [] };
+  const noForm = { id: '(no form)', label: '(no form)', repeating: false, fields: [] };
+  const repeatingInstruments = all(doc, 'RepeatingInstrument').map((ri) => ({
+    form: attr(ri, 'FormName'), event: attr(ri, 'UniqueEventName'), label: attr(ri, 'CustomLabel'),
+  }));
 
   const fields = [];
   const seenVars = new Set();
   all(doc, 'ItemDef').forEach((it) => {
     const oid = attr(it, 'OID');
     const variable = attr(it, 'Variable') || attr(it, 'Name') || oid;
-    const q = all(it, 'TranslatedText')[0];
+    const qPlain = all(it, 'TranslatedText')[0];
+    const plainText = qPlain ? stripHtml(qPlain.textContent) : '';
+    const qFmt = plainText ? null : all(it, 'FormattedTranslatedText').find((x) => cleanLabel(x.textContent)) || null;
     let calc = attr(it, 'Calculation');
     if (!calc) {
       for (const a of it.attributes) if (/calc/i.test(a.localName || a.name) && !/type/i.test(a.localName || a.name)) calc = a.value;
       for (const c of it.children) if (/calc/i.test(lname(c)) && c.children.length === 0) calc = calc || c.textContent;
     }
     const clRef = kids(it, 'CodeListRef')[0];
+    const media = { inlineImage: mediaVal(it, 'InlineImage'), videoUrl: mediaVal(it, 'VideoUrl'), videoInline: /^(y|yes|true|1)$/i.test(mediaVal(it, 'VideoDisplayInline')) };
     const f = {
       variable,
       oid,
       type: attr(it, 'FieldType') || attr(it, 'DataType'),
-      label: stripHtml(q ? q.textContent : ''),
+      label: plainText || cleanLabel(qFmt ? qFmt.textContent : ''),
       section: stripHtml(attr(it, 'SectionHeader')),
       note: stripHtml(attr(it, 'FieldNote')),
       branching: attr(it, 'BranchingLogic'),
@@ -150,6 +234,7 @@ function parseODM(text) {
       annotation: attr(it, 'FieldAnnotation'),
       required: /^y/i.test(attr(it, 'RequiredField')),
       choices: clRef ? codeLists[attr(clRef, 'CodeListOID')] || [] : [],
+      media,
       form: null,
     };
     // checkbox fields are exported as one ItemDef per option (var___1, var___2…): merge by variable
@@ -183,7 +268,7 @@ function parseODM(text) {
   });
   const arms = [];
   events.forEach((e) => { if (e.arm && !arms.some((a) => a.num === e.arm)) arms.push({ num: e.arm, name: e.armName || 'Arm ' + e.arm }); });
-  return { projectName: projectName || 'REDCap project', redcapVersion, forms, fields, formLogic, events, arms };
+  return { projectName: projectName || 'REDCap project', redcapVersion, forms, fields, formLogic, logicSources: parseLogicSources(doc), events, arms, repeatingInstruments };
 }
 
 /** Smart variables ([event-name], [current-instance] …): hyphenated tokens, skipped by extractRefs. */

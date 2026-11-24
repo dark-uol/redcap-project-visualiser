@@ -1,12 +1,17 @@
 /* Detail panel: logic code, explore buttons, form / instance / event / edge summaries. */
 import { Show } from 'solid-js';
-import { TYPES, nodeInfo, neighbors } from '../lib/graph.js';
+import { TYPES, nodeInfo, neighbors, isRepeatingInstance, formIsRepeating } from '../lib/graph.js';
 import {
   model, view, opts, level, selected, selEdge, setSelEdge, setSelected, setLevel, setFocus, setPair, setExplore, expanded,
   curEx, exVisible, instMode, formLabel, expandRef, collapseRef, toggleExpandForm, jumpToField,
 } from '../store.js';
 
 const TOKEN_RE = /(\[[A-Za-z][A-Za-z0-9_]*(?:\([^)\]]*\))?(?::[A-Za-z0-9_]+)?\])/;
+
+function repEvents(parsed, fm) {
+  const evs = (parsed.repeatingInstruments || []).filter((r) => r.form === fm.id).map((r) => r.event);
+  return [...new Set(evs)].map((id) => ((parsed.events || []).find((e) => e.id === id) || { label: id }).label).join(', ');
+}
 
 function Tag(props) {
   return <span class="tag" style={`background:${TYPES[props.type].color}`}>{props.type}</span>;
@@ -112,9 +117,9 @@ function detailContent(id, inst) {
     const ev = (m.parsed.events || []).find((x) => x.id === id);
     if (ev) return eventDetail(ev);
     const fm = m.formsById.get(id); if (!fm) return '';
-    const cross = m.edges.filter((e) => !e.missing && (nodeInfo(m, e.from).form === id) !== (nodeInfo(m, e.to).form === id));
+    const cross = m.edges.filter((e) => !e.missing && e.type !== 'logicsrc' && (nodeInfo(m, e.from).form === id) !== (nodeInfo(m, e.to).form === id));
     return (
-      <div><h3>{fm.label}</h3><div class="muted small">form <code>{fm.id}</code> · {fm.fields.length} fields</div>
+      <div><h3>{fm.label}</h3><div class="muted small">form <code>{fm.id}</code> · {fm.fields.length} fields{formIsRepeating(m.parsed, fm) ? ' · repeating' + (repEvents(m.parsed, fm) ? ' in ' + repEvents(m.parsed, fm) : '') : ''}</div>
         {instMode() ? '' : <p style="margin:8px 0"><button class="btn sm primary" onClick={() => toggleExpandForm(id)}>{expanded().has(id) ? 'Collapse back to form' : 'Zoom into fields'}</button></p>}
         <ExploreButtons id={id} />
         <h4>Cross-form dependencies ({cross.length})</h4>
@@ -128,6 +133,13 @@ function detailContent(id, inst) {
         <CodeBlock title="Display condition" text={l} copyable={true} /><div class="muted small" style="margin:-2px 0 8px">Applies in event{(info.logicEvents[i] || []).length === 1 ? '' : 's'}: {(info.logicEvents[i] || []).length ? (info.logicEvents[i]).map((ev) => <><code>{ev}</code> </>) : 'all events'}</div></>)}</div>
     );
   }
+  if (info.logicNode) {
+    return (
+      <div><h3>{info.label}</h3><div class="muted small">logic source · <code>{info.kind}</code></div><ExploreButtons id={inst || id} />
+        <CodeBlock title="Logic" text={info.logic} copyable={true} />
+        <h4>Reads fields ({A.inn.get(id).length})</h4><Chips items={A.inn.get(id).map((e) => ({ id: e.from, t: e.type }))} /></div>
+    );
+  }
   if (info.ghost) return <div><h3>{id}</h3><div class="muted small">Referenced but not defined in this project</div><ExploreButtons id={inst || id} /><h4>Used by</h4><Chips items={A.out.get(id).map((e) => ({ id: e.to, t: e.type }))} /></div>;
   const f = info;
   const up = A.inn.get(id).map((e) => ({ id: e.from, t: e.type })), down = A.out.get(id).map((e) => ({ id: e.to, t: e.type }));
@@ -136,6 +148,7 @@ function detailContent(id, inst) {
       <h3>{f.variable}</h3>
       <div class="muted small">{f.type} · form <b>{formLabel(f.form)}</b>{f.required ? ' · required' : ''}</div>
       {f.label ? <p style="margin:6px 0">{f.label}</p> : ''}
+      {f.media && (f.media.inlineImage || f.media.videoUrl) ? <div class="muted small" style="margin:6px 0">Media: {[f.media.inlineImage ? 'inline image ' + f.media.inlineImage : '', f.media.videoUrl ? 'video ' + f.media.videoUrl + (f.media.videoInline ? ' (inline)' : '') : ''].filter(Boolean).join(' · ')}</div> : ''}
       <ExploreButtons id={inst || id} />
       <p style="margin:6px 0"><button class="btn sm" onClick={() => { setLevel('field'); setExplore(null); setFocus(id); }}>Focus graph on this field</button></p>
       <CodeBlock title="Branching logic" text={f.branching} copyable={true} /><CodeBlock title="Calculation" text={f.calc} copyable={true} /><CodeBlock title="Action tags / annotation" text={f.annotation} copyable={true} />
@@ -161,7 +174,7 @@ function instanceDetail(id) {
   const row = (e, other) => <div class="small" style="margin-bottom:4px"><button class="fieldlink" onClick={() => setSelected(other)}>{nlabel(other)}</button> {flags(e)}</div>;
   return (
     <div><h3>{fm ? fm.label : n.form}{n.event ? ' @ ' + evLabel(n.event) : ''}</h3>
-      <div class="muted small">form <code>{n.form}</code>{n.event ? <> · event <code>{n.event}</code></> : ''}{fm ? ' · ' + fm.fields.length + ' fields' : ''}</div>
+      <div class="muted small">form <code>{n.form}</code>{n.event ? <> · event <code>{n.event}</code></> : ''}{fm ? ' · ' + fm.fields.length + ' fields' : ''}{fm && (n.event ? isRepeatingInstance(m.parsed, fm, n.event) : fm.repeating) ? ' · repeating' : ''}</div>
       <p style="margin:8px 0"><button class="btn sm primary" onClick={() => toggleExpandForm(id)}>{expanded().has(id) ? 'Collapse back to form' : 'Zoom into fields'}</button></p>
       <ExploreButtons id={id} />
       {others.length ? <><h4>Also collected in ({others.length})</h4><div class="chips">{others.map((x) => <button class="chip" onClick={() => setSelected(x.id)}>{evLabel(x.event)}</button>)}</div></> : ''}
@@ -179,6 +192,7 @@ function eventDetail(ev) {
   return (
     <div><h3>{ev.label}</h3><div class="muted small">event <code>{ev.id}</code>{ev.arm ? ' · arm ' + ev.arm + (ev.armName ? ' (' + ev.armName + ')' : '') : ''}{ev.repeating ? ' · repeating' : ''}</div>
       <p class="small" style="margin:6px 0">Forms: {ev.forms.map(formLabel).join(', ') || 'none'}</p>
+      {(m.parsed.repeatingInstruments || []).filter((r) => r.event === ev.id).length ? <p class="small" style="margin:6px 0">Repeating instruments: {(m.parsed.repeatingInstruments || []).filter((r) => r.event === ev.id).map((r) => r.label || formLabel(r.form)).join(', ')}</p> : ''}
       <h4>Read from this event ({out.length})</h4>{out.length ? out.map(row) : <span class="muted small">none</span>}
       <h4>Reads other events ({inn.length})</h4>{inn.length ? inn.map(row) : <span class="muted small">none</span>}</div>
   );

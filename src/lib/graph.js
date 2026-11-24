@@ -8,9 +8,11 @@ export const TYPES = {
   piping: { label: 'Piping (labels/notes)', color: '#16a34a' },
   actiontag: { label: 'Action tags', color: '#9333ea' },
   formlogic: { label: 'Form display logic', color: '#0891b2' },
+  logicsrc: { label: 'Other logic sources (alerts, queue…)', color: '#be185d' },
 };
 const LOGIC_TYPES = new Set(['branching', 'calc', 'actiontag']); // used for cycle detection
 const UNKNOWN_FORM = '(unknown)';
+const LOGIC_FORM = '(logic sources)';
 
 function buildModel(parsed) {
   const byVar = new Map();
@@ -92,18 +94,27 @@ function buildModel(parsed) {
       });
     });
   });
-  const model = { parsed, byVar, ghosts, formNodes, edges, selfRefs, formsById: new Map(parsed.forms.map((x) => [x.id, x])) };
+  // logic outside fields (alerts, survey queue, ...): one node each, fed by the existing fields it references
+  const logicNodes = new Map();
+  (parsed.logicSources || []).forEach((src) => {
+    const node = 'logic:' + src.id;
+    const refs = src.refs.filter((n) => byVar.has(n));
+    if (!refs.length) return;
+    logicNodes.set(node, { variable: node, type: 'logicnode', label: src.label, form: LOGIC_FORM, logicNode: true, kind: src.kind, logic: src.logic });
+    refs.forEach((n) => add(n, node, 'logicsrc', src.logic.trim(), false));
+  });
+  const model = { parsed, byVar, ghosts, formNodes, logicNodes, edges, selfRefs, formsById: new Map(parsed.forms.map((x) => [x.id, x])) };
   model.analysis = analyse(model);
   return model;
 }
 
-function nodeInfo(model, v) { return model.byVar.get(v) || model.ghosts.get(v) || model.formNodes.get(v); }
+function nodeInfo(model, v) { return model.byVar.get(v) || model.ghosts.get(v) || model.formNodes.get(v) || model.logicNodes.get(v); }
 
 function analyse(model) {
   const vars = [...model.byVar.keys()];
   const realVars = model.parsed.fields.map((f) => f.variable);
   const out = new Map(), inn = new Map();
-  vars.concat([...model.ghosts.keys()], [...model.formNodes.keys()]).forEach((v) => { out.set(v, []); inn.set(v, []); });
+  vars.concat([...model.ghosts.keys()], [...model.formNodes.keys()], [...model.logicNodes.keys()]).forEach((v) => { out.set(v, []); inn.set(v, []); });
   model.edges.forEach((e) => { out.get(e.from).push(e); inn.get(e.to).push(e); });
 
   // Tarjan SCC on logic edges (iterative-safe enough via recursion; REDCap projects are small)
@@ -144,12 +155,12 @@ function analyse(model) {
   sccs.forEach((_, c) => { maxChain = Math.max(maxChain, depth(c)); });
 
   const degree = new Map();
-  vars.forEach((v) => degree.set(v, { in: inn.get(v).length, out: out.get(v).length }));
-  const isolated = realVars.filter((v) => !degree.get(v).in && !degree.get(v).out);
+  vars.forEach((v) => degree.set(v, { in: inn.get(v).filter((e) => e.type !== 'logicsrc').length, out: out.get(v).filter((e) => e.type !== 'logicsrc').length }));
+  const isolated = realVars.filter((v) => !inn.get(v).length && !out.get(v).length);
   const hubs = vars.map((v) => [v, degree.get(v).out]).filter((x) => x[1] > 0).sort((a, b) => b[1] - a[1]).slice(0, 10);
   const heavy = vars.map((v) => [v, degree.get(v).in]).filter((x) => x[1] > 0).sort((a, b) => b[1] - a[1]).slice(0, 10);
   const missing = model.edges.filter((e) => e.missing);
-  const crossForm = model.edges.filter((e) => !e.missing && model.byVar.get(e.from).form !== nodeInfo(model, e.to).form);
+  const crossForm = model.edges.filter((e) => !e.missing && e.type !== 'logicsrc' && model.byVar.get(e.from).form !== nodeInfo(model, e.to).form);
   // forward references: a field depending on a field in a later position of the instrument order
   const order = new Map(vars.map((v, i) => [v, i]));
   const forward = model.edges.filter((e) => !e.missing && e.type === 'branching' && !model.byVar.get(e.from).synthetic && order.get(e.from) > order.get(e.to));
@@ -158,7 +169,7 @@ function analyse(model) {
 
 /** Model edges that pass the type / missing / cross-event / instance-logic filters. */
 function baseEdges(model, o) {
-  let edges = model.edges.filter((e) => o.types.has(e.type) && (o.showMissing || !e.missing));
+  let edges = model.edges.filter((e) => o.types.has(e.type) && (o.showMissing || !e.missing) && (e.type !== 'logicsrc' || o.level === 'field'));
   if (o.crossOnly) edges = edges.filter((e) => e.events && e.events.length);
   if (o.instOnly) edges = edges.filter((e) => (e.smart || []).some((x) => /-instance$/.test(x)));
   return edges;
@@ -176,7 +187,11 @@ function buildView(model, o) {
   const pair = !ex && o.level === 'field' ? o.pair : null; // edges of one form -> form link (from form-level click)
   if (ex) edges = edges.filter((e) => ex.has(o.level === 'form' ? formOf(e.from) : e.from) && ex.has(o.level === 'form' ? formOf(e.to) : e.to));
   else if (pair) edges = edges.filter((e) => formOf(e.from) === pair.from && formOf(e.to) === pair.to);
-  else if (!exI && o.forms && o.forms.size) edges = edges.filter((e) => o.forms.has(formOf(e.from)) && o.forms.has(formOf(e.to)));
+  else if (!exI && o.forms && o.forms.size) {
+    // a logic node has no form: it stays visible (with its edges) when a field it references is in a selected form
+    const vis = (v) => (model.logicNodes.has(v) ? false : o.forms.has(formOf(v)));
+    edges = edges.filter((e) => (model.logicNodes.has(e.to) ? vis(e.from) : model.logicNodes.has(e.from) ? vis(e.to) : vis(e.from) && vis(e.to)));
+  }
 
   // focus (field level only)
   let focusSet = null;
@@ -213,10 +228,11 @@ function buildView(model, o) {
   if (ex) names = names.filter((v) => ex.has(v));
   else if (focusSet) names = names.filter((v) => focusSet.has(v));
   else if (o.hideIsolated || pair) names = names.filter((v) => used.has(v));
-  used.forEach((v) => { if ((o.showMissing && model.ghosts.has(v)) || model.formNodes.has(v) || (model.byVar.get(v) || {}).synthetic) { if (!names.includes(v)) names.push(v); } });
+  used.forEach((v) => { if ((o.showMissing && model.ghosts.has(v)) || model.formNodes.has(v) || model.logicNodes.has(v) || (model.byVar.get(v) || {}).synthetic) { if (!names.includes(v)) names.push(v); } });
   const nodes = names.map((v) => {
     const f = nodeInfo(model, v);
     if (f.formNode) return { id: v, label: 'Form: ' + f.label, sub: 'display logic', form: f.form, kind: 'form', focus: false };
+    if (f.logicNode) return { id: v, label: f.label, sub: f.kind, form: f.form, kind: 'logic', focus: false };
     return { id: v, label: v, sub: f.label || '', form: f.form, kind: f.ghost ? 'missing' : f.synthetic ? 'status' : f.type === 'calc' ? 'calc' : 'field', focus: v === o.focus };
   });
   const groups = [];
@@ -380,7 +396,7 @@ function instancesView(model, edges, o, formOf, ex) {
       const id = ev ? idOf(f.id, ev) : f.id;
       if (ex ? !ex.has(id) : (o.hideIsolatedNodes && !used.has(id))) return;
       const sub = ev ? ev.label + (ev.repeating ? ' ↻' : '') + (o.groupBy === 'arm' && ev.arm ? ' (arm ' + ev.arm + ')' : '') : f.fields.length + ' fields';
-      nodes.push({ id, label: f.label, sub, form: f.id, event: ev ? ev.id : null, kind: 'form' });
+      nodes.push({ id, label: f.label + ((ev ? isRepeatingInstance(model.parsed, f, ev.id) : f.repeating) ? ' ↻' : ''), sub, form: f.id, event: ev ? ev.id : null, kind: 'form' });
       evOfNode.set(id, ev);
     });
   });
@@ -458,7 +474,7 @@ function formView(model, edges, o) {
       if (o.forms && o.forms.size && !o.forms.has(f.id)) return;
       if (o.hideIsolatedNodes && !used.has(f.id)) return;
     }
-    nodes.push({ id: f.id, label: f.label, sub: f.fields.length + ' fields', form: f.id, kind: 'form' });
+    nodes.push({ id: f.id, label: f.label + (formIsRepeating(model.parsed, f) ? ' ↻' : ''), sub: f.fields.length + ' fields', form: f.id, kind: 'form' });
   });
   if (used.has(UNKNOWN_FORM) || (ex && ex.has(UNKNOWN_FORM))) {
     const names = [...new Set(edges.filter((e) => nodeInfo(model, e.from).form === UNKNOWN_FORM).map((e) => e.from))];
@@ -527,7 +543,7 @@ export function neighbors(model, o, id, dir) {
   if (dir === 'fup' || dir === 'fdown') { // field level: every cross-form link into / out of this node's form (both endpoints)
     const F = id.startsWith('@form:') ? id.slice(6) : formOf(id);
     model.edges.forEach((e) => {
-      if (!o.types.has(e.type) || (!o.showMissing && e.missing)) return;
+      if (!o.types.has(e.type) || (!o.showMissing && e.missing) || e.type === 'logicsrc') return;
       const fa = formOf(e.from), fb = formOf(e.to);
       if (fa === fb) return;
       if ((dir === 'fup' && fb === F) || (dir === 'fdown' && fa === F)) { out.add(e.from); out.add(e.to); }
@@ -536,7 +552,7 @@ export function neighbors(model, o, id, dir) {
     return [...out];
   }
   model.edges.forEach((e) => {
-    if (!o.types.has(e.type) || (!o.showMissing && e.missing)) return;
+    if (!o.types.has(e.type) || (!o.showMissing && e.missing) || (e.type === 'logicsrc' && o.level !== 'field')) return;
     const a = key(e.from), b = key(e.to);
     if (a === b) return;
     if (dir === 'up' && b === id) out.add(a);
@@ -544,4 +560,20 @@ export function neighbors(model, o, id, dir) {
   });
   return [...out];
 };
-export { buildModel, buildView, nodeInfo };
+/**
+ * Is this form repeating in this event? Assumption (REDCap semantics not verified against an export):
+ * if the form has any RepeatingInstrument entries, the (form, event) pair decides; else fall back to FormDef Repeating.
+ */
+function isRepeatingInstance(parsed, form, eventId) {
+  const ris = (parsed.repeatingInstruments || []).filter((r) => r.form === form.id);
+  return ris.length ? ris.some((r) => r.event === eventId) : !!form.repeating;
+}
+
+/**
+ * Form-level rule: repeating in at least one event ("any event" by design) = FormDef Repeating or any RepeatingInstrument names the form.
+ */
+function formIsRepeating(parsed, form) {
+  return !!form.repeating || (parsed.repeatingInstruments || []).some((r) => r.form === form.id);
+}
+
+export { buildModel, buildView, nodeInfo, isRepeatingInstance, formIsRepeating };
