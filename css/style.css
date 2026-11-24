@@ -107,23 +107,24 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 .whatif select,.whatif input[type=text]{font:inherit;font-size:12px;max-width:100%}
 .wi-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}
 .wi-checks{display:flex;flex-direction:column;gap:2px}
-.wi-group{margin:6px 0 2px}
-.wi-event{margin-top:6px}
-.wi-event-title{font-weight:600;margin-top:8px}
 .wi-state{border:1px solid var(--line);border-radius:10px;padding:0 6px}
-.wi-state.shown,.chip.wi-chip.shown{background:rgba(22,163,74,.15);border-color:#16a34a;color:#15803d}
-.wi-state.hidden,.chip.wi-chip.hidden{color:var(--muted);text-decoration:line-through}
-.wi-state.unknown,.chip.wi-chip.unknown{background:transparent;border-color:#d97706;color:#b45309}
-@media (prefers-color-scheme:dark){.wi-state.shown,.chip.wi-chip.shown{color:#4ade80}.wi-state.unknown,.chip.wi-chip.unknown{color:#fbbf24}}
+.wi-state.shown{background:rgba(22,163,74,.15);border-color:#16a34a;color:#15803d}
+.wi-state.hidden{color:var(--muted);text-decoration:line-through}
+.wi-state.unknown{background:transparent;border-color:#d97706;color:#b45309}
+@media (prefers-color-scheme:dark){.wi-state.shown{color:#4ade80}.wi-state.unknown{color:#fbbf24}}
 .wi-tab{max-width:1200px}
 .wi-table{margin:4px 0 8px}
 .wi-table td .link{padding:0}
-.wi-logic{margin:2px 0 6px;font-size:12px;white-space:pre-wrap;word-break:break-word}
 .wi-section{margin-top:14px}
-.wi-section h4,.wi-needed{margin:0 0 6px}
-.wi-needed{margin-top:10px}
-.wi-editor{margin-top:6px}
-.wi-value{display:flex;gap:4px;align-items:baseline;margin:2px 0}
+.wi-section h4,.wi-editor h4{margin:0 0 6px}
+.wi-row h4{margin:0}
+.wi-editor{margin-top:10px}
+.wi-top{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;justify-content:space-between}
+.wi-search{flex:1 1 320px;min-width:0}
+.wi-mode{display:flex;gap:6px;align-items:center}
+.wi-need{display:flex;flex-wrap:wrap;gap:4px;align-items:baseline;margin:2px 0}
+.wi-compact{width:110px}
+.wi-value{display:inline-flex;flex-wrap:wrap;gap:4px;align-items:baseline}
 .wi-remove{margin-left:4px;color:var(--muted)}
 .wi-matches{display:flex;flex-direction:column;max-width:420px;margin:-4px 0 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);overflow:hidden}
 .wi-match{text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:4px 8px;color:var(--text);cursor:pointer;font:inherit;font-size:12px}

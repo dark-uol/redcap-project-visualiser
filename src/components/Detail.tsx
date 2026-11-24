@@ -2,7 +2,7 @@
 import { Show, createSignal } from 'solid-js';
 import { TraceControl } from './FocusControls';
 import { HintHeading } from './controls';
-import { WhatIfBadge } from './whatIfParts';
+import { WhatIfBadge, editField } from './whatIfParts';
 import type { Element as SolidElement } from 'solid-js';
 import { TYPES, findNode, neighbors, isRepeatingInstance, formIsRepeating, nodeInfo } from '../lib/graph';
 import { classifyDetail } from '../lib/detailKind';
@@ -13,7 +13,7 @@ import { groupIdFor, parseSelection } from '../lib/selection';
 import type { DepType, Edge, EventDef, Field, Form, FormNode, FormPair, LogicNode, Model, NeighborDir, View, ViewEdge, ViewNode } from '../lib/types';
 import {
   need, model, view, opts, selection, setExplore, expanded,
-  currentExploration, exploreVisible, instanceMode, formLabel, expandRef, collapseRef, toggleExpandForm, toggleExpandEvent, expandedEvents, jumpToField, focusing, whatIf,
+  currentExploration, exploreVisible, instanceMode, formLabel, expandRef, collapseRef, toggleExpandForm, toggleExpandEvent, expandedEvents, jumpToField, focusing,
 } from '../store';
 
 const { setFocus, setPair } = focusing;
@@ -225,7 +225,7 @@ function ghostDetail(id: string, exploreId: string) {
 }
 
 const openWhatIf = function openWhatIf(variable: string): void {
-  whatIf.setField(variable);
+  editField(variable);
   selection.setTab('whatif');
 };
 

@@ -1,6 +1,6 @@
 /* Pieces shared by the What if tab and the field detail: event labels, state badge and tooltip, the type-matched value input. */
 import { For, Show } from 'solid-js';
-import { ANY_EVENT, eventsToEvaluate } from '../lib/whatIf';
+import { ANY_EVENT, eventForField, eventsToEvaluate } from '../lib/whatIf';
 import type { MissingInput, VisibilityInfo, WhatIfValue } from '../lib/whatIf';
 import type { Choice, Field } from '../lib/types';
 import { need, model, whatIf, visibility, visibilityIn } from '../store';
@@ -29,10 +29,15 @@ export function missingText(input: MissingInput, relativeTo: string | null): str
   return input.event === null || input.event === relativeTo ? input.variable : input.variable + ' @ ' + eventLabel(input.event);
 }
 
-const selectedBucket = (): Readonly<Record<string, WhatIfValue>> => whatIf.values()[whatIf.event() ?? ANY_EVENT] ?? {};
-const anyBucket = (): Readonly<Record<string, WhatIfValue>> => whatIf.values()[ANY_EVENT] ?? {};
-/** True when the selected event's bucket or the any-event bucket holds a value for the variable. */
-export const hasValueFor = (variable: string): boolean => variable in selectedBucket() || variable in anyBucket();
+const bucketFor = (event: string | null): Readonly<Record<string, WhatIfValue>> => whatIf.values()[event ?? ANY_EVENT] ?? {};
+/** True when a value is set for the variable in the selected event. */
+export const hasValueFor = (variable: string): boolean => variable in bucketFor(whatIf.event());
+
+/** Make a field the one being edited. Its event is `event` (the current one when omitted) if the field's form is used there, else the first event it is used in. */
+export function editField(variable: string, event?: string | null): void {
+  whatIf.setField(variable);
+  whatIf.setEvent(eventForField(need(model()), variable, event === undefined ? whatIf.event() : event));
+}
 
 export function tooltipFor(info: VisibilityInfo | undefined): string {
   if (!info) return 'Set a value to evaluate';
@@ -61,77 +66,52 @@ export function WhatIfBadge(props: { variable: string }) {
   );
 }
 
-export function ValueInput(props: { field: Field }) {
-  const inherited = (): WhatIfValue | undefined => {
-    if (whatIf.event() === null || props.field.variable in selectedBucket()) return undefined;
-    return anyBucket()[props.field.variable];
-  };
-  /** Other events (not the selected one, nor any-event) holding a value for this field, as "label: value". */
-  const setElsewhere = (): string[] => Object.entries(whatIf.values())
-    .filter(([event, bucket]) => event !== ANY_EVENT && event !== whatIf.event() && props.field.variable in bucket)
-    .map(([event, bucket]) => eventLabel(event) + ': ' + String(bucket[props.field.variable]));
-  const formUnused = (): boolean => {
-    const selected = whatIf.event();
-    const definition = selected === null ? undefined : (need(model()).parsed.events || []).find((candidate) => candidate.id === selected);
-    return !!definition && !definition.forms.includes(props.field.form);
-  };
-  return (
-    <div>
-      <Show when={formUnused()}><div class="muted small">This form is not used in the selected event</div></Show>
-      <ValueControl field={props.field} />
-      <Show when={inherited() !== undefined}>
-        <div class="muted small">applies from (any event): {String(inherited())}</div>
-      </Show>
-      <Show when={setElsewhere().length}>
-        <div class="muted small">also set in: {setElsewhere().join(', ')}</div>
-      </Show>
-    </div>
-  );
-}
-
-function ValueControl(props: { field: Field }) {
-  const variable = props.field.variable;
-  const current = (): WhatIfValue | undefined => selectedBucket()[variable];
+/** The input for a field's value in one event's bucket (null = the project has no events), matched to the field's type. `compact` is for tables. */
+export function ValueInput(props: { field: Field; event: string | null; compact?: boolean }) {
+  const variable = (): string => props.field.variable;
+  const current = (): WhatIfValue | undefined => bucketFor(props.event)[variable()];
   const currentText = (): string => { const value = current(); return typeof value === 'string' ? value : ''; };
   const checkedCodes = (): string[] => { const value = current(); return Array.isArray(value) ? value : []; };
+  const formUnused = (): boolean => {
+    const definition = props.event === null ? undefined : (need(model()).parsed.events || []).find((candidate) => candidate.id === props.event);
+    return !!definition && !definition.forms.includes(props.field.form);
+  };
   const onSelectChange = function onSelectChange(event: Event & { currentTarget: HTMLSelectElement }): void {
-    whatIf.setValue(variable, event.currentTarget.value);
+    whatIf.setValueIn(props.event, variable(), event.currentTarget.value);
   };
   const onTextChange = function onTextChange(event: Event & { currentTarget: HTMLInputElement }): void {
-    whatIf.setValue(variable, event.currentTarget.value.trim());
+    whatIf.setValueIn(props.event, variable(), event.currentTarget.value.trim());
   };
   const toggleCode = function toggleCode(code: string, on: boolean): void {
-    const codes = checkedCodes().filter((x) => x !== code);
+    const codes = checkedCodes().filter((checked) => checked !== code);
     if (on) codes.push(code);
-    whatIf.setValue(variable, codes);
+    whatIf.setValueIn(props.event, variable(), codes);
   };
-  const choices = choicesFor(props.field);
-  if (props.field.calc) {
-    return (
-      <div>
-        <input type="text" value={currentText()} onChange={onTextChange} placeholder="value" />
-        <div class="muted small">Calculated field: the value you enter overrides the calculation.</div>
-      </div>
-    );
-  }
-  if (props.field.type === 'checkbox' && choices.length) {
-    return (
-      <div class="wi-checks">
-        <For each={choices}>
-          {(choice) => (
-            <label class="chk"><input type="checkbox" checked={checkedCodes().includes(choice.code)} onChange={(e) => toggleCode(choice.code, e.currentTarget.checked)} /> {choice.code}, {choice.label}</label>
-          )}
-        </For>
-      </div>
-    );
-  }
-  if (SELECT_TYPES.has(props.field.type) && choices.length) {
-    return (
-      <select onChange={onSelectChange}>
-        <option value="" selected={currentText() === ''}>(not set)</option>
-        <For each={choices}>{(choice) => <option value={choice.code} selected={currentText() === choice.code}>{choice.code}, {choice.label}</option>}</For>
-      </select>
-    );
-  }
-  return <input type="text" value={currentText()} onChange={onTextChange} placeholder="value" />;
+  const choices = (): Choice[] => choicesFor(props.field);
+  const textInput = () => <input type="text" class={props.compact ? 'wi-compact' : ''} value={currentText()} onChange={onTextChange} placeholder="value" />;
+  return (
+    <div class="wi-value">
+      <Show when={formUnused()}><div class="muted small">This form is not used in this event</div></Show>
+      <Show
+        when={!props.field.calc && choices().length > 0 && props.field.type === 'checkbox'}
+        fallback={
+          <Show when={!props.field.calc && choices().length > 0 && SELECT_TYPES.has(props.field.type)} fallback={textInput()}>
+            <select class={props.compact ? 'wi-compact' : ''} onChange={onSelectChange}>
+              <option value="" selected={currentText() === ''}>(not set)</option>
+              <For each={choices()}>{(choice) => <option value={choice.code} selected={currentText() === choice.code}>{choice.code}, {choice.label}</option>}</For>
+            </select>
+          </Show>
+        }
+      >
+        <div class="wi-checks">
+          <For each={choices()}>
+            {(choice) => (
+              <label class="chk"><input type="checkbox" checked={checkedCodes().includes(choice.code)} onChange={(changed) => toggleCode(choice.code, changed.currentTarget.checked)} /> {choice.code}, {choice.label}</label>
+            )}
+          </For>
+        </div>
+      </Show>
+      <Show when={props.field.calc && !props.compact}><div class="muted small">Calculated field: the value you enter overrides the calculation.</div></Show>
+    </div>
+  );
 }

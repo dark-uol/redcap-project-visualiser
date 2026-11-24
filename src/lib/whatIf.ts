@@ -307,13 +307,14 @@ export function dependentsOf(model: ModelBase, variable: string): string[] {
   return unique(targets);
 }
 
-/** The distinct inputs the given results are missing, each with how many of the results need it; most needed first, ties in order of first appearance. */
-export function countMissingInputs(infos: readonly VisibilityInfo[]): { input: MissingInput; count: number }[] {
-  const counts = new Map<string, { input: MissingInput; count: number }>();
-  infos.forEach((info) => info.missing.forEach((input) => {
-    const entry = counts.get(inputKey(input));
-    if (entry) entry.count++;
-    else counts.set(inputKey(input), { input, count: 1 });
-  }));
-  return [...counts.values()].sort((left, right) => right.count - left.count);
+/** The events whose forms include the field's form, in project order (empty for a non-longitudinal project). */
+export function eventsForField(model: ModelBase, variable: string): string[] {
+  const formId = model.byVar.get(variable)?.form;
+  return (model.parsed.events || []).filter((event) => formId !== undefined && event.forms.includes(formId)).map((event) => event.id);
+}
+
+/** The event a field is edited in: `current` when its form is used there, else the first event its form is used in (null when none, e.g. not longitudinal). */
+export function eventForField(model: ModelBase, variable: string, current: string | null): string | null {
+  const events = eventsForField(model, variable);
+  return current !== null && events.includes(current) ? current : events[0] ?? null;
 }

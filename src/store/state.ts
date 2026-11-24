@@ -64,8 +64,6 @@ export function createState() {
   const [whatIfMode, setWhatIfMode] = createSignal<'survey' | 'form'>('form');
   const [whatIfEvent, setWhatIfEvent] = createSignal<string | null>(null);
   const [whatIfField, setWhatIfField] = createSignal<string | null>(null); // variable being edited in the What if tab
-  const [whatIfResultsForm, setWhatIfResultsForm] = createSignal<string | null>(null); // null = the edited field's form
-  const [whatIfResultsEvent, setWhatIfResultsEvent] = createSignal<string | null>(null); // null = follow the event selection
   // Writes into the bucket of an event (ANY_EVENT when null), dropping buckets that become empty
   const setWhatIfValueIn = function setWhatIfValueIn(event: string | null, variable: string, value: WhatIfValue | null): void {
     const key = event ?? ANY_EVENT;
@@ -77,18 +75,14 @@ export function createState() {
     else delete next[key];
     setWhatIfValues(next);
   };
-  const setWhatIfValue = function setWhatIfValue(variable: string, value: WhatIfValue | null): void {
-    setWhatIfValueIn(whatIfEvent(), variable, value);
-  };
   const clearWhatIfValues = function clearWhatIfValues(): void { setWhatIfValues({}); };
   const whatIfValueCount = function whatIfValueCount(): number {
     return Object.values(whatIfValues()).reduce((total, bucket) => total + Object.keys(bucket).length, 0);
   };
   const whatIf = {
-    values: whatIfValues, valueCount: whatIfValueCount, setValue: setWhatIfValue, setValueIn: setWhatIfValueIn, clearValues: clearWhatIfValues,
+    values: whatIfValues, valueCount: whatIfValueCount, setValueIn: setWhatIfValueIn, clearValues: clearWhatIfValues,
     mode: whatIfMode, setMode: setWhatIfMode, event: whatIfEvent, setEvent: setWhatIfEvent,
-    field: whatIfField, setField: setWhatIfField, resultsForm: whatIfResultsForm, setResultsForm: setWhatIfResultsForm,
-    resultsEvent: whatIfResultsEvent, setResultsEvent: setWhatIfResultsEvent,
+    field: whatIfField, setField: setWhatIfField,
   };
 
   const [tab, setTab] = createSignal<Tab>('graph');

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildModel } from '../src/lib/graph';
 import type { Field, Form, FormLogicRule, ParsedODM } from '../src/lib/types';
-import { ANY_EVENT, countMissingInputs, dependentsOf, evaluateVisibility, eventsToEvaluate, parseActionTags, splitTopLevel } from '../src/lib/whatIf';
-import type { VisibilityInfo, WhatIfContext, WhatIfValue } from '../src/lib/whatIf';
+import { ANY_EVENT, dependentsOf, evaluateVisibility, eventForField, eventsForField, eventsToEvaluate, parseActionTags, splitTopLevel } from '../src/lib/whatIf';
+import type { WhatIfContext, WhatIfValue } from '../src/lib/whatIf';
 
 const field = (variable: string, form: string, over: Partial<Field> = {}): Field => ({
   variable, oid: variable, type: 'text', label: variable, section: '', note: '', branching: '', calc: '', annotation: '',
@@ -336,21 +336,28 @@ describe('dependentsOf', () => {
   });
 });
 
-describe('countMissingInputs', () => {
-  const info = (...missing: { variable: string; event: string | null }[]): VisibilityInfo => ({ state: 'unknown', reasons: [], missing });
-  it('counts distinct inputs per variable and event, most needed first, ties by first appearance', () => {
-    const result = countMissingInputs([
-      info({ variable: 'a', event: null }, { variable: 'b', event: 'e1' }),
-      info({ variable: 'b', event: 'e1' }, { variable: 'b', event: null }),
-      info({ variable: 'b', event: 'e1' }),
-    ]);
-    expect(result).toEqual([
-      { input: { variable: 'b', event: 'e1' }, count: 3 },
-      { input: { variable: 'a', event: null }, count: 1 },
-      { input: { variable: 'b', event: null }, count: 1 },
-    ]);
+describe('eventForField', () => {
+  const fields = [field('gate', 'f1'), field('dep', 'f2'), field('solo', 'f3')];
+  const plain = buildModel(parsedWith(fields, [], ['f1', 'f2', 'f3']));
+  const model = buildModel({
+    ...parsedWith(fields, [], ['f1', 'f2', 'f3']),
+    events: [
+      { id: 'baseline', label: 'Baseline', arm: '1', armName: 'Arm 1', repeating: false, forms: ['f1'] },
+      { id: 'delivery', label: 'Delivery', arm: '1', armName: 'Arm 1', repeating: false, forms: ['f2'] },
+      { id: 'postnatal', label: 'Postnatal', arm: '1', armName: 'Arm 1', repeating: false, forms: ['f2', 'f3'] },
+    ],
   });
-  it('is empty when nothing is missing', () => {
-    expect(countMissingInputs([info()])).toEqual([]);
+
+  it('lists the events a field is used in, in project order', () => {
+    expect(eventsForField(model, 'dep')).toEqual(['delivery', 'postnatal']);
+    expect(eventsForField(model, 'zzz')).toEqual([]);
+    expect(eventsForField(plain, 'dep')).toEqual([]);
+  });
+
+  it('keeps the current event when valid, else the first event, else null', () => {
+    expect(eventForField(model, 'dep', 'postnatal')).toBe('postnatal');
+    expect(eventForField(model, 'dep', 'baseline')).toBe('delivery');
+    expect(eventForField(model, 'dep', null)).toBe('delivery');
+    expect(eventForField(plain, 'dep', 'baseline')).toBeNull();
   });
 });
