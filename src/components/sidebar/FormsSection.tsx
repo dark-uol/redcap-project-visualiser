@@ -1,7 +1,9 @@
 import { For, createMemo } from 'solid-js';
 import { withFlags } from '../../lib/flags';
-import { need, model, formQ, setFormQ, formsOn, setFormsOn } from '../../store';
+import { need, model, filters } from '../../store';
 import { stopClick } from './stopClick';
+
+const { formQ, setFormQ, formsOn, setFormsOn } = filters;
 
 export default function FormsSection() {
   const shownForms = createMemo(() => {

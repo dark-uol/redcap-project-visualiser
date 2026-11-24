@@ -54,7 +54,7 @@ beforeEach(() => {
     store.setInstances(false);
     store.setRenderer('graphviz');
     store.setDir('LR'); // loadText does not reset direction, so an earlier test could leave it changed
-    store.setFormsOn({});
+    store.filters.setFormsOn({});
     store.setForcedFor('');
     store.setAnchorCapture(null);
   });
@@ -117,7 +117,7 @@ describe('graph rendering', () => {
 
 describe('status messages', () => {
   it('reports "Nothing to show" and no SVG when every form is hidden', () => {
-    settle(() => store.setFormsOn(allFormsOff()));
+    settle(() => store.filters.setFormsOn(allFormsOff()));
     expect(store.renderMsg()).toBe('Nothing to show with the current filters.');
     expect(store.svgEl()).toBeNull();
   });
@@ -199,7 +199,7 @@ describe('downloadSvg', () => {
 
   it('alerts and does not download when no SVG is rendered', () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
-    settle(() => store.setFormsOn(allFormsOff()));
+    settle(() => store.filters.setFormsOn(allFormsOff()));
     vi.mocked(download).mockClear();
     store.downloadSvg();
     expect(alertSpy).toHaveBeenCalledWith('Render the graph first.');

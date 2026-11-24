@@ -7,9 +7,9 @@ import { buildModel } from '../lib/graph';
 
 export function createLoading(state: State, navigation: ReturnType<typeof createNavigation>) {
   const {
-    setModel, setFileBase, setLoadError, setFormQ, setFormsOn, setEventsOn, setCrossOnly, setInstanceOnly,
-    setExplore, setExpanded, setTypesOn, nextModelSequence,
+    setModel, setFileBase, setLoadError, setExplore, setExpanded, nextModelSequence,
   } = state;
+  const { setFormQ, setFormsOn, setEventsOn, setCrossOnly, setInstanceOnly, setTypesOn } = state.filters;
   const { resetNav } = navigation;
 
   function loadText(text: string, name?: string): void {

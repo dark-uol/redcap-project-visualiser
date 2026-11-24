@@ -9,9 +9,10 @@ import type { Explore, ExploreFilter, View, ViewFilter, ViewOptions, ViewPresent
 
 export function createDerived(state: State) {
   const {
-    model, level, instances, formsOn, eventsOn, typesOn, crossOnly, instanceOnly, expanded, pair, focus, focusDir, focusDepth,
-    explore, hideIso, hideIsoNodes, showMissing, dir, labelMode, groupBy, edgeLabels, renderer, forcedFor,
+    model, level, instances, expanded, pair, focus, focusDir, focusDepth,
+    explore, dir, labelMode, groupBy, edgeLabels, renderer, forcedFor,
   } = state;
+  const { formsOn, eventsOn, typesOn, crossOnly, instanceOnly, hideIso, hideIsoNodes, showMissing } = state.filters;
 
   const formIds = createMemo<string[]>(() => {
     const loadedModel = model();

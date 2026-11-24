@@ -2,7 +2,9 @@ import { For } from 'solid-js';
 import { TYPES } from '../../lib/graph';
 import { withFlags } from '../../lib/flags';
 import type { DepType, TypeMeta } from '../../lib/types';
-import { typesOn, setTypesOn } from '../../store';
+import { filters } from '../../store';
+
+const { typesOn, setTypesOn } = filters;
 
 /** CSS border-top-style used for each dependency type's legend swatch. */
 const DEPENDENCY_BORDER_STYLE: Record<DepType, string> = {

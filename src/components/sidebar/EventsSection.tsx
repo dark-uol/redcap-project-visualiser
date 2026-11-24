@@ -2,8 +2,10 @@ import { For, Show } from 'solid-js';
 import { withFlags } from '../../lib/flags';
 import type { Arm, EventDef } from '../../lib/types';
 import { Check } from '../controls';
-import { need, model, eventsOn, setEventsOn, crossOnly, setCrossOnly, instanceOnly, setInstanceOnly } from '../../store';
+import { need, model, filters } from '../../store';
 import { stopClick } from './stopClick';
+
+const { eventsOn, setEventsOn, crossOnly, setCrossOnly, instanceOnly, setInstanceOnly } = filters;
 
 export default function EventsSection() {
   const events = (): EventDef[] => need(model()).parsed.events;

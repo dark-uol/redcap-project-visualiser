@@ -3,9 +3,10 @@ import type { Direction, GroupBy, LabelMode, Level, Renderer } from '../../lib/t
 import { Select, Check } from '../controls';
 import {
   need, model, level, setLevel, renderer, setRenderer, dir, setDir, labelMode, setLabelMode, groupBy, setGroupBy,
-  instances, setInstances, edgeLabels, setEdgeLabels, hideIsoNodes, setHideIsoNodes, hideIso, setHideIso,
-  showMissing, setShowMissing,
+  instances, setInstances, edgeLabels, setEdgeLabels, filters,
 } from '../../store';
+
+const { hideIsoNodes, setHideIsoNodes, hideIso, setHideIso, showMissing, setShowMissing } = filters;
 
 export default function ViewSection() {
   const hasEvents = (): boolean => (need(model()).parsed.events || []).length > 0;

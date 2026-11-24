@@ -40,6 +40,12 @@ export function createState() {
   const [expanded, setExpanded] = createSignal<Set<string>>(new Set()); // form ids expanded in place at form level
   const [explore, setExplore] = createSignal<Explore | null>(null); // interactive expansion
 
+  // Filter signals, grouped so the sidebar and the filtered view read them from one place
+  const filters = {
+    typesOn, setTypesOn, formsOn, setFormsOn, eventsOn, setEventsOn, crossOnly, setCrossOnly, instanceOnly, setInstanceOnly,
+    hideIso, setHideIso, hideIsoNodes, setHideIsoNodes, showMissing, setShowMissing, formQ, setFormQ,
+  };
+
   const [tab, setTab] = createSignal<Tab>('graph');
   const [downloadMenuOpen, setDownloadMenuOpen] = createSignal(false);
   const [selected, setSelectedRaw] = createSignal<string | null>(null);
@@ -61,9 +67,8 @@ export function createState() {
   return {
     model, setModel, fileBase, setFileBase, dragOver, setDragOver, loadError, setLoadError,
     level, setLevel, renderer, setRenderer, dir, setDir, labelMode, setLabelMode,
-    groupBy, setGroupBy, edgeLabels, setEdgeLabels, hideIso, setHideIso, hideIsoNodes, setHideIsoNodes, showMissing, setShowMissing,
-    typesOn, setTypesOn, formsOn, setFormsOn, focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth, eventsOn, setEventsOn,
-    instanceOnly, setInstanceOnly, instances, setInstances, crossOnly, setCrossOnly, formQ, setFormQ, pair, setPair, selectedEdge, setSelectedEdge,
+    groupBy, setGroupBy, edgeLabels, setEdgeLabels, focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth,
+    instances, setInstances, pair, setPair, selectedEdge, setSelectedEdge, filters,
     expanded, setExpanded, explore, setExplore, tab, setTab, downloadMenuOpen, setDownloadMenuOpen, selected, setSelected, setSelectedRaw,
     depQ, setDepQ, fieldQ, setFieldQ, svgEl, setSvgEl, svgView, setSvgView, busy, setBusy, renderMsg, setRenderMsg,
     forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture, nextModelSequence, currentModelSequence,

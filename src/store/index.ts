@@ -26,9 +26,8 @@ const app = createRoot(() => {
 
 export const {
   model, fileBase, dragOver, setDragOver, loadError, level, setLevel, renderer, setRenderer, dir, setDir, labelMode, setLabelMode,
-  groupBy, setGroupBy, edgeLabels, setEdgeLabels, hideIso, setHideIso, hideIsoNodes, setHideIsoNodes, showMissing, setShowMissing,
-  typesOn, setTypesOn, formsOn, setFormsOn, focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth, eventsOn, setEventsOn,
-  instanceOnly, setInstanceOnly, instances, setInstances, crossOnly, setCrossOnly, formQ, setFormQ, pair, setPair, selectedEdge, setSelectedEdge,
+  groupBy, setGroupBy, edgeLabels, setEdgeLabels, focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth,
+  instances, setInstances, pair, setPair, selectedEdge, setSelectedEdge, filters,
   expanded, explore, setExplore, tab, setTab, downloadMenuOpen, setDownloadMenuOpen, selected, setSelected, setSelectedRaw, depQ, setDepQ, fieldQ, setFieldQ,
   svgEl, svgView, busy, renderMsg, forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture,
   opts, view, dotSrc, mermaidSrc, tooBig, instanceMode, exploreVisible, currentExploration, formLabel,

@@ -181,7 +181,7 @@ describe('derived view state', () => {
 
   it('turning off all dependency types changes the view', () => {
     const before = store.view();
-    settle(() => store.setTypesOn({ branching: false, calc: false, piping: false, action: false, form: false } as never));
+    settle(() => store.filters.setTypesOn({ branching: false, calc: false, piping: false, action: false, form: false } as never));
     expect(store.view()).not.toBe(before);
     expect(store.view()?.edges.length ?? 0).toBeLessThanOrEqual(before?.edges.length ?? 0);
   });
@@ -193,7 +193,7 @@ describe('derived view state', () => {
 
   it('hiding a form removes it from the form view', () => {
     const formId = store.view()!.nodes[0]!.id;
-    settle(() => store.setFormsOn({ [formId]: false }));
+    settle(() => store.filters.setFormsOn({ [formId]: false }));
     expect(store.view()?.nodes.some((n) => n.id === formId)).toBe(false);
   });
 
