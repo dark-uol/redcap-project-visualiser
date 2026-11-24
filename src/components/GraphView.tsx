@@ -2,7 +2,7 @@
 import { Show, createEffect, onCleanup, onSettled } from 'solid-js';
 import type { View } from '../lib/types';
 import {
-  model, view, tab, selected, setSelected, setSelectedRaw, setSelEdge, svgEl, svgView, busy, renderMsg, tooBig,
+  model, view, tab, selected, setSelected, setSelectedRaw, setSelectedEdge, svgEl, svgView, busy, renderMsg, tooBig,
   setForcedFor, dotSrc, setAnchorCapture,
 } from '../store';
 import Detail from './Detail';
@@ -126,9 +126,9 @@ export default function GraphView() {
       const drawnView = state.view;
       if (!drawnView) return;
       const action = resolveClick(e.target, drawnView, (id) => !!model()?.formsById.has(id));
-      if (action.type === 'edge') { setSelectedRaw(null); setSelEdge({ from: action.from, to: action.to }); }
+      if (action.type === 'edge') { setSelectedRaw(null); setSelectedEdge({ from: action.from, to: action.to }); }
       else if (action.type === 'select') setSelected(action.id);
-      else if (action.type === 'clear') { setSelected(null); setSelEdge(null); } // empty background closes the detail pane
+      else if (action.type === 'clear') { setSelected(null); setSelectedEdge(null); } // empty background closes the detail pane
     };
     stage.addEventListener('mouseover', onOver);
     stage.addEventListener('mouseleave', onLeave);

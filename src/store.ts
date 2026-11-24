@@ -24,14 +24,14 @@ export interface Navigation {
   level: Level;
   focus: string;
   pair: FormPair | null;
-  sel: string | null;
+  selection: string | null;
   edge: FormPair | null;
 }
 
 /** Browser history entry: navigation plus the file sequence number. */
-type HistState = Navigation & { m: number };
+type HistoryState = Navigation & { m: number };
 
-const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** The value, asserting it is present. Components only render once a project is loaded. */
 export function need<T>(v: T | null | undefined): T {
@@ -66,19 +66,19 @@ const app = createRoot(() => {
   const [focusDepth, setFocusDepthRaw] = createSignal(3);
   const setFocusDepth = (v: unknown) => setFocusDepthRaw(clampDepth(v));
   const [eventsOn, setEventsOn] = createSignal<Record<string, boolean>>({}); // event id -> bool (absent = on)
-  const [instOnly, setInstOnly] = createSignal(false); // only logic using [current/first/last/previous/next-instance]
+  const [instanceOnly, setInstanceOnly] = createSignal(false); // only logic using [current/first/last/previous/next-instance]
   const [instances, setInstances] = createSignal(false); // form level, longitudinal: one node per form per event
   const [crossOnly, setCrossOnly] = createSignal(false); // only references that name another event ([event][var])
   const [formQ, setFormQ] = createSignal('');
   const [pair, setPair] = createSignal<FormPair | null>(null); // only the field links of one form->form edge
-  const [selEdge, setSelEdge] = createSignal<FormPair | null>(null); // form-level edge clicked in the graph
+  const [selectedEdge, setSelectedEdge] = createSignal<FormPair | null>(null); // form-level edge clicked in the graph
   const [expanded, setExpanded] = createSignal<Set<string>>(new Set()); // form ids expanded in place at form level
   const [explore, setExplore] = createSignal<Explore | null>(null); // interactive expansion
 
   const [tab, setTab] = createSignal<Tab>('graph');
-  const [dlOpen, setDlOpen] = createSignal(false);
+  const [downloadMenuOpen, setDownloadMenuOpen] = createSignal(false);
   const [selected, setSelectedRaw] = createSignal<string | null>(null);
-  const setSelected = (v: string | null): void => { if (v) setSelEdge(null); setSelectedRaw(v); };
+  const setSelected = (v: string | null): void => { if (v) setSelectedEdge(null); setSelectedRaw(v); };
   const [depQ, setDepQ] = createSignal('');
   const [fieldQ, setFieldQ] = createSignal('');
   const [svgEl, setSvgEl] = createSignal<SVGSVGElement | null>(null);
@@ -95,43 +95,43 @@ const app = createRoot(() => {
 
   // ================= derived =================
   const formIds = createMemo<string[]>(() => {
-    const m = model();
-    return m ? m.parsed.forms.map((f) => f.id) : [];
+    const loadedModel = model();
+    return loadedModel ? loadedModel.parsed.forms.map((f) => f.id) : [];
   });
-  const instMode = (): boolean => {
-    const m = model();
-    return instances() && level() === 'form' && !!m && (m.parsed.events || []).length > 0;
+  const instanceMode = (): boolean => {
+    const loadedModel = model();
+    return instances() && level() === 'form' && !!loadedModel && (loadedModel.parsed.events || []).length > 0;
   };
-  const exVisible = (ex: Pick<Explore, 'seeds' | 'exp'>): Set<string> =>
-    new Set([...ex.seeds, ...ex.exp.flatMap((x) => x.added)]);
-  const curEx = (): Explore | null => {
+  const exploreVisible = (exploration: Pick<Explore, 'seeds' | 'exp'>): Set<string> =>
+    new Set([...exploration.seeds, ...exploration.exp.flatMap((x) => x.added)]);
+  const currentExploration = (): Explore | null => {
     const e = explore();
-    return e && e.level === level() && !!e.inst === instMode() ? e : null;
+    return e && e.level === level() && !!e.inst === instanceMode() ? e : null;
   };
   const filter = createMemo<ViewFilter | null>(() => {
-    const m = model();
-    if (!m) return null;
-    const fo = formsOn();
+    const loadedModel = model();
+    if (!loadedModel) return null;
+    const formsEnabled = formsOn();
     // event/arm filter narrows the form set: only forms collected in at least one selected event stay
-    const evs = m.parsed.events || [], eo = eventsOn();
-    const evActive = evs.some((e) => eo[e.id] === false);
-    const evForms = evActive ? new Set(evs.filter((e) => eo[e.id] !== false).flatMap((e) => e.forms)) : null;
-    const on = formIds().filter((i) => fo[i] !== false && (!evForms || evForms.has(i)));
-    const t = typesOn();
-    const ce = curEx();
-    const explored: ExploreFilter | null = ce ? { level: level(), inst: instMode(), set: exVisible(ce) } : null;
+    const events = loadedModel.parsed.events || [], eventsEnabled = eventsOn();
+    const evActive = events.some((e) => eventsEnabled[e.id] === false);
+    const evForms = evActive ? new Set(events.filter((e) => eventsEnabled[e.id] !== false).flatMap((e) => e.forms)) : null;
+    const on = formIds().filter((i) => formsEnabled[i] !== false && (!evForms || evForms.has(i)));
+    const typesEnabled = typesOn();
+    const currentExplorationValue = currentExploration();
+    const explored: ExploreFilter | null = currentExplorationValue ? { level: level(), inst: instanceMode(), set: exploreVisible(currentExplorationValue) } : null;
     return {
       level: level(),
-      eventSet: evActive ? new Set(evs.filter((e) => eo[e.id] !== false).map((e) => e.id)) : null,
+      eventSet: evActive ? new Set(events.filter((e) => eventsEnabled[e.id] !== false).map((e) => e.id)) : null,
       hideIsolated: hideIso(),
       hideIsolatedNodes: hideIsoNodes(),
       showMissing: showMissing(),
-      types: new Set(TYPE_KEYS.filter((k) => t[k])),
+      types: new Set(TYPE_KEYS.filter((k) => typesEnabled[k])),
       forms: on.length === formIds().length ? null : new Set(on),
       formsNone: on.length === 0,
       crossOnly: crossOnly(),
-      instOnly: instOnly(),
-      instances: instMode(),
+      instOnly: instanceOnly(),
+      instances: instanceMode(),
       expanded: level() === 'form' ? expanded() : null,
       explore: explored,
       pair: pair(),
@@ -155,10 +155,10 @@ const app = createRoot(() => {
     return f && p ? { ...f, ...p } : null;
   });
   const view = createMemo<View | null>(() => {
-    const m = model();
-    if (!m) return null;
+    const loadedModel = model();
+    if (!loadedModel) return null;
     const o = need(opts());
-    return o.formsNone ? { level: o.level, nodes: [], edges: [], groups: [] } : buildView(m, o);
+    return o.formsNone ? { level: o.level, nodes: [], edges: [], groups: [] } : buildView(loadedModel, o);
   });
   // lazy: only built when read (the renderer in use, or a download), and only once per view
   const lazySrc = (fn: (v: View, o: ViewOptions) => string) => {
@@ -193,45 +193,45 @@ const app = createRoot(() => {
   };
 
   // ================= interactive expansion of back / forward references =================
-  function expandRef(t: string, d: NeighborDir): void {
+  function expandRef(t: string, direction: NeighborDir): void {
     captureAnchor(t);
-    const ex = curEx() || { level: level(), seeds: [], exp: [] };
-    const nb = neighbors(need(model()), need(filter()), t, d);
-    const seeds = exVisible(ex).has(t) ? ex.seeds : [...ex.seeds, t];
-    setExplore({ level: ex.level, inst: instMode(), seeds, exp: [...ex.exp, { node: t, dir: d, added: nb }] });
+    const exploration = currentExploration() || { level: level(), seeds: [], exp: [] };
+    const neighborIds = neighbors(need(model()), need(filter()), t, direction);
+    const seeds = exploreVisible(exploration).has(t) ? exploration.seeds : [...exploration.seeds, t];
+    setExplore({ level: exploration.level, inst: instanceMode(), seeds, exp: [...exploration.exp, { node: t, dir: direction, added: neighborIds }] });
     setPair(null);
     setFocus('');
   }
-  function collapseRef(t: string, d: NeighborDir): void {
-    const ex = curEx();
-    if (!ex) return;
+  function collapseRef(t: string, direction: NeighborDir): void {
+    const exploration = currentExploration();
+    if (!exploration) return;
     captureAnchor(t);
-    let exp = ex.exp.filter((x) => !(x.node === t && x.dir === d));
+    let exp = exploration.exp.filter((x) => !(x.node === t && x.dir === direction));
     for (;;) { // drop expansions whose own node is no longer visible
-      const vis = exVisible({ seeds: ex.seeds, exp });
+      const vis = exploreVisible({ seeds: exploration.seeds, exp });
       const keep = exp.filter((x) => vis.has(x.node));
       if (keep.length === exp.length) break;
       exp = keep;
     }
-    setExplore({ ...ex, exp });
+    setExplore({ ...exploration, exp });
   }
   createEffect(level, () => { setExplore(null); }, { defer: true });
   // node ids differ between plain and Instances mode (form vs form@event): drop a selection that may no longer exist
-  let prevInstMode = false;
+  let previousInstanceMode = false;
   createEffect(
-    () => [instMode(), selected()] as const,
+    () => [instanceMode(), selected()] as const,
     ([im, s]) => {
-      if (im === prevInstMode) return;
-      prevInstMode = im;
+      if (im === previousInstanceMode) return;
+      previousInstanceMode = im;
       if (s && isInstanceScopedId(s)) setSelectedRaw(null);
     },
   );
-  function toggleExpandForm(F: string): void {
-    const on = expanded().has(F);
-    captureAnchor(F, on ? { back: true } : { zoom: true });
+  function toggleExpandForm(formId: string): void {
+    const on = expanded().has(formId);
+    captureAnchor(formId, on ? { back: true } : { zoom: true });
     const next = new Set(expanded());
-    if (on) next.delete(F);
-    else next.add(F);
+    if (on) next.delete(formId);
+    else next.add(formId);
     setExpanded(next);
   }
 
@@ -240,44 +240,44 @@ const app = createRoot(() => {
   let svgNow: SVGSVGElement | null = null; // mirrors svgEl for the (untracked) render step below
   const setSvg = (v: SVGSVGElement | null): void => { svgNow = v; setSvgEl(v); };
   createEffect(
-    () => ({ src: graphSrc(), r: renderer(), big: tooBig(), status: graphStatus(), v: view() }),
-    ({ src, r, big, status, v }) => { renderGraph(src, r, big, status, v); },
+    () => ({ src: graphSrc(), rendererName: renderer(), big: tooBig(), status: graphStatus(), v: view() }),
+    ({ src, rendererName, big, status, v }) => { renderGraph(src, rendererName, big, status, v); },
   );
-  async function renderGraph(src: string | null, r: Renderer, big: boolean, status: string, v: View | null): Promise<void> {
+  async function renderGraph(src: string | null, rendererName: Renderer, big: boolean, status: string, v: View | null): Promise<void> {
     if (src == null) return;
-    const my = ++token;
+    const renderToken = ++token;
     const clear = (msg: string): void => { setBusy(false); setSvg(null); setSvgView(null); setRenderMsg(msg); };
     if (status) { clear(status); return; }
     if (big) { clear(''); return; }
     setRenderMsg(svgNow ? '' : 'Rendering…');
     setBusy(true); // keep the previous SVG on screen (dimmed) until the new one is ready
     try {
-      const svg = r === 'graphviz' ? await renderDot(src) : await renderMermaid('mmd' + my, src);
-      if (my !== token) return;
+      const svg = rendererName === 'graphviz' ? await renderDot(src) : await renderMermaid('mmd' + renderToken, src);
+      if (renderToken !== token) return;
       setRenderMsg(''); setBusy(false); setSvgView(v); setSvg(svg);
     } catch (e) {
-      if (my !== token) return;
-      clear('Could not render graph: ' + errMsg(e) + ' (check your network connection). The Mermaid and DOT downloads still work.');
+      if (renderToken !== token) return;
+      clear('Could not render graph: ' + errorMessage(e) + ' (check your network connection). The Mermaid and DOT downloads still work.');
     }
   }
 
   // ================= loading =================
-  const currentNav = (): Navigation => ({ tab: tab(), level: level(), focus: focus(), pair: pair(), sel: selected(), edge: selEdge() });
-  const applyNav = (n: Navigation): void => { setTab(n.tab); setLevel(n.level); setFocus(n.focus); setPair(n.pair); setSelectedRaw(n.sel); setSelEdge(n.edge); };
-  const resetNav = (): void => { setTab('graph'); setLevel('form'); setFocus(''); setPair(null); setSelEdge(null); setSelected(null); };
+  const currentNav = (): Navigation => ({ tab: tab(), level: level(), focus: focus(), pair: pair(), selection: selected(), edge: selectedEdge() });
+  const applyNav = (n: Navigation): void => { setTab(n.tab); setLevel(n.level); setFocus(n.focus); setPair(n.pair); setSelectedRaw(n.selection); setSelectedEdge(n.edge); };
+  const resetNav = (): void => { setTab('graph'); setLevel('form'); setFocus(''); setPair(null); setSelectedEdge(null); setSelected(null); };
   function loadText(text: string, name?: string): void {
     try {
       const parsed = parseODM(text);
-      const m = buildModel(parsed);
+      const builtModel = buildModel(parsed);
       modelSeq++;
       setLoadError('');
       setFileBase((name || parsed.projectName).replace(/\.xml$/i, '').replace(/[^\w.-]+/g, '_') || 'redcap');
-      resetNav(); setFormQ(''); setFormsOn({}); setEventsOn({}); setCrossOnly(false); setInstOnly(false);
+      resetNav(); setFormQ(''); setFormsOn({}); setEventsOn({}); setCrossOnly(false); setInstanceOnly(false);
       setExplore(null); setExpanded(new Set<string>());
       setTypesOn(allTypesOn());
-      setModel(m);
+      setModel(builtModel);
     } catch (e) {
-      setLoadError(errMsg(e));
+      setLoadError(errorMessage(e));
     }
   }
   async function loadSample(): Promise<void> {
@@ -286,7 +286,7 @@ const app = createRoot(() => {
       if (!res.ok) throw new Error('HTTP ' + res.status);
       loadText(await res.text(), 'sample');
     } catch (e) {
-      setLoadError('Could not load sample/sample.xml (' + errMsg(e) + ').');
+      setLoadError('Could not load sample/sample.xml (' + errorMessage(e) + ').');
     }
   }
   function readFile(f: File): void {
@@ -297,15 +297,15 @@ const app = createRoot(() => {
   }
 
   // ================= downloads =================
-  const suffix = (): string => (level() === 'form' ? (instMode() ? '_instances' : '_forms') : level() === 'event' ? '_events' : '_fields');
-  const dlMermaid = (): void => download(fileBase() + suffix() + '.mmd', mermaidSrc());
-  const dlDot = (): void => download(fileBase() + suffix() + '.dot', dotSrc());
-  const dlCsv = (): void => {
-    const m = need(model());
+  const suffix = (): string => (level() === 'form' ? (instanceMode() ? '_instances' : '_forms') : level() === 'event' ? '_events' : '_fields');
+  const downloadMermaid = (): void => download(fileBase() + suffix() + '.mmd', mermaidSrc());
+  const downloadDot = (): void => download(fileBase() + suffix() + '.dot', dotSrc());
+  const downloadCsv = (): void => {
+    const loadedModel = need(model());
     const types = need(opts()).types;
-    download(fileBase() + '_dependencies.csv', toCsv(m, m.edges.filter((e) => types.has(e.type))), 'text/csv;charset=utf-8');
+    download(fileBase() + '_dependencies.csv', toCsv(loadedModel, loadedModel.edges.filter((e) => types.has(e.type))), 'text/csv;charset=utf-8');
   };
-  const dlSvg = (): void => {
+  const downloadSvg = (): void => {
     const s = svgEl();
     if (!s) { alert('Render the graph first.'); return; }
     const c = s.cloneNode(true) as SVGSVGElement;
@@ -314,18 +314,18 @@ const app = createRoot(() => {
   };
 
   // ================= shared navigation helpers =================
-  const jumpToField = (v: string): void => { setLevel('field'); setFocus(v); setPair(null); setSelEdge(null); setSelected(v); setTab('graph'); };
-  const pickNode = (id: string): void => { setSelEdge(null); setSelected(id); };
+  const jumpToField = (v: string): void => { setLevel('field'); setFocus(v); setPair(null); setSelectedEdge(null); setSelected(v); setTab('graph'); };
+  const pickNode = (id: string): void => { setSelectedEdge(null); setSelected(id); };
 
   // ================= browser history: back/forward step through tab / level / focus / selection =================
   let lastKey: string | null = null;
   createEffect(
-    (): HistState | null => (model() ? { m: modelSeq, ...currentNav() } : null),
+    (): HistoryState | null => (model() ? { m: modelSeq, ...currentNav() } : null),
     (st) => {
       if (!st) return;
       const key = JSON.stringify(st);
       if (key === lastKey) return;
-      const sameFile = lastKey !== null && (JSON.parse(lastKey) as HistState).m === st.m;
+      const sameFile = lastKey !== null && (JSON.parse(lastKey) as HistoryState).m === st.m;
       try {
         if (sameFile) history.pushState(st, '');
         else history.replaceState(st, '');
@@ -334,7 +334,7 @@ const app = createRoot(() => {
     },
   );
   window.addEventListener('popstate', (e: PopStateEvent) => {
-    const st = e.state as HistState | null;
+    const st = e.state as HistoryState | null;
     if (!st || !model() || st.m !== modelSeq) return;
     lastKey = JSON.stringify(st);
     applyNav(st);
@@ -344,11 +344,11 @@ const app = createRoot(() => {
     model, fileBase, dragOver, setDragOver, loadError, level, setLevel, renderer, setRenderer, dir, setDir, labelMode, setLabelMode,
     groupBy, setGroupBy, edgeLabels, setEdgeLabels, hideIso, setHideIso, hideIsoNodes, setHideIsoNodes, showMissing, setShowMissing,
     typesOn, setTypesOn, formsOn, setFormsOn, focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth, eventsOn, setEventsOn,
-    instOnly, setInstOnly, instances, setInstances, crossOnly, setCrossOnly, formQ, setFormQ, pair, setPair, selEdge, setSelEdge,
-    expanded, explore, setExplore, tab, setTab, dlOpen, setDlOpen, selected, setSelected, setSelectedRaw, depQ, setDepQ, fieldQ, setFieldQ,
+    instanceOnly, setInstanceOnly, instances, setInstances, crossOnly, setCrossOnly, formQ, setFormQ, pair, setPair, selectedEdge, setSelectedEdge,
+    expanded, explore, setExplore, tab, setTab, downloadMenuOpen, setDownloadMenuOpen, selected, setSelected, setSelectedRaw, depQ, setDepQ, fieldQ, setFieldQ,
     svgEl, svgView, busy, renderMsg, forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture,
-    opts, view, dotSrc, mermaidSrc, tooBig, instMode, exVisible, curEx, formLabel,
-    expandRef, collapseRef, toggleExpandForm, loadText, loadSample, readFile, dlMermaid, dlDot, dlCsv, dlSvg, jumpToField, pickNode,
+    opts, view, dotSrc, mermaidSrc, tooBig, instanceMode, exploreVisible, currentExploration, formLabel,
+    expandRef, collapseRef, toggleExpandForm, loadText, loadSample, readFile, downloadMermaid, downloadDot, downloadCsv, downloadSvg, jumpToField, pickNode,
   };
 });
 
@@ -356,9 +356,9 @@ export const {
   model, fileBase, dragOver, setDragOver, loadError, level, setLevel, renderer, setRenderer, dir, setDir, labelMode, setLabelMode,
   groupBy, setGroupBy, edgeLabels, setEdgeLabels, hideIso, setHideIso, hideIsoNodes, setHideIsoNodes, showMissing, setShowMissing,
   typesOn, setTypesOn, formsOn, setFormsOn, focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth, eventsOn, setEventsOn,
-  instOnly, setInstOnly, instances, setInstances, crossOnly, setCrossOnly, formQ, setFormQ, pair, setPair, selEdge, setSelEdge,
-  expanded, explore, setExplore, tab, setTab, dlOpen, setDlOpen, selected, setSelected, setSelectedRaw, depQ, setDepQ, fieldQ, setFieldQ,
+  instanceOnly, setInstanceOnly, instances, setInstances, crossOnly, setCrossOnly, formQ, setFormQ, pair, setPair, selectedEdge, setSelectedEdge,
+  expanded, explore, setExplore, tab, setTab, downloadMenuOpen, setDownloadMenuOpen, selected, setSelected, setSelectedRaw, depQ, setDepQ, fieldQ, setFieldQ,
   svgEl, svgView, busy, renderMsg, forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture,
-  opts, view, dotSrc, mermaidSrc, tooBig, instMode, exVisible, curEx, formLabel,
-  expandRef, collapseRef, toggleExpandForm, loadText, loadSample, readFile, dlMermaid, dlDot, dlCsv, dlSvg, jumpToField, pickNode,
+  opts, view, dotSrc, mermaidSrc, tooBig, instanceMode, exploreVisible, currentExploration, formLabel,
+  expandRef, collapseRef, toggleExpandForm, loadText, loadSample, readFile, downloadMermaid, downloadDot, downloadCsv, downloadSvg, jumpToField, pickNode,
 } = app;

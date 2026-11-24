@@ -84,7 +84,7 @@ describe('loadText', () => {
     expect(store.level()).toBe('form');
     expect(store.focus()).toBe('');
     expect(store.selected()).toBeNull();
-    expect(store.selEdge()).toBeNull();
+    expect(store.selectedEdge()).toBeNull();
     expect(store.pair()).toBeNull();
   });
 
@@ -117,30 +117,30 @@ describe('setFocusDepth', () => {
 describe('selection', () => {
   const edge: FormPair = { from: 'a', to: 'b' } as FormPair;
 
-  it('setSelected(non-null) clears selEdge', () => {
-    settle(() => store.setSelEdge(edge));
+  it('setSelected(non-null) clears selectedEdge', () => {
+    settle(() => store.setSelectedEdge(edge));
     settle(() => store.setSelected('demographics'));
-    expect(store.selEdge()).toBeNull();
+    expect(store.selectedEdge()).toBeNull();
     expect(store.selected()).toBe('demographics');
   });
 
-  it('setSelected(null) does not clear selEdge', () => {
-    settle(() => store.setSelEdge(edge));
+  it('setSelected(null) does not clear selectedEdge', () => {
+    settle(() => store.setSelectedEdge(edge));
     settle(() => store.setSelected(null));
-    expect(store.selEdge()).toBe(edge);
+    expect(store.selectedEdge()).toBe(edge);
   });
 
-  it('setSelectedRaw leaves selEdge alone', () => {
-    settle(() => store.setSelEdge(edge));
+  it('setSelectedRaw leaves selectedEdge alone', () => {
+    settle(() => store.setSelectedEdge(edge));
     settle(() => store.setSelectedRaw('demographics'));
-    expect(store.selEdge()).toBe(edge);
+    expect(store.selectedEdge()).toBe(edge);
     expect(store.selected()).toBe('demographics');
   });
 
-  it('pickNode selects the node and clears selEdge', () => {
-    settle(() => store.setSelEdge(edge));
+  it('pickNode selects the node and clears selectedEdge', () => {
+    settle(() => store.setSelectedEdge(edge));
     settle(() => store.pickNode('baseline'));
-    expect(store.selEdge()).toBeNull();
+    expect(store.selectedEdge()).toBeNull();
     expect(store.selected()).toBe('baseline');
   });
 
@@ -203,26 +203,26 @@ describe('derived view state', () => {
   });
 });
 
-describe('instMode', () => {
+describe('instanceMode', () => {
   it('is false by default', () => {
-    expect(store.instMode()).toBe(false);
+    expect(store.instanceMode()).toBe(false);
   });
 
   it('is true only with instances on, form level and events present', () => {
     settle(() => store.setInstances(true));
-    expect(store.instMode()).toBe(true);
+    expect(store.instanceMode()).toBe(true);
     settle(() => store.setLevel('field'));
-    expect(store.instMode()).toBe(false);
+    expect(store.instanceMode()).toBe(false);
     settle(() => store.setLevel('form'));
     settle(() => store.setInstances(false));
-    expect(store.instMode()).toBe(false);
+    expect(store.instanceMode()).toBe(false);
   });
 
   it('is false with instances on when the project has no events', () => {
     const noEvents = sampleXml.replace(/<StudyEventDef[\s\S]*?<\/StudyEventDef>/g, '');
     load(noEvents, 'noev');
     settle(() => store.setInstances(true));
-    expect(store.instMode()).toBe(false);
+    expect(store.instanceMode()).toBe(false);
   });
 });
 
@@ -230,19 +230,19 @@ describe('expansion of back / forward references', () => {
   it('expandRef adds an explore entry seeded with the node', () => {
     const node = store.view()!.nodes[0]!.id;
     settle(() => store.expandRef(node, 'up'));
-    const ex = store.curEx();
+    const ex = store.currentExploration();
     expect(ex).not.toBeNull();
     expect(ex!.seeds).toContain(node);
     expect(ex!.exp).toHaveLength(1);
     expect(ex!.exp[0]!.node).toBe(node);
-    expect(store.exVisible(ex!).has(node)).toBe(true);
+    expect(store.exploreVisible(ex!).has(node)).toBe(true);
   });
 
   it('collapseRef removes that expansion step', () => {
     const node = store.view()!.nodes[0]!.id;
     settle(() => store.expandRef(node, 'up'));
     settle(() => store.collapseRef(node, 'up'));
-    expect(store.curEx()?.exp ?? []).toHaveLength(0);
+    expect(store.currentExploration()?.exp ?? []).toHaveLength(0);
   });
 
   it('collapseRef does nothing when nothing is being explored', () => {
@@ -270,8 +270,8 @@ describe('toggleExpandForm', () => {
 });
 
 describe('downloads', () => {
-  it('dlCsv downloads dependencies as CSV named after the file', () => {
-    store.dlCsv();
+  it('downloadCsv downloads dependencies as CSV named after the file', () => {
+    store.downloadCsv();
     expect(download).toHaveBeenCalledTimes(1);
     const [name, body, mime] = vi.mocked(download).mock.calls[0]!;
     expect(name).toBe('sample_dependencies.csv');
@@ -279,13 +279,13 @@ describe('downloads', () => {
     expect(mime).toBe('text/csv;charset=utf-8');
   });
 
-  it('dlDot downloads the DOT source with a level suffix', () => {
-    store.dlDot();
+  it('downloadDot downloads the DOT source with a level suffix', () => {
+    store.downloadDot();
     expect(download).toHaveBeenCalledWith('sample_forms.dot', store.dotSrc());
   });
 
-  it('dlMermaid downloads the Mermaid source with a level suffix', () => {
-    store.dlMermaid();
+  it('downloadMermaid downloads the Mermaid source with a level suffix', () => {
+    store.downloadMermaid();
     expect(download).toHaveBeenCalledWith('sample_forms.mmd', store.mermaidSrc());
   });
 });

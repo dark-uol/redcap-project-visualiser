@@ -2,7 +2,7 @@ import { For, Show } from 'solid-js';
 import { withFlags } from '../../lib/flags';
 import type { Arm, EventDef } from '../../lib/types';
 import { Check } from '../controls';
-import { need, model, eventsOn, setEventsOn, crossOnly, setCrossOnly, instOnly, setInstOnly } from '../../store';
+import { need, model, eventsOn, setEventsOn, crossOnly, setCrossOnly, instanceOnly, setInstanceOnly } from '../../store';
 import { stopClick } from './stopClick';
 
 export default function EventsSection() {
@@ -36,7 +36,7 @@ export default function EventsSection() {
     <details class="sec">
       <summary><h2>Events &amp; arms <button class="link" onClick={onAllEvents}>all</button> <button class="link" onClick={onNoEvents}>none</button></h2></summary>
       <Check checked={crossOnly()} onChange={setCrossOnly} label="Only cross-event references" />
-      <Check checked={instOnly()} onChange={setInstOnly} label="Only repeating-instance logic" />
+      <Check checked={instanceOnly()} onChange={setInstanceOnly} label="Only repeating-instance logic" />
       <div id="events">
         <For each={armRows()}>
           {(arm) => (

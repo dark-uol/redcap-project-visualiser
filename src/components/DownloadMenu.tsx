@@ -1,13 +1,13 @@
 import { Show, onSettled } from 'solid-js';
-import { dlOpen, setDlOpen, dlMermaid, dlDot, dlSvg, dlCsv } from '../store';
+import { downloadMenuOpen, setDownloadMenuOpen, downloadMermaid, downloadDot, downloadSvg, downloadCsv } from '../store';
 
 export default function DownloadMenu() {
   onSettled(() => {
     const onClick = (e: MouseEvent) => {
       const inMenu = e.target instanceof Element && e.target.closest('.dlmenu');
-      if (!inMenu) setDlOpen(false);
+      if (!inMenu) setDownloadMenuOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDlOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDownloadMenuOpen(false); };
     document.addEventListener('click', onClick);
     document.addEventListener('keydown', onKey);
     return () => {
@@ -15,16 +15,16 @@ export default function DownloadMenu() {
       document.removeEventListener('keydown', onKey);
     };
   });
-  const pick = (fn: () => void) => () => { setDlOpen(false); fn(); };
+  const pick = (fn: () => void) => () => { setDownloadMenuOpen(false); fn(); };
   return (
     <div class="dlmenu">
-      <button class="btn sm" onClick={() => setDlOpen(!dlOpen())}>⬇ Download ▾</button>
-      <Show when={dlOpen()}>
+      <button class="btn sm" onClick={() => setDownloadMenuOpen(!downloadMenuOpen())}>⬇ Download ▾</button>
+      <Show when={downloadMenuOpen()}>
         <div class="dlpop">
-          <button onClick={pick(dlMermaid)}>Mermaid (.mmd)</button>
-          <button onClick={pick(dlDot)}>Graphviz (.dot)</button>
-          <button onClick={pick(dlSvg)}>SVG image</button>
-          <button onClick={pick(dlCsv)}>Dependencies (.csv)</button>
+          <button onClick={pick(downloadMermaid)}>Mermaid (.mmd)</button>
+          <button onClick={pick(downloadDot)}>Graphviz (.dot)</button>
+          <button onClick={pick(downloadSvg)}>SVG image</button>
+          <button onClick={pick(downloadCsv)}>Dependencies (.csv)</button>
         </div>
       </Show>
     </div>

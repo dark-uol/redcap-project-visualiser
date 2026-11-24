@@ -1,5 +1,5 @@
 import { Show } from 'solid-js';
-import { need, model, curEx, pair } from '../store';
+import { need, model, currentExploration, pair } from '../store';
 import ViewSection from './sidebar/ViewSection';
 import DependencyTypesSection from './sidebar/DependencyTypesSection';
 import ExploringSection from './sidebar/ExploringSection';
@@ -13,7 +13,7 @@ export default function Sidebar() {
     <aside id="side">
       <ViewSection />
       <DependencyTypesSection />
-      <Show when={curEx()}>
+      <Show when={currentExploration()}>
         <ExploringSection />
       </Show>
       <Show when={pair()}>

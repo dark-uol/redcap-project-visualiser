@@ -9,8 +9,8 @@ import type { ExploreContext } from '../lib/exploreTarget';
 import { groupIdFor, parseSelection } from '../lib/selection';
 import type { DepType, Edge, EventDef, Field, Form, FormNode, FormPair, LogicNode, Model, NeighborDir, View, ViewEdge, ViewNode } from '../lib/types';
 import {
-  need, model, view, opts, level, selected, selEdge, setSelEdge, setSelected, setLevel, setFocus, setPair, setExplore, expanded,
-  curEx, exVisible, instMode, formLabel, expandRef, collapseRef, toggleExpandForm, jumpToField,
+  need, model, view, opts, level, selected, selectedEdge, setSelectedEdge, setSelected, setLevel, setFocus, setPair, setExplore, expanded,
+  currentExploration, exploreVisible, instanceMode, formLabel, expandRef, collapseRef, toggleExpandForm, jumpToField,
 } from '../store';
 
 const TOKEN_RE = /(\[[A-Za-z][A-Za-z0-9_]*(?:\([^)\]]*\))?(?::[A-Za-z0-9_]+)?\])/;
@@ -69,8 +69,8 @@ function EdgeRow(props: { edge: Edge; onOpen: (id: string) => void; detail?: Sol
 }
 
 function exploreButton(m: Model, t: string, dir: NeighborDir, label: string, tip: string) {
-  const ex = curEx();
-  const vis = ex ? exVisible(ex) : new Set<string>();
+  const ex = currentExploration();
+  const vis = ex ? exploreVisible(ex) : new Set<string>();
   const nb = neighbors(m, need(opts()), t, dir);
   const open = !!(ex && ex.exp.some((x) => x.node === t && x.dir === dir));
   const fresh = nb.filter((x) => !vis.has(x)).length;
@@ -97,13 +97,13 @@ function instanceNodeFor(id: string): ViewNode | undefined {
 
 function exploreContext(): ExploreContext {
   const m = need(model());
-  const instanceMode = instMode();
+  const instanceModeOn = instanceMode();
   return {
     level: level(),
-    instanceMode,
+    instanceMode: instanceModeOn,
     isFormId: (id) => m.formsById.has(id),
     formOf: (id) => findNode(m, id)?.form,
-    instanceNodes: instanceMode ? viewInstanceNodes(view()) : [],
+    instanceNodes: instanceModeOn ? viewInstanceNodes(view()) : [],
   };
 }
 
@@ -160,7 +160,7 @@ function formDetail(fm: Form) {
   const repeatingIn = repEvents(m.parsed, fm);
   return (
     <div><h3>{fm.label}</h3><div class="muted small">form <code>{fm.id}</code> · {fm.fields.length} fields{formIsRepeating(m.parsed, fm) ? ' · repeating' + (repeatingIn ? ' in ' + repeatingIn : '') : ''}</div>
-      {instMode() ? '' : <p style="margin:8px 0"><button class="btn sm primary" onClick={() => toggleExpandForm(id)}>{expanded().has(id) ? 'Collapse back to form' : 'Zoom into fields'}</button></p>}
+      {instanceMode() ? '' : <p style="margin:8px 0"><button class="btn sm primary" onClick={() => toggleExpandForm(id)}>{expanded().has(id) ? 'Collapse back to form' : 'Zoom into fields'}</button></p>}
       <ExploreRow id={id} />
       <Section title="Cross-form dependencies" count={cross.length} empty={!cross.length}>
         {cross.map((e) => <EdgeRow edge={e} onOpen={(x) => setSelected(x)} />)}
@@ -304,7 +304,7 @@ function edgeDetail(ed: FormPair) {
     <div>
       <h3>{fl(ed.from)} → {fl(ed.to)}</h3>
       <div class="muted small">{srcs.size} source field{srcs.size === 1 ? '' : 's'} · {byDep.size} dependent field{byDep.size === 1 ? '' : 's'} · {es.length} dependenc{es.length === 1 ? 'y' : 'ies'}</div>
-      <p style="margin:8px 0"><button class="btn sm primary" onClick={() => { setLevel('field'); setFocus(''); setPair({ from: ed.from, to: ed.to }); setSelEdge(null); }}>Show these fields in the field graph</button></p>
+      <p style="margin:8px 0"><button class="btn sm primary" onClick={() => { setLevel('field'); setFocus(''); setPair({ from: ed.from, to: ed.to }); setSelectedEdge(null); }}>Show these fields in the field graph</button></p>
       {[...byDep.entries()].map(([dep, list]) => <div style="margin-bottom:10px">
         <button class="fieldlink" style="font-weight:600" onClick={() => setSelected(dep)}>{dep}</button>
         <span class="muted small"> depends on </span>
@@ -320,7 +320,7 @@ function lookUpDetailFacts(id: string): DetailFacts {
   const node = findNode(m, id);
   return {
     node,
-    instanceNode: node || !instMode() ? undefined : instanceNodeFor(id),
+    instanceNode: node || !instanceMode() ? undefined : instanceNodeFor(id),
     event: (m.parsed.events || []).find((x) => x.id === id),
     form: m.formsById.get(id),
   };
@@ -347,10 +347,10 @@ function detailContent(selectedId: string): SolidElement {
 
 export default function Detail() {
   return (
-    <Show when={selected() || selEdge()}>
+    <Show when={selected() || selectedEdge()}>
       <aside id="detail">
-        <button class="link" style="float:right" onClick={() => { setSelected(null); setSelEdge(null); }}>✕ close</button>
-        {selEdge() ? edgeDetail(selEdge() as FormPair) : selected() ? detailContent(selected() as string) : ''}
+        <button class="link" style="float:right" onClick={() => { setSelected(null); setSelectedEdge(null); }}>✕ close</button>
+        {selectedEdge() ? edgeDetail(selectedEdge() as FormPair) : selected() ? detailContent(selected() as string) : ''}
       </aside>
     </Show>
   );
