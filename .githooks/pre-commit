@@ -1,0 +1,21 @@
+#!/bin/sh
+# Fast checks. Enable with: git config core.hooksPath .githooks
+set -eu
+
+echo "pre-commit: typecheck"
+npm run --silent typecheck
+
+if git diff --cached --name-only | grep -q '^\.github/workflows/'; then
+  command -v actionlint >/dev/null 2>&1 || {
+    echo "pre-commit: actionlint not found (brew install actionlint)" >&2
+    exit 1
+  }
+  command -v uvx >/dev/null 2>&1 || {
+    echo "pre-commit: uvx not found (brew install uv)" >&2
+    exit 1
+  }
+  echo "pre-commit: actionlint"
+  actionlint
+  echo "pre-commit: zizmor (offline)"
+  uvx zizmor@1.33.1 --offline --persona=pedantic .github/workflows/
+fi

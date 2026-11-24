@@ -8,6 +8,8 @@ npm run dev      # dev server with hot reload (http://localhost:5173)
 npm run build    # production build into dist/
 ```
 
+One-time setup per clone: `git config core.hooksPath .githooks`. The pre-commit hook runs the typecheck (plus actionlint and zizmor when workflow files are staged); pre-push runs the tests, a build and an online zizmor audit. Needs `actionlint` (`brew install actionlint`) and `uvx` (`brew install uv`) for the workflow checks.
+
 Opening `index.html` directly via `file://` is no longer supported: the app is built with Vite and needs to be served over http (`npm run dev`, or `npm run preview` / any static server pointed at `dist/`).
 
 1. Export from REDCap: *Project Setup → Other Functionality → Download metadata only (XML)* (CDISC ODM).

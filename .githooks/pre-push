@@ -1,0 +1,16 @@
+#!/bin/sh
+# Slower checks. Enable with: git config core.hooksPath .githooks
+set -eu
+
+echo "pre-push: tests"
+npm test --silent
+
+echo "pre-push: build"
+npm run --silent build >/dev/null
+
+if command -v uvx >/dev/null 2>&1 && command -v gh >/dev/null 2>&1 && GH_TOKEN=$(gh auth token 2>/dev/null) && [ -n "$GH_TOKEN" ]; then
+  echo "pre-push: zizmor (online)"
+  GH_TOKEN="$GH_TOKEN" uvx zizmor@1.33.1 --persona=pedantic .github/workflows/
+else
+  echo "pre-push: skipping online zizmor (needs uvx and a logged-in gh)"
+fi
