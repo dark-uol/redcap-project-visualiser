@@ -197,17 +197,10 @@ export interface Model extends ModelBase {
 
 // ---------- view (input to the exporters and renderers) ----------
 
-export interface ViewOptions {
+/** Which elements of the model are included in the view. */
+export interface ViewFilter {
   level: Level;
-  dir: Direction;
-  labelMode: LabelMode;
-  group: boolean;
-  groupBy: GroupBy;
   eventSet: Set<string> | null;
-  edgeLabels: boolean;
-  hideIsolated: boolean;
-  hideIsolatedNodes: boolean;
-  showMissing: boolean;
   types: Set<DepType>;
   forms: Set<string> | null;
   formsNone: boolean;
@@ -220,7 +213,21 @@ export interface ViewOptions {
   focus: string;
   focusDir: FocusDir;
   focusDepth: number;
+  showMissing: boolean;
+  hideIsolated: boolean;
+  hideIsolatedNodes: boolean;
 }
+
+/** How the included elements are drawn. */
+export interface ViewPresentation {
+  dir: Direction;
+  labelMode: LabelMode;
+  group: boolean;
+  groupBy: GroupBy;
+  edgeLabels: boolean;
+}
+
+export type ViewOptions = ViewFilter & ViewPresentation;
 
 /** A form-to-form link, used for the "form link focus" and edge selection. */
 export interface FormPair {
