@@ -17,9 +17,8 @@ export const clampDepth = (v: unknown): number => Math.min(50, Math.max(1, Math.
 
 export type Tab = 'graph' | 'matrix' | 'analysis' | 'deps' | 'fields';
 
-/** Browser history entry: tab, level, focus and selection. */
-interface HistState {
-  m: number;
+/** Navigation state: tab, level, focus and selection. */
+export interface Navigation {
   tab: Tab;
   level: Level;
   focus: string;
@@ -27,6 +26,9 @@ interface HistState {
   sel: string | null;
   edge: FormPair | null;
 }
+
+/** Browser history entry: navigation plus the file sequence number. */
+type HistState = Navigation & { m: number };
 
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -259,6 +261,9 @@ const app = createRoot(() => {
   }
 
   // ================= loading =================
+  const currentNav = (): Navigation => ({ tab: tab(), level: level(), focus: focus(), pair: pair(), sel: selected(), edge: selEdge() });
+  const applyNav = (n: Navigation): void => { setTab(n.tab); setLevel(n.level); setFocus(n.focus); setPair(n.pair); setSelectedRaw(n.sel); setSelEdge(n.edge); };
+  const resetNav = (): void => { setTab('graph'); setLevel('form'); setFocus(''); setPair(null); setSelEdge(null); setSelected(null); };
   function loadText(text: string, name?: string): void {
     try {
       const parsed = parseODM(text);
@@ -266,8 +271,8 @@ const app = createRoot(() => {
       modelSeq++;
       setLoadError('');
       setFileBase((name || parsed.projectName).replace(/\.xml$/i, '').replace(/[^\w.-]+/g, '_') || 'redcap');
-      setLevel('form'); setFormQ(''); setFormsOn({}); setEventsOn({}); setCrossOnly(false); setInstOnly(false);
-      setFocus(''); setPair(null); setExplore(null); setExpanded(new Set<string>()); setSelEdge(null); setSelected(null); setTab('graph');
+      resetNav(); setFormQ(''); setFormsOn({}); setEventsOn({}); setCrossOnly(false); setInstOnly(false);
+      setExplore(null); setExpanded(new Set<string>());
       setTypesOn(allTypesOn());
       setModel(m);
     } catch (e) {
@@ -314,7 +319,7 @@ const app = createRoot(() => {
   // ================= browser history: back/forward step through tab / level / focus / selection =================
   let lastKey: string | null = null;
   createEffect(
-    (): HistState | null => (model() ? { m: modelSeq, tab: tab(), level: level(), focus: focus(), pair: pair(), sel: selected(), edge: selEdge() } : null),
+    (): HistState | null => (model() ? { m: modelSeq, ...currentNav() } : null),
     (st) => {
       if (!st) return;
       const key = JSON.stringify(st);
@@ -331,12 +336,7 @@ const app = createRoot(() => {
     const st = e.state as HistState | null;
     if (!st || !model() || st.m !== modelSeq) return;
     lastKey = JSON.stringify(st);
-    setTab(st.tab);
-    setLevel(st.level);
-    setFocus(st.focus);
-    setPair(st.pair);
-    setSelectedRaw(st.sel);
-    setSelEdge(st.edge);
+    applyNav(st);
   });
 
   return {
