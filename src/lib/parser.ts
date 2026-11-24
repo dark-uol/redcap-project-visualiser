@@ -1,6 +1,6 @@
 /* REDCap ODM / project-metadata XML parser. Pure: no DOM globals beyond the DOMParser it is given via `parseODM`. */
 import type {
-  Choice, EventDef, Field, Form, FormLogicRule, LogicSource, ParsedODM, RefToken, RepeatingInstrument,
+  Choice, EmbedToken, EventDef, Field, Form, FormLogicRule, LogicSource, ParsedODM, RefToken, RepeatingInstrument,
 } from './types';
 
 type XmlRoot = Document | Element;
@@ -72,6 +72,16 @@ export function extractRefs(text: string | null | undefined): RefToken[] {
     const next = toks[i + 1];
     out.push({ name: p[1], code: p[2] || '', mod: p[3] || '', adjNext: !!(next && next.start === t.end) });
   });
+  return out;
+}
+
+/** Field embeddings (`{name}`, `{name:mod}`) in a label, note or section header, in order of appearance (not deduped). */
+export function extractEmbeds(text: string | null | undefined): EmbedToken[] {
+  const out: EmbedToken[] = [];
+  if (!text) return out;
+  const re = /\{([A-Za-z][A-Za-z0-9_]*)(?::([A-Za-z0-9_]+))?\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) out.push({ name: m[1], mod: m[2] || '' });
   return out;
 }
 

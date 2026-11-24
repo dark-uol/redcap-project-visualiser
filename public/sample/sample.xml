@@ -45,6 +45,7 @@
 		<ItemGroupRef ItemGroupOID="screening.sc_intro" Mandatory="No"/>
 		<ItemGroupRef ItemGroupOID="screening.sc_int" Mandatory="No"/>
 		<ItemGroupRef ItemGroupOID="screening.sc_pain" Mandatory="No"/>
+		<ItemGroupRef ItemGroupOID="screening.em_embed" Mandatory="No"/>
 	</FormDef>
 	<ItemGroupDef OID="demographics.record_id" Name="Demographics" Repeating="No">
 		<ItemRef ItemOID="record_id" Mandatory="No" redcap:Variable="record_id"/>
@@ -119,6 +120,18 @@
 		<ItemRef ItemOID="sc_fmt_only" Mandatory="No" redcap:Variable="sc_fmt_only"/>
 		<ItemRef ItemOID="sc_media_video" Mandatory="No" redcap:Variable="sc_media_video"/>
 		<ItemRef ItemOID="sc_media_image" Mandatory="No" redcap:Variable="sc_media_image"/>
+	</ItemGroupDef>
+	<ItemGroupDef OID="screening.em_embed" Name="Screening field embedding" Repeating="No">
+		<ItemRef ItemOID="em_host" Mandatory="No" redcap:Variable="em_host"/>
+		<ItemRef ItemOID="em_pick" Mandatory="No" redcap:Variable="em_pick"/>
+		<ItemRef ItemOID="em_other_text" Mandatory="No" redcap:Variable="em_other_text"/>
+		<ItemRef ItemOID="em_rating" Mandatory="No" redcap:Variable="em_rating"/>
+		<ItemRef ItemOID="em_note_host" Mandatory="No" redcap:Variable="em_note_host"/>
+		<ItemRef ItemOID="em_note_target" Mandatory="No" redcap:Variable="em_note_target"/>
+		<ItemRef ItemOID="em_header_host" Mandatory="No" redcap:Variable="em_header_host"/>
+		<ItemRef ItemOID="em_header_target" Mandatory="No" redcap:Variable="em_header_target"/>
+		<ItemRef ItemOID="em_choice_target" Mandatory="No" redcap:Variable="em_choice_target"/>
+		<ItemRef ItemOID="em_ghost_host" Mandatory="No" redcap:Variable="em_ghost_host"/>
 	</ItemGroupDef>
 
 	<ItemDef OID="record_id" Name="record_id" DataType="text" Length="999" redcap:Variable="record_id" redcap:FieldType="text">
@@ -309,6 +322,38 @@
 	<ItemDef OID="sc_media_image" Name="sc_media_image" DataType="text" Length="999" redcap:Variable="sc_media_image" redcap:FieldType="descriptive" redcap:InlineImage="consent_diagram.png">
 		<Question><TranslatedText>Consent diagram</TranslatedText></Question>
 	</ItemDef>
+	<ItemDef OID="em_host" Name="em_host" DataType="text" Length="999" redcap:Variable="em_host" redcap:FieldType="text">
+		<Question><TranslatedText>Mood check. Rating: {em_rating:icons}. Other detail: {em_other_text}</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="em_pick" Name="em_pick" DataType="text" Length="2" redcap:Variable="em_pick" redcap:FieldType="radio">
+		<Question><TranslatedText>Mood category</TranslatedText></Question>
+		<CodeListRef CodeListOID="em_pick.choices"/>
+	</ItemDef>
+	<ItemDef OID="em_other_text" Name="em_other_text" DataType="text" Length="999" redcap:Variable="em_other_text" redcap:FieldType="text" redcap:BranchingLogic="[em_pick] = '99'">
+		<Question><TranslatedText>Specify other mood</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="em_rating" Name="em_rating" DataType="text" Length="1" redcap:Variable="em_rating" redcap:FieldType="radio">
+		<Question><TranslatedText>Rating</TranslatedText></Question>
+		<CodeListRef CodeListOID="em_rating.choices"/>
+	</ItemDef>
+	<ItemDef OID="em_note_host" Name="em_note_host" DataType="text" Length="999" redcap:Variable="em_note_host" redcap:FieldType="text" redcap:FieldNote="Answer for the target: {em_note_target}">
+		<Question><TranslatedText>Note host</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="em_note_target" Name="em_note_target" DataType="text" Length="999" redcap:Variable="em_note_target" redcap:FieldType="text">
+		<Question><TranslatedText>Note target</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="em_header_host" Name="em_header_host" DataType="text" Length="999" redcap:Variable="em_header_host" redcap:FieldType="text" redcap:SectionHeader="Rate: {em_header_target}">
+		<Question><TranslatedText>Header host</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="em_header_target" Name="em_header_target" DataType="text" Length="999" redcap:Variable="em_header_target" redcap:FieldType="text">
+		<Question><TranslatedText>Header target</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="em_choice_target" Name="em_choice_target" DataType="text" Length="999" redcap:Variable="em_choice_target" redcap:FieldType="text">
+		<Question><TranslatedText>Choice target</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="em_ghost_host" Name="em_ghost_host" DataType="text" Length="999" redcap:Variable="em_ghost_host" redcap:FieldType="text">
+		<Question><TranslatedText>Ghost embed: {em_missing_target}</TranslatedText></Question>
+	</ItemDef>
 
 	<CodeList OID="sex.choices" Name="sex" DataType="text">
 		<CodeListItem CodedValue="1"><Decode><TranslatedText>Male</TranslatedText></Decode></CodeListItem>
@@ -331,6 +376,14 @@
 	<CodeList OID="agree.choices" Name="agree" DataType="text">
 		<CodeListItem CodedValue="1"><Decode><TranslatedText>Yes</TranslatedText></Decode></CodeListItem>
 		<CodeListItem CodedValue="2"><Decode><TranslatedText>No</TranslatedText></Decode></CodeListItem>
+	</CodeList>
+	<CodeList OID="em_pick.choices" Name="em_pick" DataType="text">
+		<CodeListItem CodedValue="1"><Decode><TranslatedText>Calm</TranslatedText></Decode></CodeListItem>
+		<CodeListItem CodedValue="99"><Decode><TranslatedText>Other: {em_choice_target}</TranslatedText></Decode></CodeListItem>
+	</CodeList>
+	<CodeList OID="em_rating.choices" Name="em_rating" DataType="text">
+		<CodeListItem CodedValue="1"><Decode><TranslatedText>Low</TranslatedText></Decode></CodeListItem>
+		<CodeListItem CodedValue="2"><Decode><TranslatedText>High</TranslatedText></Decode></CodeListItem>
 	</CodeList>
 	<redcap:FormDisplayLogicConditionsGroup>
 		<redcap:FormDisplayLogicConditions redcap:apply_to_data_entry="1" redcap:apply_to_survey="0" redcap:apply_to_mycap="0" redcap:control_condition="[consent] = '1'" redcap:forms_events="baseline_arm_1:screening,followup_arm_1:followup"/>

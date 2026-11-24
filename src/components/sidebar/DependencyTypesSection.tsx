@@ -12,6 +12,7 @@ const DEPENDENCY_BORDER_STYLE: Record<DepType, string> = {
   branching: 'solid',
   calc: 'double',
   piping: 'dashed',
+  embedding: 'dotted',
   actiontag: 'dashed',
   formlogic: 'dashed',
   logicsrc: 'dashed',

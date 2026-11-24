@@ -1,6 +1,6 @@
 /* Shared domain types: parsed REDCap metadata, the dependency model and the view the renderers consume. */
 
-export type DepType = 'branching' | 'calc' | 'piping' | 'actiontag' | 'formlogic' | 'logicsrc';
+export type DepType = 'branching' | 'calc' | 'piping' | 'embedding' | 'actiontag' | 'formlogic' | 'logicsrc';
 export type Level = 'field' | 'form' | 'event';
 export type Direction = 'LR' | 'TD';
 export type LabelMode = 'var' | 'label';
@@ -112,6 +112,12 @@ export interface RefToken {
   mod: string;
   /** Another `[..]` follows immediately, so this token may be an event prefix (`[event][var]`). */
   adjNext: boolean;
+}
+
+/** One `{name}` or `{name:mod}` field embedding found in a label, note or section header. */
+export interface EmbedToken {
+  name: string;
+  mod: string;
 }
 
 // ---------- dependency model ----------

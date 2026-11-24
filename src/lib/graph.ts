@@ -1,5 +1,5 @@
 /* Dependency model, analysis (cycles, depth, hubs) and view building. */
-import { extractRefs, extractSmart } from './parser';
+import { extractEmbeds, extractRefs, extractSmart } from './parser';
 import { groupFormIdOf, instanceFieldIdFor, instanceIdFor } from './selection';
 import type {
   Analysis, DepType, Edge, EventDef, Field, FocusDir, Form, FormNode, GhostNode, LogicNode, Model, ModelBase,
@@ -12,6 +12,7 @@ export const TYPES: Record<DepType, TypeMeta> = {
   branching: { label: 'Branching logic', color: '#2563eb' },
   calc: { label: 'Calculation', color: '#ea580c' },
   piping: { label: 'Piping (labels/notes)', color: '#16a34a' },
+  embedding: { label: 'Field embedding ({field})', color: '#ca8a04' },
   actiontag: { label: 'Action tags', color: '#9333ea' },
   formlogic: { label: 'Form display logic', color: '#0891b2' },
   logicsrc: { label: 'Other logic sources (alerts, queue…)', color: '#be185d' },
@@ -82,12 +83,17 @@ export function buildModel(parsed: ParsedODM): Model {
     }
   });
 
-  function add(from: string, to: string, type: DepType, expr: string, cross: boolean): Edge | undefined {
-    const missing = !byVar.has(from);
-    if (missing && !ghosts.has(from)) {
-      ghosts.set(from, { variable: from, type: 'missing', label: 'not defined in this project', form: UNKNOWN_FORM, ghost: true });
+  /**
+   * Add a dependency `from` -> `to`. The end named by `checkSide` (default `from`, the referenced field for refs) is the
+   * one that must be defined: if it is not, a ghost node is created for it and the edge is flagged `missing`.
+   */
+  function add(from: string, to: string, type: DepType, expr: string, cross: boolean, checkSide: 'from' | 'to' = 'from'): Edge | undefined {
+    const undefinedEnd = checkSide === 'to' ? to : from;
+    const missing = !byVar.has(undefinedEnd);
+    if (missing && !ghosts.has(undefinedEnd)) {
+      ghosts.set(undefinedEnd, { variable: undefinedEnd, type: 'missing', label: 'not defined in this project', form: UNKNOWN_FORM, ghost: true });
     }
-    if (from === to) { selfRefs.push({ field: to, type, expr }); return undefined; }
+    if (from === to) { selfRefs.push({ field: from, type, expr }); return undefined; }
     const key = from + '\u0000' + to + '\u0000' + type;
     if (seen.has(key)) return edgeByKey.get(key);
     seen.add(key);
@@ -98,10 +104,17 @@ export function buildModel(parsed: ParsedODM): Model {
   }
 
   parsed.fields.forEach((f) => {
+    const visibleText = [f.label, f.note, f.section].filter(Boolean).join(' \n ');
+    // {field} embeds: the host (this field) draws the embedded field's input, so the embedded field depends on the host.
+    // Answer-choice labels are embed-scanned too (e.g. a radio option "Other: {specify}"), but not piped (see below).
+    const embeddingText = [visibleText, ...f.choices.map((choice) => choice.label)].filter(Boolean).join(' \n ');
+    extractEmbeds(embeddingText).forEach((token) => {
+      add(f.variable, token.name, 'embedding', '{' + token.name + (token.mod ? ':' + token.mod : '') + '}', false, 'to');
+    });
     const sources: [DepType, string][] = [
       ['branching', f.branching],
       ['calc', f.calc],
-      ['piping', [f.label, f.note, f.section].filter(Boolean).join(' \n ')],
+      ['piping', visibleText],
       ['actiontag', /@/.test(f.annotation || '') ? f.annotation : ''],
     ];
     sources.forEach(([type, text]) => {
