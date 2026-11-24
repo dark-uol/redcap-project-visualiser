@@ -1,13 +1,18 @@
 /* Empty-state drop zone; also wires page-wide drag & drop of an XML file. */
 import { onSettled } from 'solid-js';
-import { dragOver, setDragOver, readFile } from '../store.js';
+import { dragOver, setDragOver, readFile } from '../store';
 
 /** Page-wide drag & drop listeners (mounted once, from App). */
-export function useFileDrop() {
+export function useFileDrop(): void {
   onSettled(() => {
-    const over = (e) => { e.preventDefault(); setDragOver(true); };
-    const leave = (e) => { e.preventDefault(); setDragOver(false); };
-    const drop = (e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) readFile(f); };
+    const over = (e: DragEvent) => { e.preventDefault(); setDragOver(true); };
+    const leave = (e: DragEvent) => { e.preventDefault(); setDragOver(false); };
+    const drop = (e: DragEvent) => {
+      e.preventDefault();
+      setDragOver(false);
+      const f = e.dataTransfer?.files[0];
+      if (f) readFile(f);
+    };
     document.addEventListener('dragover', over);
     document.addEventListener('dragleave', leave);
     document.addEventListener('drop', drop);

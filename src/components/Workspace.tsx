@@ -1,15 +1,15 @@
 /* Main workspace: sidebar plus the tabbed content area. */
 import { For, Show } from 'solid-js';
-import { tab, setTab } from '../store.js';
-import Sidebar from './Sidebar.jsx';
-import DownloadMenu from './DownloadMenu.jsx';
-import GraphView from './GraphView.jsx';
-import MatrixTab from './MatrixTab.jsx';
-import AnalysisTab from './AnalysisTab.jsx';
-import DepsTab from './DepsTab.jsx';
-import FieldsTab from './FieldsTab.jsx';
+import { tab, setTab, type Tab } from '../store';
+import Sidebar from './Sidebar';
+import DownloadMenu from './DownloadMenu';
+import GraphView from './GraphView';
+import MatrixTab from './MatrixTab';
+import AnalysisTab from './AnalysisTab';
+import DepsTab from './DepsTab';
+import FieldsTab from './FieldsTab';
 
-const TABS = [['graph', 'Graph'], ['matrix', 'Matrix'], ['analysis', 'Analysis'], ['deps', 'Dependencies'], ['fields', 'Fields']];
+const TABS: [Tab, string][] = [['graph', 'Graph'], ['matrix', 'Matrix'], ['analysis', 'Analysis'], ['deps', 'Dependencies'], ['fields', 'Fields']];
 
 export default function Workspace() {
   return (

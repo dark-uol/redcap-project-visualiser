@@ -4,13 +4,14 @@ Client-only SolidJS 2 + Vite app. Loads a REDCap CDISC ODM metadata XML and draw
 
 ## Commands
 - `npm run dev` – dev server, http://localhost:5173 (HMR; use the `dev` entry in `.claude/launch.json` with preview tools).
-- `npm run build` – production build to `dist/`. This is the only automated check: there are **no tests and no linter**, so run it after changes, then verify UI changes in the browser (click "Load sample").
+- `npm run build` – production build to `dist/`. Vite does not type-check, so also run `npm run typecheck` (`tsc --noEmit`). There are **no tests and no linter**: run both after changes, then verify UI changes in the browser (click "Load sample").
 - `file://` does not work; always serve over http.
 
 ## Layout
-- `src/store.js` – all app state (signals/memos, graph-render effect, actions) in one `createRoot`; components import from it. Add new UI state here.
-- `src/lib/` – framework-free modules, no Solid imports: `parser.js` (XML → fields/forms/events), `graph.js` (model, cycle/depth/hub analysis, `buildView`), `exporters.js` (Mermaid/DOT/CSV), `renderers.js` (lazy-loads viz + mermaid), `download.js`.
-- `src/components/*.jsx` – one component per tab/panel; `App.jsx` composes them.
+- The source is TypeScript (`strict`, `verbatimModuleSyntax`); JSX is Solid's (`jsxImportSource: @solidjs/web`).
+- `src/store.ts` – all app state (signals/memos, graph-render effect, actions) in one `createRoot`; components import from it. Add new UI state here.
+- `src/lib/` – framework-free modules, no Solid imports: `types.ts` (shared domain types: parsed metadata, model, view), `parser.ts` (XML → fields/forms/events), `graph.ts` (model, cycle/depth/hub analysis, `buildView`), `exporters.ts` (Mermaid/DOT/CSV), `renderers.ts` (lazy-loads viz + mermaid), `download.ts`.
+- `src/components/*.tsx` – one component per tab/panel; `App.tsx` composes them. `src/main.tsx` is the entry point.
 - `public/sample/sample.xml` – sample project; `css/style.css` – all styles.
 
 ## Gotchas

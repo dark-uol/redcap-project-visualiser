@@ -1,30 +1,46 @@
-import { model, jumpToField } from '../store.js';
-import { Tag } from './Detail.jsx';
+import type { Element as SolidElement } from 'solid-js';
+import { need, model, jumpToField } from '../store';
+import { Tag } from './Detail';
 
-const FieldLink = (props) => <button class="fieldlink" onClick={() => jumpToField(props.v)}>{props.v}</button>;
-const List = (props) => (
-  <>
-    {props.items.length
-      ? <ul>{props.items.map((x) => <li>{props.children(x)}</li>)}</ul>
-      : <p class="muted">None 🎉</p>}
-  </>
-);
+const FieldLink = (props: { v: string }) => <button class="fieldlink" onClick={() => jumpToField(props.v)}>{props.v}</button>;
+
+function List<T>(props: { items: T[]; children: (x: T) => SolidElement }) {
+  return (
+    <>
+      {props.items.length
+        ? <ul>{props.items.map((x) => <li>{props.children(x)}</li>)}</ul>
+        : <p class="muted">None 🎉</p>}
+    </>
+  );
+}
+
 // A card with a `target` section id scrolls to that section when clicked (or activated from the keyboard).
-const goToSection = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-const Card = (props) => (
-  <div
-    class={'card' + (props.warn ? ' warn' : '') + (props.target ? ' clickable' : '')}
-    role={props.target ? 'button' : undefined}
-    tabindex={props.target ? 0 : undefined}
-    title={props.target ? 'Go to section' : undefined}
-    onClick={() => props.target && goToSection(props.target)}
-    onKeyDown={(e) => { if (props.target && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); goToSection(props.target); } }}
-  ><b>{props.n}</b>{props.label}</div>
-);
+const goToSection = (id: string): void => {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+function Card(props: { n: number; label: string; warn?: number | boolean; target?: string }) {
+  const clickable = !!props.target;
+  return (
+    <div
+      class={'card' + (props.warn ? ' warn' : '') + (clickable ? ' clickable' : '')}
+      role={clickable ? 'button' : undefined}
+      tabindex={clickable ? 0 : undefined}
+      title={clickable ? 'Go to section' : undefined}
+      onClick={() => { if (props.target) goToSection(props.target); }}
+      onKeyDown={(e) => {
+        if (props.target && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          goToSection(props.target);
+        }
+      }}
+    ><b>{props.n}</b>{props.label}</div>
+  );
+}
 
 export default function AnalysisTab() {
-  const m = () => model();
-  const A = () => model().analysis;
+  const m = () => need(model());
+  const A = () => m().analysis;
   return (
     <div class="an">
       <div class="cards">

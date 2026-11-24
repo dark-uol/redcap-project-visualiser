@@ -1,8 +1,8 @@
 import { Show } from 'solid-js';
-import { model, loadError } from '../store.js';
-import Toolbar from './Toolbar.jsx';
-import FileDrop, { useFileDrop } from './FileDrop.jsx';
-import Workspace from './Workspace.jsx';
+import { model, loadError } from '../store';
+import Toolbar from './Toolbar';
+import FileDrop, { useFileDrop } from './FileDrop';
+import Workspace from './Workspace';
 
 export default function App() {
   useFileDrop();

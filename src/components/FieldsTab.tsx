@@ -1,15 +1,15 @@
 import { For, createMemo } from 'solid-js';
-import { model, fieldQ, setFieldQ, setSelected, setTab, formLabel } from '../store.js';
+import { need, model, fieldQ, setFieldQ, setSelected, setTab, formLabel } from '../store';
 
 export default function FieldsTab() {
   const rows = createMemo(() => {
     const q = fieldQ().toLowerCase().trim();
-    return model().parsed.fields.filter((f) => !q || [f.variable, f.form, f.type, f.label].join(' ').toLowerCase().includes(q));
+    return need(model()).parsed.fields.filter((f) => !q || [f.variable, f.form, f.type, f.label].join(' ').toLowerCase().includes(q));
   });
-  const deg = (v) => model().analysis.degree.get(v);
+  const deg = (v: string) => need(model()).analysis.degree.get(v) ?? { in: 0, out: 0 };
   return (
     <div>
-      <input class="filter" placeholder="Filter fields…" value={fieldQ()} onInput={(e) => setFieldQ(e.target.value)} />
+      <input class="filter" placeholder="Filter fields…" value={fieldQ()} onInput={(e) => setFieldQ(e.currentTarget.value)} />
       <table id="fieldTable"><thead><tr><th>Variable</th><th>Form</th><th>Type</th><th>Label</th><th>Depends on</th><th>Used by</th></tr></thead><tbody>
         <For each={rows()}>
           {(f) => (

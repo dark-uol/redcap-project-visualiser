@@ -1,15 +1,21 @@
 import { Show, onSettled } from 'solid-js';
-import { dlOpen, setDlOpen, dlMermaid, dlDot, dlSvg, dlCsv } from '../store.js';
+import { dlOpen, setDlOpen, dlMermaid, dlDot, dlSvg, dlCsv } from '../store';
 
 export default function DownloadMenu() {
   onSettled(() => {
-    const onClick = (e) => { if (!(e.target.closest && e.target.closest('.dlmenu'))) setDlOpen(false); };
-    const onKey = (e) => { if (e.key === 'Escape') setDlOpen(false); };
+    const onClick = (e: MouseEvent) => {
+      const inMenu = e.target instanceof Element && e.target.closest('.dlmenu');
+      if (!inMenu) setDlOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDlOpen(false); };
     document.addEventListener('click', onClick);
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('click', onClick); document.removeEventListener('keydown', onKey); };
+    return () => {
+      document.removeEventListener('click', onClick);
+      document.removeEventListener('keydown', onKey);
+    };
   });
-  const pick = (fn) => () => { setDlOpen(false); fn(); };
+  const pick = (fn: () => void) => () => { setDlOpen(false); fn(); };
   return (
     <div class="dlmenu">
       <button class="btn sm" onClick={() => setDlOpen(!dlOpen())}>⬇ Download ▾</button>
