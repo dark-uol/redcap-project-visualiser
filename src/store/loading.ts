@@ -13,7 +13,7 @@ export function createLoading(state: State, navigation: ReturnType<typeof create
   const { setDir, setRenderer } = state.presentation;
   const { rawSetInstances: setInstances } = state;
   const { resetNav } = navigation;
-  const { clearValues, setMode, setEvent } = state.whatIf;
+  const { clearValues, setMode, setEvent, setField, setResultsForm, setResultsEvent } = state.whatIf;
 
   function loadText(text: string, name?: string): void {
     try {
@@ -27,7 +27,7 @@ export function createLoading(state: State, navigation: ReturnType<typeof create
       setTypesOn(allTypesOn());
       // View settings reset with a new project too, so they do not leak from one file to the next.
       setDir(DEFAULT_DIRECTION); setRenderer(DEFAULT_RENDERER); setInstances(false);
-      clearValues(); setMode('form'); setEvent(null);
+      clearValues(); setMode('form'); setEvent(null); setField(null); setResultsForm(null); setResultsEvent(null);
       setModel(builtModel);
     } catch (e) {
       setLoadError(errorMessage(e));

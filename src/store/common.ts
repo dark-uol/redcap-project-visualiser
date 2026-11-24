@@ -8,7 +8,7 @@ export const DEFAULT_RENDERER: Renderer = 'graphviz';
 export const TYPE_KEYS = Object.keys(TYPES) as DepType[];
 export const clampDepth = (v: unknown): number => Math.min(50, Math.max(1, Math.round(Number(v)) || 1));
 
-export type Tab = 'graph' | 'matrix' | 'analysis' | 'deps' | 'fields';
+export type Tab = 'graph' | 'matrix' | 'analysis' | 'deps' | 'fields' | 'whatif';
 
 /** Navigation state: tab, level, focus and selection. */
 export interface Navigation {

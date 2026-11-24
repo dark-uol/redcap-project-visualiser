@@ -306,3 +306,14 @@ export function dependentsOf(model: ModelBase, variable: string): string[] {
     .map((edge) => edge.to);
   return unique(targets);
 }
+
+/** The distinct inputs the given results are missing, each with how many of the results need it; most needed first, ties in order of first appearance. */
+export function countMissingInputs(infos: readonly VisibilityInfo[]): { input: MissingInput; count: number }[] {
+  const counts = new Map<string, { input: MissingInput; count: number }>();
+  infos.forEach((info) => info.missing.forEach((input) => {
+    const entry = counts.get(inputKey(input));
+    if (entry) entry.count++;
+    else counts.set(inputKey(input), { input, count: 1 });
+  }));
+  return [...counts.values()].sort((left, right) => right.count - left.count);
+}

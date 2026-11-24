@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildModel } from '../src/lib/graph';
 import type { Field, Form, FormLogicRule, ParsedODM } from '../src/lib/types';
-import { ANY_EVENT, dependentsOf, evaluateVisibility, eventsToEvaluate, parseActionTags, splitTopLevel } from '../src/lib/whatIf';
-import type { WhatIfContext, WhatIfValue } from '../src/lib/whatIf';
+import { ANY_EVENT, countMissingInputs, dependentsOf, evaluateVisibility, eventsToEvaluate, parseActionTags, splitTopLevel } from '../src/lib/whatIf';
+import type { VisibilityInfo, WhatIfContext, WhatIfValue } from '../src/lib/whatIf';
 
 const field = (variable: string, form: string, over: Partial<Field> = {}): Field => ({
   variable, oid: variable, type: 'text', label: variable, section: '', note: '', branching: '', calc: '', annotation: '',
@@ -333,5 +333,24 @@ describe('dependentsOf', () => {
     const model = buildModel(parsedWith(fields, rules, ['f1', 'f2']));
     expect(dependentsOf(model, 'a')).toEqual(['b', 'c', 'form:f2']);
     expect(dependentsOf(model, 'zzz')).toEqual([]);
+  });
+});
+
+describe('countMissingInputs', () => {
+  const info = (...missing: { variable: string; event: string | null }[]): VisibilityInfo => ({ state: 'unknown', reasons: [], missing });
+  it('counts distinct inputs per variable and event, most needed first, ties by first appearance', () => {
+    const result = countMissingInputs([
+      info({ variable: 'a', event: null }, { variable: 'b', event: 'e1' }),
+      info({ variable: 'b', event: 'e1' }, { variable: 'b', event: null }),
+      info({ variable: 'b', event: 'e1' }),
+    ]);
+    expect(result).toEqual([
+      { input: { variable: 'b', event: 'e1' }, count: 3 },
+      { input: { variable: 'a', event: null }, count: 1 },
+      { input: { variable: 'b', event: null }, count: 1 },
+    ]);
+  });
+  it('is empty when nothing is missing', () => {
+    expect(countMissingInputs([info()])).toEqual([]);
   });
 });

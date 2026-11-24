@@ -10,8 +10,9 @@ import MatrixTab from './MatrixTab';
 import AnalysisTab from './AnalysisTab';
 import DepsTab from './DepsTab';
 import FieldsTab from './FieldsTab';
+import WhatIfTab from './WhatIfTab';
 
-const TABS: [Tab, string][] = [['graph', 'Graph'], ['matrix', 'Matrix'], ['analysis', 'Analysis'], ['deps', 'Dependencies'], ['fields', 'Fields']];
+const TABS: [Tab, string][] = [['graph', 'Graph'], ['matrix', 'Matrix'], ['analysis', 'Analysis'], ['deps', 'Dependencies'], ['fields', 'Fields'], ['whatif', 'What if']];
 
 export default function Workspace() {
   return (
@@ -28,6 +29,7 @@ export default function Workspace() {
         <Show when={tab() === 'analysis'}><div class="tab active" id="tab-analysis"><AnalysisTab /></div></Show>
         <Show when={tab() === 'deps'}><div class="tab active" id="tab-deps"><DepsTab /></div></Show>
         <Show when={tab() === 'fields'}><div class="tab active" id="tab-fields"><FieldsTab /></div></Show>
+        <Show when={tab() === 'whatif'}><div class="tab active" id="tab-whatif"><WhatIfTab /></div></Show>
       </div>
     </main>
   );

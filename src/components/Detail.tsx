@@ -2,7 +2,7 @@
 import { Show, createSignal } from 'solid-js';
 import { TraceControl } from './FocusControls';
 import { HintHeading } from './controls';
-import WhatIfSection, { WhatIfBadge, hasWhatIf } from './WhatIfSection';
+import { WhatIfBadge } from './whatIfParts';
 import type { Element as SolidElement } from 'solid-js';
 import { TYPES, findNode, neighbors, isRepeatingInstance, formIsRepeating, nodeInfo } from '../lib/graph';
 import { classifyDetail } from '../lib/detailKind';
@@ -13,7 +13,7 @@ import { groupIdFor, parseSelection } from '../lib/selection';
 import type { DepType, Edge, EventDef, Field, Form, FormNode, FormPair, LogicNode, Model, NeighborDir, View, ViewEdge, ViewNode } from '../lib/types';
 import {
   need, model, view, opts, selection, setExplore, expanded,
-  currentExploration, exploreVisible, instanceMode, formLabel, expandRef, collapseRef, toggleExpandForm, toggleExpandEvent, expandedEvents, jumpToField, focusing,
+  currentExploration, exploreVisible, instanceMode, formLabel, expandRef, collapseRef, toggleExpandForm, toggleExpandEvent, expandedEvents, jumpToField, focusing, whatIf,
 } from '../store';
 
 const { setFocus, setPair } = focusing;
@@ -224,6 +224,11 @@ function ghostDetail(id: string, exploreId: string) {
   );
 }
 
+const openWhatIf = function openWhatIf(variable: string): void {
+  whatIf.setField(variable);
+  selection.setTab('whatif');
+};
+
 function fieldDetail(f: Field, id: string, exploreId: string) {
   const A = need(model()).analysis;
   const up = (A.inn.get(id) ?? []).map((e) => ({ id: e.from, t: e.type }));
@@ -232,7 +237,7 @@ function fieldDetail(f: Field, id: string, exploreId: string) {
     <div>
       <h3>{f.variable}</h3>
       <div class="muted small">{f.type} · form <b>{formLabel(f.form)}</b>{f.required ? ' · required' : ''}</div>
-      <WhatIfBadge variable={f.variable} />
+      <div class="small" style="margin:4px 0"><WhatIfBadge variable={f.variable} /> <button class="link" title="Evaluate what this field would show or hide" onClick={() => openWhatIf(f.variable)}>What if…</button></div>
       {f.label ? <p style="margin:6px 0">{f.label}</p> : ''}
       {f.media && (f.media.inlineImage || f.media.videoUrl) ? <div class="muted small" style="margin:6px 0">Media: {[f.media.inlineImage ? 'inline image ' + f.media.inlineImage : '', f.media.videoUrl ? 'video ' + f.media.videoUrl + (f.media.videoInline ? ' (inline)' : '') : ''].filter(Boolean).join(' · ')}</div> : ''}
       <ExploreRow id={exploreId} />
@@ -241,7 +246,6 @@ function fieldDetail(f: Field, id: string, exploreId: string) {
       <CodeBlock title="Section header (piping [x] or embedding {x})" text={f.section} /><CodeBlock title="Field note (piping [x] or embedding {x})" text={f.note} />
       {!f.branching && !f.calc && !f.annotation ? <p class="muted small">No logic code on this field.</p> : ''}
       {f.choices.length ? <div><h4>Choices</h4><pre>{f.choices.map((c) => c.code + ', ' + c.label).join('\n')}</pre></div> : ''}
-      {hasWhatIf(f) ? <WhatIfSection field={f} /> : ''}
       <Section title="Depends on" count={up.length} empty={!up.length}><ChipList items={up} /></Section>
       <Section title="Used by" count={down.length} empty={!down.length}><ChipList items={down} /></Section></div>
   );

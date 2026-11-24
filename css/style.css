@@ -115,3 +115,14 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 .wi-state.hidden,.chip.wi-chip.hidden{color:var(--muted);text-decoration:line-through}
 .wi-state.unknown,.chip.wi-chip.unknown{background:transparent;border-color:#d97706;color:#b45309}
 @media (prefers-color-scheme:dark){.wi-state.shown,.chip.wi-chip.shown{color:#4ade80}.wi-state.unknown,.chip.wi-chip.unknown{color:#fbbf24}}
+.wi-tab{max-width:760px}
+.wi-section{margin-top:14px}
+.wi-section h4,.wi-needed{margin:0 0 6px}
+.wi-needed{margin-top:10px}
+.wi-editor{margin-top:6px}
+.wi-value{display:flex;gap:4px;align-items:baseline;margin:2px 0}
+.wi-remove{margin-left:4px;color:var(--muted)}
+.wi-matches{display:flex;flex-direction:column;max-width:420px;margin:-4px 0 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);overflow:hidden}
+.wi-match{text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:4px 8px;color:var(--text);cursor:pointer;font:inherit;font-size:12px}
+.wi-match:last-child{border-bottom:0}
+.wi-match:hover{background:var(--code)}
