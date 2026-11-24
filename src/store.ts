@@ -8,7 +8,7 @@ import { renderDot, renderMermaid } from './lib/renderers';
 import { download } from './lib/download';
 import type {
   DepType, Direction, Explore, ExploreFilter, FocusDir, FormPair, GroupBy, LabelMode, Level, Model, NeighborDir,
-  Renderer, View, ViewOptions,
+  Renderer, View, ViewFilter, ViewOptions, ViewPresentation,
 } from './lib/types';
 
 export const MAX_AUTO_EDGES = 700;
@@ -119,7 +119,7 @@ const app = createRoot(() => {
     const e = explore();
     return e && e.level === level() && !!e.inst === instMode() ? e : null;
   };
-  const opts = createMemo<ViewOptions | null>(() => {
+  const filter = createMemo<ViewFilter | null>(() => {
     const m = model();
     if (!m) return null;
     const fo = formsOn();
@@ -133,12 +133,7 @@ const app = createRoot(() => {
     const explored: ExploreFilter | null = ce ? { level: level(), inst: instMode(), set: exVisible(ce) } : null;
     return {
       level: level(),
-      dir: dir(),
-      labelMode: labelMode(),
-      group: groupBy() !== 'none' && level() === 'field',
-      groupBy: groupBy(),
       eventSet: evActive ? new Set(evs.filter((e) => eo[e.id] !== false).map((e) => e.id)) : null,
-      edgeLabels: edgeLabels(),
       hideIsolated: hideIso(),
       hideIsolatedNodes: hideIsoNodes(),
       showMissing: showMissing(),
@@ -155,6 +150,20 @@ const app = createRoot(() => {
       focusDir: focusDir(),
       focusDepth: Math.max(1, +focusDepth() || 1),
     };
+  });
+  const presentation = createMemo<ViewPresentation | null>(() => {
+    if (!model()) return null;
+    return {
+      dir: dir(),
+      labelMode: labelMode(),
+      group: groupBy() !== 'none' && level() === 'field',
+      groupBy: groupBy(),
+      edgeLabels: edgeLabels(),
+    };
+  });
+  const opts = createMemo<ViewOptions | null>(() => {
+    const f = filter(), p = presentation();
+    return f && p ? { ...f, ...p } : null;
   });
   const view = createMemo<View | null>(() => {
     const m = model();
@@ -351,7 +360,7 @@ const app = createRoot(() => {
     instOnly, setInstOnly, instances, setInstances, crossOnly, setCrossOnly, formQ, setFormQ, pair, setPair, selEdge, setSelEdge,
     expanded, explore, setExplore, tab, setTab, dlOpen, setDlOpen, selected, setSelected, setSelectedRaw, depQ, setDepQ, fieldQ, setFieldQ,
     svgEl, svgView, busy, renderMsg, forcedFor, setForcedFor, mxCell, setMxCell, viewAnchor,
-    opts, view, dotSrc, mermaidSrc, tooBig, instMode, exVisible, curEx, formLabel,
+    filter, presentation, opts, view, dotSrc, mermaidSrc, tooBig, instMode, exVisible, curEx, formLabel,
     expandRef, collapseRef, toggleExpandForm, loadText, loadSample, readFile, dlMermaid, dlDot, dlCsv, dlSvg, jumpToField, pickNode,
   };
 });
@@ -363,6 +372,6 @@ export const {
   instOnly, setInstOnly, instances, setInstances, crossOnly, setCrossOnly, formQ, setFormQ, pair, setPair, selEdge, setSelEdge,
   expanded, explore, setExplore, tab, setTab, dlOpen, setDlOpen, selected, setSelected, setSelectedRaw, depQ, setDepQ, fieldQ, setFieldQ,
   svgEl, svgView, busy, renderMsg, forcedFor, setForcedFor, mxCell, setMxCell, viewAnchor,
-  opts, view, dotSrc, mermaidSrc, tooBig, instMode, exVisible, curEx, formLabel,
+  filter, presentation, opts, view, dotSrc, mermaidSrc, tooBig, instMode, exVisible, curEx, formLabel,
   expandRef, collapseRef, toggleExpandForm, loadText, loadSample, readFile, dlMermaid, dlDot, dlCsv, dlSvg, jumpToField, pickNode,
 } = app;
