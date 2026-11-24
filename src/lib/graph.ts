@@ -114,9 +114,12 @@ export function buildModel(parsed: ParsedODM): Model {
     rule.forms.forEach((fid) => {
       const node = 'form:' + fid;
       const fm = parsed.forms.find((x) => x.id === fid);
-      // a rule re-creates the node for its form (kept as-is from the original implementation)
-      formNodes.set(node, { variable: node, type: 'formnode', label: fm ? fm.label : fid, form: fid, formNode: true, logic: [], logicEvents: [] });
-      const fn = formNodes.get(node) as FormNode;
+      // one node per form, accumulating every display rule that applies to it
+      let fn = formNodes.get(node);
+      if (!fn) {
+        fn = { variable: node, type: 'formnode', label: fm ? fm.label : fid, form: fid, formNode: true, logic: [], logicEvents: [] };
+        formNodes.set(node, fn);
+      }
       fn.logic.push(rule.logic);
       // REDCap unique event names this rule applies the form in (empty = all events)
       fn.logicEvents.push((rule.formEvents || []).filter((x) => x.form === fid).map((x) => x.event));
