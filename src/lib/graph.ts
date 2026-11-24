@@ -2,7 +2,7 @@
 import { extractRefs, extractSmart } from './parser';
 import { groupFormIdOf, instanceFieldIdFor, instanceIdFor } from './selection';
 import type {
-  Analysis, DepType, Edge, EventDef, Field, Form, FormNode, GhostNode, LogicNode, Model, ModelBase,
+  Analysis, DepType, Edge, EventDef, Field, FocusDir, Form, FormNode, GhostNode, LogicNode, Model, ModelBase,
   NeighborDir, NodeInfo, ParsedODM, RefToken, TypeMeta, View, ViewEdge, ViewFilter, ViewGroup, ViewNode, ViewOptions,
 } from './types';
 
@@ -292,22 +292,12 @@ export function buildView(model: Model, o: ViewOptions): View {
 
   // focus (field level only)
   let focusSet: Set<string> | null = null;
+  let focusHidden = 0;
   if (!ex && o.focus && model.byVar.has(o.focus) && o.level === 'field') {
-    const fs = new Set<string>([o.focus]);
+    const fs = focusReach(edges, o.focus, o.focusDir, o.focusDepth);
     focusSet = fs;
-    const walk = (dir: 'up' | 'down'): void => {
-      let frontier = [o.focus];
-      for (let d = 0; d < o.focusDepth && frontier.length; d++) {
-        const next: string[] = [];
-        edges.forEach((e) => {
-          const a = dir === 'up' ? e.to : e.from, b = dir === 'up' ? e.from : e.to;
-          if (frontier.includes(a) && !fs.has(b)) { fs.add(b); next.push(b); }
-        });
-        frontier = next;
-      }
-    };
-    if (o.focusDir !== 'down') walk('up');
-    if (o.focusDir !== 'up') walk('down');
+    const fullReach = focusReach(edges, o.focus, o.focusDir, MAX_FOCUS_DEPTH);
+    if (fullReach.size > fs.size) focusHidden = fullReach.size - fs.size;
     edges = edges.filter((e) => fs.has(e.from) && fs.has(e.to));
   }
 
@@ -375,7 +365,7 @@ export function buildView(model: Model, o: ViewOptions): View {
       groups.push({ id: form, label: fm ? fm.label : form, nodes: ids });
     });
   }
-  return { level: 'field', nodes, edges: vedges, groups };
+  return { level: 'field', nodes, edges: vedges, groups, ...(focusHidden ? { focusHidden } : {}) };
 }
 
 /** The context smart variables a field's logic uses, restricted to the enabled dependency types (first-seen order, no duplicates). */
@@ -702,6 +692,29 @@ function mixedView(model: Model, edges: Edge[], o: ViewFilter, formNodes: ViewNo
   });
   return { level: 'form', mixed: true, nodes, edges: vedges, groups };
 }
+
+/** Largest focus depth the UI allows; also used to measure how much a smaller depth hides. */
+export const MAX_FOCUS_DEPTH = 50;
+
+/** Fields reachable from `start` along `edges` within `depth` hops, upstream and/or downstream, including `start`. */
+export function focusReach(edges: Edge[], start: string, direction: FocusDir, depth: number): Set<string> {
+  const reached = new Set<string>([start]);
+  const walk = function walk(way: 'up' | 'down'): void {
+    let frontier = [start];
+    for (let hop = 0; hop < depth && frontier.length; hop++) {
+      const next: string[] = [];
+      edges.forEach((e) => {
+        const near = way === 'up' ? e.to : e.from, far = way === 'up' ? e.from : e.to;
+        if (frontier.includes(near) && !reached.has(far)) { reached.add(far); next.push(far); }
+      });
+      frontier = next;
+    }
+  };
+  if (direction !== 'down') walk('up');
+  if (direction !== 'up') walk('down');
+  return reached;
+}
+
 
 /** Ids reachable in one step from `id` ('up' = what it depends on, 'down' = what depends on it) at the view's level. */
 export function neighbors(model: Model, o: ViewFilter, id: string, dir: NeighborDir): string[] {

@@ -1,12 +1,13 @@
 import { For } from 'solid-js';
-import { need, model, focusing, selection, clampDepth, setExplore } from '../../store';
-import { Select } from '../controls';
-import type { FocusDir } from '../../lib/types';
+import { need, model, focusing, selection, setExplore } from '../../store';
+import FocusControls from '../FocusControls';
+import { Labeled, createHint, HintToggle, HintText } from '../controls';
 
-const { focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth, setPair } = focusing;
+const { focus, setFocus, setPair } = focusing;
 const { setLevel } = selection;
 
 export default function FocusSection() {
+  const help = createHint();
   const fields = () => need(model()).parsed.fields;
 
   /** Accepts a typed field name only if it exists in the model; otherwise restores the current focus. */
@@ -23,31 +24,16 @@ export default function FocusSection() {
   const onClearFocus = function onClearFocus(): void {
     setFocus('');
   };
-  const onDepthDown = function onDepthDown(): void {
-    setFocusDepth(focusDepth() - 1);
-  };
-  const onDepthUp = function onDepthUp(): void {
-    setFocusDepth(focusDepth() + 1);
-  };
-  const onDepthInput = function onDepthInput(event: Event & { currentTarget: HTMLInputElement }): void {
-    setFocusDepth(event.currentTarget.value);
-    event.currentTarget.value = String(clampDepth(event.currentTarget.value));
-  };
-
   return (
-    <details class="sec">
-      <summary><h2>Focus on a field</h2></summary>
-      <label>Field (search)
+    <details class="sec" open={focus() !== ''}>
+      <summary><h2>Focus on a field <HintToggle help={help} title="Focus on a field" /></h2></summary>
+      <HintText help={help}>Shows only one field's chain of dependencies. Choosing a field switches to the field-level view. Select a node in the graph to see its logic code.</HintText>
+      <Labeled label="Field (search)" hint="Type a variable name and press Enter. The graph then shows only that field's chain.">
         <span class="row2"><input type="search" list="fieldlist" placeholder="Type to search fields…" autocomplete="off" value={focus()} onChange={onFieldChange} />
           <button class="btn sm" title="Clear focus" onClick={onClearFocus}>✕</button></span>
         <datalist id="fieldlist"><For each={fields()}>{(field) => <option value={field.variable}>{field.label.slice(0, 70)}</option>}</For></datalist>
-      </label>
-      <label>Show <Select<FocusDir> value={focusDir()} onChange={setFocusDir} options={[['both', 'Upstream + downstream'], ['up', 'Upstream (what it depends on)'], ['down', 'Downstream (what depends on it)']]} /></label>
-      <label>Max depth
-        <span class="stepper"><button class="btn sm" onClick={onDepthDown}>−</button>
-          <input type="number" inputmode="numeric" min="1" max="50" step="1" value={focusDepth()} onChange={onDepthInput} />
-          <button class="btn sm" onClick={onDepthUp}>+</button></span></label>
-      <p class="muted small">Choosing a field switches to the field-level view. Tip: click a node to see its logic code.</p>
+      </Labeled>
+      <FocusControls />
     </details>
   );
 }

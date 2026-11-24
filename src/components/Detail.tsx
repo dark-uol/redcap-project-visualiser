@@ -1,5 +1,7 @@
 /* Detail panel: logic code, explore buttons, form / instance / event / edge summaries. */
-import { Show } from 'solid-js';
+import { Show, createSignal } from 'solid-js';
+import { TraceControl } from './FocusControls';
+import { HintHeading } from './controls';
 import type { Element as SolidElement } from 'solid-js';
 import { TYPES, findNode, neighbors, isRepeatingInstance, formIsRepeating, nodeInfo } from '../lib/graph';
 import { classifyDetail } from '../lib/detailKind';
@@ -78,8 +80,8 @@ function exploreButton(m: Model, t: string, dir: NeighborDir, label: string, tip
   const open = !!(ex && ex.exp.some((x) => x.node === t && x.dir === dir));
   const fresh = nb.filter((x) => !vis.has(x)).length;
   return (
-    <button class="btn sm" title={tip} disabled={!nb.length && !open} onClick={() => (open ? collapseRef(t, dir) : expandRef(t, dir))}>
-      {open ? 'Collapse ' : 'Expand '}{label} ({open ? nb.length : fresh})
+    <button class={open ? 'btn sm primary' : 'btn sm'} title={tip} disabled={!nb.length && !open} onClick={() => (open ? collapseRef(t, dir) : expandRef(t, dir))}>
+      {label} ({open ? nb.length : fresh})
     </button>
   );
 }
@@ -110,6 +112,20 @@ function exploreContext(): ExploreContext {
   };
 }
 
+/** The 'whole form' checkbox as shown when the selection already is a whole form: ticked and fixed, so every Expand row looks the same. */
+function ExploreHeading() {
+  return <HintHeading title="Add to graph" hint="Adds this node's direct links to the current graph. A highlighted button is on; click it again to remove what it added." />;
+}
+
+function WholeFormLocked() {
+  return <label class="chk" title="This selection is already a whole form"><input type="checkbox" checked disabled /> for the whole form</label>;
+}
+
+const [wholeForm, setWholeForm] = createSignal(false);
+const onWholeFormChange = function onWholeFormChange(event: Event & { currentTarget: HTMLInputElement }): void {
+  setWholeForm(event.currentTarget.checked);
+};
+
 /** The explore buttons for the selected id. Rendered reactively, so it follows level, mode and explore state. */
 function ExploreRow(props: { id: string }) {
   const renderExploreRow = (): SolidElement => {
@@ -120,15 +136,21 @@ function ExploreRow(props: { id: string }) {
     const btn = (dir: NeighborDir, label: string, tip: string) => exploreButton(m, plan.target, dir, label, tip);
     if (plan.kind === 'instance') {
       return (
-        <div class="exrow">{btn('up', '◀ back refs', 'Add the instances this one depends on')}{btn('down', 'forward refs ▶', 'Add the instances that depend on this one')}
+        <div class="exrow"><ExploreHeading />{btn('up', '▲ depends on', 'Add the instances this one depends on')}{btn('down', '▼ used by', 'Add the instances that depend on this one')}
+          <WholeFormLocked />
           {plan.appliesTo ? <div class="muted small" style="width:100%">applies to the instance node {plan.appliesTo}</div> : ''}</div>
       );
     }
+    const formMode = plan.isGroup || (plan.wholeFormId !== null && wholeForm());
     return (
       <div class="exrow">
-        {plan.isGroup ? '' : <>{btn('up', '◀ back refs', 'Add what this depends on')}{btn('down', 'forward refs ▶', 'Add what depends on this')}</>}
-        {plan.wholeFormId ? <>{plan.isGroup ? '' : <div class="muted small" style="width:100%">Whole form <b>{formLabel(plan.wholeFormId)}</b>:</div>}
-          {btn('fup', '◀ form back refs', 'Add every field in other forms that this form depends on (with the fields in this form they feed)')}{btn('fdown', 'form forward refs ▶', 'Add every field in other forms that depends on this form (with the fields in this form they use)')}</> : ''}
+        <ExploreHeading />
+        {formMode
+          ? <>{btn('fup', '▲ depends on', 'Add every field in other forms that this form depends on (with the fields in this form they feed)')}{btn('fdown', '▼ used by', 'Add every field in other forms that depends on this form (with the fields in this form they use)')}</>
+          : <>{btn('up', '▲ depends on', 'Add what this depends on')}{btn('down', '▼ used by', 'Add what depends on this')}</>}
+        {plan.wholeFormId && !plan.isGroup
+          ? <label class="chk" title={'Expand from every field in ' + formLabel(plan.wholeFormId)}><input type="checkbox" checked={wholeForm()} onChange={onWholeFormChange} /> for the whole form</label>
+          : <WholeFormLocked />}
         {plan.appliesTo ? <div class="muted small" style="width:100%">applies to its form: {formLabel(plan.appliesTo)}</div> : ''}
       </div>
     );
@@ -146,9 +168,10 @@ function groupDetail(formId: string) {
   const seeds = [groupIdFor(formId), ...(inForm.length ? inForm : fm ? fm.fields : [])];
   return (
     <div><h3>{label}</h3><div class="muted small">form <code>{formId}</code> · {fm ? fm.fields.length : 0} fields · {inForm.length} with dependencies</div>
-      <p style="margin:8px 0"><button class="btn sm primary" onClick={() => { setPair(null); setFocus(''); setExplore({ level: 'field', seeds, exp: [] }); }}>Focus on this form</button></p>
       <ExploreRow id={groupIdFor(formId)} />
-      <p class="muted small">Focus shows this form's linked fields only; then expand back / forward references from the whole form. Select any node to expand it individually.</p></div>
+      <div class="focus-box"><HintHeading title="Focus" hint="Shows only this form's linked fields. Then use Add to graph to bring in what it depends on or what uses it, or select any node to add its links individually." />
+        <span class="seg"><button class="btn sm" title="Show only this form's linked fields" onClick={() => { setPair(null); setFocus(''); setExplore({ level: 'field', seeds, exp: [] }); }}>this form</button></span></div>
+</div>
   );
 }
 
@@ -163,8 +186,9 @@ function formDetail(fm: Form) {
   const repeatingIn = repEvents(m.parsed, fm);
   return (
     <div><h3>{fm.label}</h3><div class="muted small">form <code>{fm.id}</code> · {fm.fields.length} fields{formIsRepeating(m.parsed, fm) ? ' · repeating' + (repeatingIn ? ' in ' + repeatingIn : '') : ''}</div>
-      {instanceMode() ? '' : <p style="margin:8px 0"><button class="btn sm primary" onClick={() => toggleExpandForm(id)}>{expanded().has(id) ? 'Collapse back to form' : 'Zoom into fields'}</button></p>}
       <ExploreRow id={id} />
+      {instanceMode() ? '' : <div class="focus-box"><HintHeading title="Zoom" hint="Shows this form's fields inside the graph." />
+        <span class="seg"><button class="btn sm" onClick={() => toggleExpandForm(id)}>{expanded().has(id) ? 'back to form' : 'into fields'}</button></span></div>}
       <Section title="Cross-form dependencies" count={cross.length} empty={!cross.length}>
         {cross.map((e) => <EdgeRow edge={e} onOpen={(x) => setSelected(x)} />)}
       </Section></div>
@@ -208,7 +232,7 @@ function fieldDetail(f: Field, id: string, exploreId: string) {
       {f.label ? <p style="margin:6px 0">{f.label}</p> : ''}
       {f.media && (f.media.inlineImage || f.media.videoUrl) ? <div class="muted small" style="margin:6px 0">Media: {[f.media.inlineImage ? 'inline image ' + f.media.inlineImage : '', f.media.videoUrl ? 'video ' + f.media.videoUrl + (f.media.videoInline ? ' (inline)' : '') : ''].filter(Boolean).join(' · ')}</div> : ''}
       <ExploreRow id={exploreId} />
-      <p style="margin:6px 0"><button class="btn sm" onClick={() => { setLevel('field'); setExplore(null); setFocus(id); }}>Focus graph on this field</button></p>
+      <TraceControl id={id} />
       <CodeBlock title="Branching logic" text={f.branching} copyable={true} /><CodeBlock title="Calculation" text={f.calc} copyable={true} /><CodeBlock title="Action tags / annotation" text={f.annotation} copyable={true} />
       <CodeBlock title="Section header (piping)" text={f.section} /><CodeBlock title="Field note (piping)" text={f.note} />
       {!f.branching && !f.calc && !f.annotation ? <p class="muted small">No logic code on this field.</p> : ''}
@@ -258,8 +282,9 @@ function instanceDetail(node: ViewNode) {
   return (
     <div><h3>{fm ? fm.label : node.form}{node.event ? ' @ ' + eventLabel(evs, node.event) : ''}</h3>
       <div class="muted small">form <code>{node.form}</code>{node.event ? <> · event <code>{node.event}</code></> : ''}{fm ? ' · ' + fm.fields.length + ' fields' : ''}{fm && (node.event ? isRepeatingInstance(m.parsed, fm, node.event) : fm.repeating) ? ' · repeating' : ''}</div>
-      <p style="margin:8px 0"><button class="btn sm primary" onClick={() => toggleExpandForm(id)}>{expanded().has(id) ? 'Collapse back to form' : 'Zoom into fields'}</button></p>
       <ExploreRow id={id} />
+      <div class="focus-box"><HintHeading title="Zoom" hint="Shows this form's fields inside the graph." />
+        <span class="seg"><button class="btn sm" onClick={() => toggleExpandForm(id)}>{expanded().has(id) ? 'back to form' : 'into fields'}</button></span></div>
       {others.length ? <><h4>Also collected in ({others.length})</h4><div class="chips">{others.map((x) => <button class="chip" onClick={() => setSelected(x.id)}>{eventLabel(evs, x.event)}</button>)}</div></> : ''}
       <Section title="Incoming from other instances" count={inn.length} empty={!inn.length}>
         {inn.map((e) => <InstanceEdgeRow edge={e} other={e.from} label={instanceNodeLabel(m, nodes, e.from)} />)}

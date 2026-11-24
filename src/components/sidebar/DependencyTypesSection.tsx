@@ -3,6 +3,7 @@ import { TYPES } from '../../lib/graph';
 import { withFlags } from '../../lib/flags';
 import type { DepType, TypeMeta } from '../../lib/types';
 import { filters } from '../../store';
+import { createHint, HintToggle, HintText } from '../controls';
 
 const { typesOn, setTypesOn } = filters;
 
@@ -19,9 +20,11 @@ const DEPENDENCY_BORDER_STYLE: Record<DepType, string> = {
 const typeEntries = Object.entries(TYPES) as [DepType, TypeMeta][];
 
 export default function DependencyTypesSection() {
+  const help = createHint();
   return (
     <details class="sec">
-      <summary><h2>Dependency types</h2></summary>
+      <summary><h2>Dependency types <HintToggle help={help} title="Dependency types" /></h2></summary>
+      <HintText help={help}>Which kinds of link are drawn. Untick a type to hide those edges everywhere; the line style shows which type is which.</HintText>
       <For each={typeEntries}>
         {([kind, meta]) => <TypeRow kind={kind} meta={meta} />}
       </For>
