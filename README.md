@@ -17,7 +17,9 @@ Opening `index.html` directly via `file://` is no longer supported: the app is b
 3. Explore the graph (Graphviz or Mermaid renderer), Matrix, Analysis, Dependencies and Fields tabs.
 4. Download Mermaid (`.mmd`), Graphviz (`.dot`), SVG or a CSV of dependencies.
 
-Dependencies detected: branching logic, calculated fields, piping in labels/notes/headers, action tags (`@CALCTEXT`, `@DEFAULT`, `@IF`…).
+Dependencies detected: branching logic, calculated fields, piping in labels/notes/headers, field embedding (`{field}` in labels, notes, section headers and answer choices), action tags (`@CALCTEXT`, `@DEFAULT`, `@IF`…).
+
+Field embedding edges point from the host field to the embedded field, because hiding the host hides what is embedded.
 
 ## Project layout
 - `src/main.tsx` – entry point; `src/store/` – app state (signals, memos, graph-render effect, actions), entry `index.ts`.

@@ -1,6 +1,6 @@
 /* Shared domain types: parsed REDCap metadata, the dependency model and the view the renderers consume. */
 
-export type DepType = 'branching' | 'calc' | 'piping' | 'actiontag' | 'formlogic' | 'logicsrc';
+export type DepType = 'branching' | 'calc' | 'piping' | 'embedding' | 'actiontag' | 'formlogic' | 'logicsrc';
 export type Level = 'field' | 'form' | 'event';
 export type Direction = 'LR' | 'TD';
 export type LabelMode = 'var' | 'label';

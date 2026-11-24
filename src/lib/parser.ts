@@ -75,9 +75,14 @@ export function extractRefs(text: string | null | undefined): RefToken[] {
   return out;
 }
 
-/** Field embeddings (`{name}`, `{name:mod}`) in a label, note or section header. Stub: implemented by the extractor task. */
-export function extractEmbeds(_text: string | null | undefined): EmbedToken[] {
-  return [];
+/** Field embeddings (`{name}`, `{name:mod}`) in a label, note or section header, in order of appearance (not deduped). */
+export function extractEmbeds(text: string | null | undefined): EmbedToken[] {
+  const out: EmbedToken[] = [];
+  if (!text) return out;
+  const re = /\{([A-Za-z][A-Za-z0-9_]*)(?::([A-Za-z0-9_]+))?\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) out.push({ name: m[1], mod: m[2] || '' });
+  return out;
 }
 
 /** Smart variables ([event-name], [current-instance] …): hyphenated tokens, skipped by extractRefs. */

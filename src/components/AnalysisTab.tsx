@@ -51,7 +51,9 @@ export default function AnalysisTab() {
       <h3 id="an-cycles">Circular dependencies <span class="muted small">(branching / calc / action-tag logic)</span></h3>
       <List items={A().cycles}>{(c) => c.map((v, i) => <span>{i ? ' ⇄ ' : ''}<FieldLink v={v} /></span>)}</List>
       <h3 id="an-missing">References to undefined fields</h3>
-      <List items={A().missing}>{(e) => <span><FieldLink v={e.to} /> → <code>[{e.from}]</code> in <Tag type={e.type} /></span>}</List>
+      <List items={A().missing}>{(e) => e.type === 'embedding'
+        ? <span><FieldLink v={e.from} /> embeds undefined field <code>{'{' + e.to + '}'}</code></span>
+        : <span><FieldLink v={e.to} /> → <code>[{e.from}]</code> in <Tag type={e.type} /></span>}</List>
       <h3 id="an-forward">Branching on a field that appears later in the project</h3>
       <List items={A().forward}>{(e) => <span><FieldLink v={e.to} /> is shown depending on <FieldLink v={e.from} />, which is asked later</span>}</List>
       <h3>Most influential fields (most dependants)</h3>

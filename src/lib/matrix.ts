@@ -13,7 +13,7 @@ export const CANVAS_PADDING = 12;
 /** Sort rank for nodes with no group or form. Sorts after every real rank. */
 export const UNRANKED = 999;
 
-const PRIMARY_TYPE_PRIORITY: DepType[] = ['branching', 'calc', 'formlogic', 'actiontag', 'piping', 'logicsrc'];
+const PRIMARY_TYPE_PRIORITY: DepType[] = ['branching', 'calc', 'formlogic', 'actiontag', 'piping', 'embedding', 'logicsrc'];
 
 /** A view node placed in the matrix, with its band (form or event / arm group). */
 export interface MxNode extends ViewNode {

@@ -234,7 +234,7 @@ function fieldDetail(f: Field, id: string, exploreId: string) {
       <ExploreRow id={exploreId} />
       <TraceControl id={id} />
       <CodeBlock title="Branching logic" text={f.branching} copyable={true} /><CodeBlock title="Calculation" text={f.calc} copyable={true} /><CodeBlock title="Action tags / annotation" text={f.annotation} copyable={true} />
-      <CodeBlock title="Section header (piping)" text={f.section} /><CodeBlock title="Field note (piping)" text={f.note} />
+      <CodeBlock title="Section header (piping [x] or embedding {x})" text={f.section} /><CodeBlock title="Field note (piping [x] or embedding {x})" text={f.note} />
       {!f.branching && !f.calc && !f.annotation ? <p class="muted small">No logic code on this field.</p> : ''}
       {f.choices.length ? <div><h4>Choices</h4><pre>{f.choices.map((c) => c.code + ', ' + c.label).join('\n')}</pre></div> : ''}
       <Section title="Depends on" count={up.length} empty={!up.length}><ChipList items={up} /></Section>

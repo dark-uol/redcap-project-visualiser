@@ -2,7 +2,7 @@
 import { TYPES, nodeInfo } from './graph';
 import type { DepType, Edge, Model, NodeKind, View, ViewEdge, ViewNode, ViewOptions } from './types';
 
-const PRIORITY: DepType[] = ['branching', 'calc', 'formlogic', 'actiontag', 'piping', 'logicsrc'];
+const PRIORITY: DepType[] = ['branching', 'calc', 'formlogic', 'actiontag', 'piping', 'embedding', 'logicsrc'];
 const KIND_FILL: Record<NodeKind, string> = { field: '#dbeafe', calc: '#ffedd5', form: '#e5e7eb', missing: '#fee2e2', status: '#dcfce7', logic: '#fce7f3' };
 const KIND_STROKE: Record<NodeKind, string> = { field: '#3b82f6', calc: '#f97316', form: '#6b7280', missing: '#dc2626', status: '#16a34a', logic: '#be185d' };
 
