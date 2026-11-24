@@ -98,3 +98,14 @@ export const highlightLinks = (s: SVGSVGElement, key: string | null): void => {
   });
   s.classList.add('hl');
 };
+
+/** Centre of `element` in stage coordinates, plus its on-screen size. Reads the element's current layout. */
+export const centreInStage = (element: Element, stageRect: DOMRect): { x: number; y: number; w: number; h: number } => {
+  const rect = element.getBoundingClientRect();
+  return {
+    x: rect.left + rect.width / 2 - stageRect.left,
+    y: rect.top + rect.height / 2 - stageRect.top,
+    w: rect.width,
+    h: rect.height,
+  };
+};

@@ -1,147 +1,89 @@
 /* Graph tab: pan / zoom stage showing the rendered SVG, link highlighting and click selection. */
 import { Show, createEffect, onCleanup, onSettled } from 'solid-js';
-import type { View, ViewNode } from '../lib/types';
+import type { View } from '../lib/types';
 import {
   model, view, tab, selected, setSelected, setSelectedRaw, setSelEdge, svgEl, svgView, busy, renderMsg, tooBig,
   setForcedFor, dotSrc, setAnchorCapture,
 } from '../store';
 import Detail from './Detail';
 import Legend from './Legend';
-import {
-  clusterEl, closestEl, highlightLinks, keyForSelection, nodeKey, normalizeSvg, widenEdgeHits,
-} from './svgDom';
+import { closestEl, highlightLinks, keyForSelection, nodeKey, normalizeSvg, widenEdgeHits } from './svgDom';
 import { resolveClick } from './hitTest';
-import { cssTransform, fitPan, zoomPan, zoomToBox, type Pan } from './panzoom';
-
-/** Where the graph was when a node was acted on, so re-rendering can keep that node in place. */
-interface Anchor {
-  target: string;
-  scale: number;
-  time: number;
-  zoom: boolean;
-  stageX?: number;
-  stageY?: number;
-}
+import { cssTransform, fitPan, zoomPan, type Pan } from './panzoom';
+import { createAnchorController } from './anchor';
 
 export default function GraphView() {
   let stage!: HTMLDivElement;
   let canvas!: HTMLDivElement;
   let pan: Pan = { x: 0, y: 0, scale: 1 };
-  // latest committed svg / view / selection, mirrored by the effects below so helpers and listeners need no signal reads
-  let pendingAnchor: Anchor | null = null;
-  const zoomBack = new Map<string, number>();
-  let currentSvg: SVGSVGElement | null = null;
-  let currentView: View | null = null;
-  let currentSelection: string | null = null;
-  let hover: string | null = null;
+  /*
+   * Mirrors of the latest committed svg, view, selection and hover. The effects below and the hover listener write
+   * them, so event listeners and the highlight/anchor helpers can read them synchronously without subscribing to
+   * signals (reading a signal inside a listener or an effect would track it). Hover is not a store signal because it
+   * changes on every mouse move and must not re-run anything.
+   */
+  const state: { svg: SVGSVGElement | null; view: View | null; selection: string | null; hover: string | null } = {
+    svg: null, view: null, selection: null, hover: null,
+  };
 
   const stageSize = () => ({ w: stage.clientWidth, h: stage.clientHeight });
   const applyTransform = (): void => { canvas.style.transform = cssTransform(pan); };
   const fitToStage = (): void => {
-    const s = currentSvg;
-    if (!s || !stage.clientWidth) return;
-    pan = fitPan(stageSize(), { w: +(s.dataset.w || 0), h: +(s.dataset.h || 0) });
+    const svg = state.svg;
+    if (!svg || !stage.clientWidth) return;
+    pan = fitPan(stageSize(), { w: +(svg.dataset.w || 0), h: +(svg.dataset.h || 0) });
     applyTransform();
   };
-  const zoomAt = (f: number, cx?: number, cy?: number): void => {
-    const r = stage.getBoundingClientRect();
-    pan = zoomPan(pan, f, cx == null ? r.width / 2 : cx - r.left, cy == null ? r.height / 2 : cy - r.top);
+  const zoomAt = (factor: number, clientX?: number, clientY?: number): void => {
+    const rect = stage.getBoundingClientRect();
+    pan = zoomPan(pan, factor, clientX == null ? rect.width / 2 : clientX - rect.left, clientY == null ? rect.height / 2 : clientY - rect.top);
     applyTransform();
-  };
-
-  /** Centre of `el` in stage coordinates. */
-  const centreInStage = (el: Element, stageRect: DOMRect): { x: number; y: number; w: number; h: number } => {
-    const r = el.getBoundingClientRect();
-    return { x: r.left + r.width / 2 - stageRect.left, y: r.top + r.height / 2 - stageRect.top, w: r.width, h: r.height };
   };
 
   // ---- keep zoom and the acted-on node in place across expand/collapse ----
-  const elementFor = (target: string): Element | null => {
-    const s = currentSvg, v = currentView;
-    if (!s || !v) return null;
-    if (target.startsWith('@form:')) {
-      const groupIndex = v.groups.findIndex((g) => g.id === target.slice(6));
-      return groupIndex < 0 ? null : clusterEl(s, groupIndex);
-    }
-    const nodeIndex = v.nodes.findIndex((n) => n.id === target);
-    if (nodeIndex < 0) { // a form that is now drawn as a box of fields
-      const groupIndex = v.groups.findIndex((g) => g.id === target);
-      return groupIndex < 0 ? null : clusterEl(s, groupIndex);
-    }
-    return [...s.querySelectorAll('g.node')].find((n) => nodeKey(n) === 'n' + nodeIndex) || null;
-  };
-  setAnchorCapture((target, options = {}) => {
-    if (!currentSvg) { pendingAnchor = null; return; }
-    const el = elementFor(target), stageRect = stage.getBoundingClientRect();
-    const anchor: Anchor = { target, scale: pan.scale, time: Date.now(), zoom: !!options.zoom };
-    if (options.zoom) zoomBack.set(target, pan.scale);
-    if (options.back && zoomBack.has(target)) {
-      anchor.scale = zoomBack.get(target) as number;
-      zoomBack.delete(target);
-    }
-    if (el) {
-      const c = centreInStage(el, stageRect);
-      anchor.stageX = c.x;
-      anchor.stageY = c.y;
-    }
-    pendingAnchor = anchor;
+  const setPan = (next: Pan): void => { pan = next; };
+  const anchor = createAnchorController({
+    getSvg: () => state.svg,
+    getView: () => state.view,
+    getStage: () => stage,
+    getCanvas: () => canvas,
+    getPan: () => pan,
+    setPan,
+    applyTransform,
+    fitToStage,
   });
+  setAnchorCapture(anchor.capture);
   onCleanup(() => setAnchorCapture(null));
-  const restoreOrFit = (): void => {
-    const anchor = pendingAnchor;
-    pendingAnchor = null;
-    if (!anchor || Date.now() - anchor.time > 15000) { fitToStage(); return; }
-    pan = { scale: anchor.scale, x: 0, y: 0 };
-    applyTransform();
-    const el = elementFor(anchor.target);
-    if (!el || anchor.stageX == null || anchor.stageY == null) { fitToStage(); return; }
-    const stageRect = stage.getBoundingClientRect();
-    const c = centreInStage(el, stageRect);
-    pan.x = anchor.stageX - c.x;
-    pan.y = anchor.stageY - c.y;
-    applyTransform();
-    if (anchor.zoom) { // animate: zoom the expanded form's box to fill most of the stage, neighbours stay visible around it
-      const cluster = elementFor('@form:' + anchor.target);
-      if (!cluster) return;
-      const box = centreInStage(cluster, stageRect);
-      const next = zoomToBox(pan, stageSize(), box.x, box.y, box);
-      canvas.style.transition = 'transform .45s ease';
-      void canvas.offsetWidth;
-      pan = next;
-      applyTransform();
-      setTimeout(() => { canvas.style.transition = ''; }, 500);
-    }
-  };
 
   // ---- highlight a node's direct links (hover, or the selected node) ----
   const applyHighlight = (): void => {
-    const s = currentSvg;
-    if (!s) return;
-    highlightLinks(s, hover ?? (currentSelection && currentView ? keyForSelection(currentView.nodes, currentSelection) : null));
+    const svg = state.svg;
+    if (!svg) return;
+    highlightLinks(svg, state.hover ?? (state.selection && state.view ? keyForSelection(state.view.nodes, state.selection) : null));
   };
 
   // new svg: mount it, restore / fit the view, widen form-level edge hit areas, re-apply highlighting
-  createEffect(
-    () => [svgEl(), svgView()] as const,
-    ([s, drawnView]) => {
-      currentSvg = s;
-      currentView = drawnView;
-      canvas.innerHTML = '';
-      if (!s) return;
-      normalizeSvg(s);
-      canvas.appendChild(s);
-      restoreOrFit();
-      if (drawnView && drawnView.level === 'form') widenEdgeHits(s);
-      applyHighlight();
-    },
-  );
-  createEffect(selected, (sel) => { currentSelection = sel; applyHighlight(); });
+  const mountSvg = ([svg, drawnView]: readonly [SVGSVGElement | null, View | null]): void => {
+    state.svg = svg;
+    state.view = drawnView;
+    canvas.innerHTML = '';
+    if (!svg) return;
+    normalizeSvg(svg);
+    canvas.appendChild(svg);
+    anchor.restoreOrFit();
+    if (drawnView && drawnView.level === 'form') widenEdgeHits(svg);
+    applyHighlight();
+  };
+  const mirrorSelection = (sel: string | null): void => { state.selection = sel; applyHighlight(); };
+  createEffect(() => [svgEl(), svgView()] as const, mountSvg);
+  createEffect(selected, mirrorSelection);
 
   createEffect(busy, (b) => { stage.classList.toggle('busy', b); });
   // refit only when returning to the tab; opening the detail panel must not change the view
   createEffect(tab, () => { requestAnimationFrame(fitToStage); }, { defer: true });
 
-  onSettled(() => {
+  /** Wheel zoom, drag to pan and window resize. Returns a cleanup, plus the distance moved since the last mousedown. */
+  const attachPanZoomListeners = (): { detach: () => void; movedDistance: () => number } => {
     let drag: { x: number; y: number } | null = null;
     let moved = 0;
     const onWheel = (e: WheelEvent) => { e.preventDefault(); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY); };
@@ -154,38 +96,56 @@ export default function GraphView() {
       applyTransform();
     };
     const onUp = () => { drag = null; stage.classList.remove('drag'); };
-    const onOver = (e: MouseEvent) => {
-      const g = closestEl(e.target, 'g.node');
-      const k = g ? nodeKey(g) : null;
-      if (k !== hover) { hover = k; applyHighlight(); }
-    };
-    const onLeave = () => { if (hover) { hover = null; applyHighlight(); } };
-    const onClick = (e: MouseEvent) => {
-      if (moved > 4) return;
-      const drawnView = currentView;
-      if (!drawnView) return;
-      const act = resolveClick(e.target, drawnView, (id) => !!model()?.formsById.has(id));
-      if (act.type === 'edge') { setSelectedRaw(null); setSelEdge({ from: act.from, to: act.to }); }
-      else if (act.type === 'select') setSelected(act.id);
-      else if (act.type === 'clear') { setSelected(null); setSelEdge(null); } // empty background closes the detail pane
-    };
     stage.addEventListener('wheel', onWheel, { passive: false });
     stage.addEventListener('mousedown', onDown);
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     window.addEventListener('resize', fitToStage);
+    return {
+      movedDistance: () => moved,
+      detach: () => {
+        stage.removeEventListener('wheel', onWheel);
+        stage.removeEventListener('mousedown', onDown);
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        window.removeEventListener('resize', fitToStage);
+      },
+    };
+  };
+
+  /** Hover highlighting and click selection. Clicks that followed a drag (`movedDistance() > 4`) are ignored. */
+  const attachSelectionListeners = (movedDistance: () => number): (() => void) => {
+    const onOver = (e: MouseEvent) => {
+      const hoveredNode = closestEl(e.target, 'g.node');
+      const key = hoveredNode ? nodeKey(hoveredNode) : null;
+      if (key !== state.hover) { state.hover = key; applyHighlight(); }
+    };
+    const onLeave = () => { if (state.hover) { state.hover = null; applyHighlight(); } };
+    const onClick = (e: MouseEvent) => {
+      if (movedDistance() > 4) return;
+      const drawnView = state.view;
+      if (!drawnView) return;
+      const action = resolveClick(e.target, drawnView, (id) => !!model()?.formsById.has(id));
+      if (action.type === 'edge') { setSelectedRaw(null); setSelEdge({ from: action.from, to: action.to }); }
+      else if (action.type === 'select') setSelected(action.id);
+      else if (action.type === 'clear') { setSelected(null); setSelEdge(null); } // empty background closes the detail pane
+    };
     stage.addEventListener('mouseover', onOver);
     stage.addEventListener('mouseleave', onLeave);
     stage.addEventListener('click', onClick);
     return () => {
-      stage.removeEventListener('wheel', onWheel);
-      stage.removeEventListener('mousedown', onDown);
       stage.removeEventListener('mouseover', onOver);
       stage.removeEventListener('mouseleave', onLeave);
       stage.removeEventListener('click', onClick);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      window.removeEventListener('resize', fitToStage);
+    };
+  };
+
+  onSettled(() => {
+    const panZoom = attachPanZoomListeners();
+    const detachSelection = attachSelectionListeners(panZoom.movedDistance);
+    return () => {
+      detachSelection();
+      panZoom.detach();
     };
   });
 

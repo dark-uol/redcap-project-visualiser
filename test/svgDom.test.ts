@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  clusterEl, clusterIndex, closestEl, edgeKey, highlightLinks, keyForSelection, nodeKey, normalizeSvg, widenEdgeHits,
+  centreInStage, clusterEl, clusterIndex, closestEl, edgeKey, highlightLinks, keyForSelection, nodeKey, normalizeSvg,
+  widenEdgeHits,
 } from '../src/components/svgDom';
 import { graphvizSvg, node, svgFrom } from './fixtures';
 
@@ -106,5 +107,21 @@ describe('widenEdgeHits', () => {
     expect(paths[1].getAttribute('stroke')).toBe('transparent');
     expect(paths[1].getAttribute('stroke-width')).toBe('14');
     expect(paths[1].hasAttribute('marker-end')).toBe(false);
+  });
+});
+
+describe('centreInStage', () => {
+  const stageRect = { left: 100, top: 50, width: 800, height: 600, right: 900, bottom: 650, x: 100, y: 50, toJSON: () => ({}) } as DOMRect;
+  it('returns the element centre relative to the stage, with its size', () => {
+    const element = svgFrom('<g class="node"></g>').querySelector('g') as Element;
+    element.getBoundingClientRect = () =>
+      ({ left: 150, top: 90, width: 40, height: 20, right: 190, bottom: 110, x: 150, y: 90, toJSON: () => ({}) }) as DOMRect;
+    expect(centreInStage(element, stageRect)).toEqual({ x: 170 - 100, y: 100 - 50, w: 40, h: 20 });
+  });
+  it('is zero-sized for an element at the stage origin with no size', () => {
+    const element = svgFrom('<g class="node"></g>').querySelector('g') as Element;
+    element.getBoundingClientRect = () =>
+      ({ left: 100, top: 50, width: 0, height: 0, right: 100, bottom: 50, x: 100, y: 50, toJSON: () => ({}) }) as DOMRect;
+    expect(centreInStage(element, stageRect)).toEqual({ x: 0, y: 0, w: 0, h: 0 });
   });
 });
