@@ -31,6 +31,18 @@ export interface Navigation {
 /** Browser history entry: navigation plus the file sequence number. */
 type HistoryState = Navigation & { m: number };
 
+/** Keeps zoom and the position of a node across re-renders; set by GraphView, null when unmounted. */
+type AnchorCapture = (nodeId: string, options?: { zoom?: boolean; back?: boolean }) => void;
+
+/** Input to one graph render: the text to draw and the context it is drawn in. */
+interface RenderInput {
+  source: string | null;
+  rendererName: Renderer;
+  tooBig: boolean;
+  status: string;
+  view: View | null;
+}
+
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** The value, asserting it is present. Components only render once a project is loaded. */
@@ -89,9 +101,9 @@ const app = createRoot(() => {
   const [mxCell, setMxCell] = createSignal(0); // matrix cell size, 0 = automatic
 
   // keeps zoom + the position of the node you acted on across expand/collapse re-renders
-  let anchorCapture: ((t: string, opt?: { zoom?: boolean; back?: boolean }) => void) | null = null;
-  const captureAnchor = (t: string, opt?: { zoom?: boolean; back?: boolean }): void => { anchorCapture?.(t, opt); };
-  const setAnchorCapture = (fn: typeof anchorCapture): void => { anchorCapture = fn; };
+  let anchorCapture: AnchorCapture | null = null;
+  const captureAnchor = (nodeId: string, options?: { zoom?: boolean; back?: boolean }): void => { anchorCapture?.(nodeId, options); };
+  const setAnchorCapture = (fn: AnchorCapture | null): void => { anchorCapture = fn; };
 
   // ================= derived =================
   const formIds = createMemo<string[]>(() => {
@@ -137,7 +149,7 @@ const app = createRoot(() => {
       pair: pair(),
       focus: focus(),
       focusDir: focusDir(),
-      focusDepth: Math.max(1, +focusDepth() || 1),
+      focusDepth: focusDepth(),
     };
   });
   const presentation = createMemo<ViewPresentation | null>(() => {
@@ -162,15 +174,15 @@ const app = createRoot(() => {
   });
   // lazy: only built when read (the renderer in use, or a download), and only once per view
   const lazySrc = (fn: (v: View, o: ViewOptions) => string) => {
-    let v0: View | null = null, o0: ViewOptions | null = null, out = '';
+    let lastView: View | null = null, lastOptions: ViewOptions | null = null, cachedSource = '';
     return (): string => {
-      const v = view(), o = opts();
-      if (v !== v0 || o !== o0) {
-        v0 = v;
-        o0 = o;
-        out = v && o ? fn(v, o) : '';
+      const currentView = view(), currentOptions = opts();
+      if (currentView !== lastView || currentOptions !== lastOptions) {
+        lastView = currentView;
+        lastOptions = currentOptions;
+        cachedSource = currentView && currentOptions ? fn(currentView, currentOptions) : '';
       }
-      return out;
+      return cachedSource;
     };
   };
   const mermaidSrc = lazySrc(toMermaid);
@@ -217,6 +229,7 @@ const app = createRoot(() => {
   }
   createEffect(level, () => { setExplore(null); }, { defer: true });
   // node ids differ between plain and Instances mode (form vs form@event): drop a selection that may no longer exist
+  // untracked: compares against the last value so selection is only dropped when the mode actually flips
   let previousInstanceMode = false;
   createEffect(
     () => [instanceMode(), selected()] as const,
@@ -236,15 +249,17 @@ const app = createRoot(() => {
   }
 
   // ================= graph rendering =================
+  // untracked: monotonic id so a stale async render is discarded when a newer one has started
   let token = 0;
   let svgNow: SVGSVGElement | null = null; // mirrors svgEl for the (untracked) render step below
   const setSvg = (v: SVGSVGElement | null): void => { svgNow = v; setSvgEl(v); };
   createEffect(
-    () => ({ src: graphSrc(), rendererName: renderer(), big: tooBig(), status: graphStatus(), v: view() }),
-    ({ src, rendererName, big, status, v }) => { renderGraph(src, rendererName, big, status, v); },
+    (): RenderInput => ({ source: graphSrc(), rendererName: renderer(), tooBig: tooBig(), status: graphStatus(), view: view() }),
+    (input) => { renderGraph(input); },
   );
-  async function renderGraph(src: string | null, rendererName: Renderer, big: boolean, status: string, v: View | null): Promise<void> {
-    if (src == null) return;
+  async function renderGraph(input: RenderInput): Promise<void> {
+    const { source, rendererName, tooBig: big, status, view: v } = input;
+    if (source == null) return;
     const renderToken = ++token;
     const clear = (msg: string): void => { setBusy(false); setSvg(null); setSvgView(null); setRenderMsg(msg); };
     if (status) { clear(status); return; }
@@ -252,7 +267,7 @@ const app = createRoot(() => {
     setRenderMsg(svgNow ? '' : 'Rendering…');
     setBusy(true); // keep the previous SVG on screen (dimmed) until the new one is ready
     try {
-      const svg = rendererName === 'graphviz' ? await renderDot(src) : await renderMermaid('mmd' + renderToken, src);
+      const svg = rendererName === 'graphviz' ? await renderDot(source) : await renderMermaid('mmd' + renderToken, source);
       if (renderToken !== token) return;
       setRenderMsg(''); setBusy(false); setSvgView(v); setSvg(svg);
     } catch (e) {
