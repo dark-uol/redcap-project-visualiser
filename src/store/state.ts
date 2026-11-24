@@ -54,6 +54,9 @@ export function createState() {
   const [downloadMenuOpen, setDownloadMenuOpen] = createSignal(false);
   const [selected, setSelectedRaw] = createSignal<string | null>(null);
   const setSelected = (v: string | null): void => { if (v) setSelectedEdge(null); setSelectedRaw(v); };
+
+  // selection signals, grouped the same way as filters
+  const selection = { selected, setSelected, setSelectedRaw, selectedEdge, setSelectedEdge, tab, setTab, level, setLevel };
   const [depQ, setDepQ] = createSignal('');
   const [fieldQ, setFieldQ] = createSignal('');
   const [svgEl, setSvgEl] = createSignal<SVGSVGElement | null>(null);
@@ -70,9 +73,9 @@ export function createState() {
 
   return {
     model, setModel, fileBase, setFileBase, dragOver, setDragOver, loadError, setLoadError,
-    level, setLevel, focusing, presentation,
-    instances, setInstances, selectedEdge, setSelectedEdge, filters,
-    expanded, setExpanded, explore, setExplore, tab, setTab, downloadMenuOpen, setDownloadMenuOpen, selected, setSelected, setSelectedRaw,
+    focusing, presentation, selection,
+    instances, setInstances, filters,
+    expanded, setExpanded, explore, setExplore, downloadMenuOpen, setDownloadMenuOpen,
     depQ, setDepQ, fieldQ, setFieldQ, svgEl, setSvgEl, svgView, setSvgView, busy, setBusy, renderMsg, setRenderMsg,
     forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture, nextModelSequence, currentModelSequence,
   };

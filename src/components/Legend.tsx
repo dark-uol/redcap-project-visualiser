@@ -1,6 +1,8 @@
 import { For, Show } from 'solid-js';
 import { TYPES } from '../lib/graph';
-import { level } from '../store';
+import { selection } from '../store';
+
+const { level } = selection;
 
 export default function Legend() {
   return (

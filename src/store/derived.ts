@@ -9,8 +9,9 @@ import type { Explore, ExploreFilter, View, ViewFilter, ViewOptions, ViewPresent
 
 export function createDerived(state: State) {
   const {
-    model, level, instances, expanded, explore, forcedFor,
+    model, instances, expanded, explore, forcedFor,
   } = state;
+  const { level } = state.selection;
   const { focus, focusDir, focusDepth, pair } = state.focusing;
   const { dir, labelMode, groupBy, edgeLabels, renderer } = state.presentation;
   const { formsOn, eventsOn, typesOn, crossOnly, instanceOnly, hideIso, hideIsoNodes, showMissing } = state.filters;

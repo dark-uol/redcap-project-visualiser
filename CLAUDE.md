@@ -9,7 +9,7 @@ Client-only SolidJS 2 + Vite app. Loads a REDCap CDISC ODM metadata XML and draw
 
 ## Layout
 - The source is TypeScript (`strict`, `verbatimModuleSyntax`); JSX is Solid's (`jsxImportSource: @solidjs/web`).
-- `src/store/` – all app state, created once in `index.ts` under one `createRoot`; components import from `src/store`. `state.ts` holds the signals, `derived.ts` the memos, `exploration.ts` and `rendering.ts` the expansion and graph-render effects, `navigation.ts` the history, `loading.ts` and `downloads.ts` the actions, `common.ts` the shared constants and helpers. Add new UI state to `state.ts`.
+- `src/store/` – all app state, created once in `index.ts` under one `createRoot`; components import from `src/store`. `state.ts` holds the signals, `derived.ts` the memos, `exploration.ts` and `rendering.ts` the expansion and graph-render effects, `navigation.ts` the history, `loading.ts` and `downloads.ts` the actions, `common.ts` the shared constants and helpers. Add new UI state to `state.ts`. Related signals are grouped as `filters`, `focusing`, `presentation`, `selection` (read them as e.g. `filters.typesOn()`).
 - `src/lib/` – framework-free modules, no Solid imports: `types.ts` (shared domain types: parsed metadata, model, view), `parser.ts` (XML → fields/forms/events), `graph.ts` (model, cycle/depth/hub analysis, `buildView`), `exporters.ts` (Mermaid/DOT/CSV), `renderers.ts` (lazy-loads viz + mermaid), `download.ts`.
 - `src/components/*.tsx` – one component per tab/panel; `App.tsx` composes them. `src/main.tsx` is the entry point.
 - GraphView helpers (no store, no Solid): `svgDom.ts` (reads the rendered SVG: node/edge keys, highlighting), `panzoom.ts` (pure pan/zoom maths), `hitTest.ts` (`resolveClick`: click target → selection action).

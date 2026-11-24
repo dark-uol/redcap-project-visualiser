@@ -1,5 +1,7 @@
 import { For, createMemo } from 'solid-js';
-import { need, model, fieldQ, setFieldQ, setSelected, setTab, formLabel } from '../store';
+import { need, model, fieldQ, setFieldQ, selection, formLabel } from '../store';
+
+const { setSelected, setTab } = selection;
 
 export default function FieldsTab() {
   const rows = createMemo(() => {

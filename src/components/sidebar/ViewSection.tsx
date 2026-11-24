@@ -2,9 +2,11 @@ import { Show } from 'solid-js';
 import type { Direction, GroupBy, LabelMode, Level, Renderer } from '../../lib/types';
 import { Select, Check } from '../controls';
 import {
-  need, model, level, setLevel,
+  need, model, selection,
   instances, setInstances, filters, presentation,
 } from '../../store';
+
+const { level, setLevel } = selection;
 
 const { hideIsoNodes, setHideIsoNodes, hideIso, setHideIso, showMissing, setShowMissing } = filters;
 const { renderer, setRenderer, dir, setDir, labelMode, setLabelMode, groupBy, setGroupBy, edgeLabels, setEdgeLabels } = presentation;

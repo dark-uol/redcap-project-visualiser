@@ -6,7 +6,8 @@ import { download } from '../lib/download';
 import { toCsv } from '../lib/exporters';
 
 export function createDownloads(state: State, derived: Derived) {
-  const { fileBase, level, svgEl, model } = state;
+  const { fileBase, svgEl, model } = state;
+  const { level } = state.selection;
   const { instanceMode, mermaidSrc, dotSrc, opts } = derived;
 
   const suffix = (): string => (level() === 'form' ? (instanceMode() ? '_instances' : '_forms') : level() === 'event' ? '_events' : '_fields');

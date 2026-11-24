@@ -74,17 +74,17 @@ describe('loadText', () => {
 
   it('resets navigation to the default state', () => {
     settle(() => {
-      store.setTab('matrix');
-      store.setLevel('field');
+      store.selection.setTab('matrix');
+      store.selection.setLevel('field');
       store.focusing.setFocus('age');
-      store.setSelected('age');
+      store.selection.setSelected('age');
     });
     load(sampleXml, 'sample');
-    expect(store.tab()).toBe('graph');
-    expect(store.level()).toBe('form');
+    expect(store.selection.tab()).toBe('graph');
+    expect(store.selection.level()).toBe('form');
     expect(store.focusing.focus()).toBe('');
-    expect(store.selected()).toBeNull();
-    expect(store.selectedEdge()).toBeNull();
+    expect(store.selection.selected()).toBeNull();
+    expect(store.selection.selectedEdge()).toBeNull();
     expect(store.focusing.pair()).toBeNull();
   });
 
@@ -118,39 +118,39 @@ describe('selection', () => {
   const edge: FormPair = { from: 'a', to: 'b' } as FormPair;
 
   it('setSelected(non-null) clears selectedEdge', () => {
-    settle(() => store.setSelectedEdge(edge));
-    settle(() => store.setSelected('demographics'));
-    expect(store.selectedEdge()).toBeNull();
-    expect(store.selected()).toBe('demographics');
+    settle(() => store.selection.setSelectedEdge(edge));
+    settle(() => store.selection.setSelected('demographics'));
+    expect(store.selection.selectedEdge()).toBeNull();
+    expect(store.selection.selected()).toBe('demographics');
   });
 
   it('setSelected(null) does not clear selectedEdge', () => {
-    settle(() => store.setSelectedEdge(edge));
-    settle(() => store.setSelected(null));
-    expect(store.selectedEdge()).toBe(edge);
+    settle(() => store.selection.setSelectedEdge(edge));
+    settle(() => store.selection.setSelected(null));
+    expect(store.selection.selectedEdge()).toBe(edge);
   });
 
   it('setSelectedRaw leaves selectedEdge alone', () => {
-    settle(() => store.setSelectedEdge(edge));
-    settle(() => store.setSelectedRaw('demographics'));
-    expect(store.selectedEdge()).toBe(edge);
-    expect(store.selected()).toBe('demographics');
+    settle(() => store.selection.setSelectedEdge(edge));
+    settle(() => store.selection.setSelectedRaw('demographics'));
+    expect(store.selection.selectedEdge()).toBe(edge);
+    expect(store.selection.selected()).toBe('demographics');
   });
 
   it('pickNode selects the node and clears selectedEdge', () => {
-    settle(() => store.setSelectedEdge(edge));
+    settle(() => store.selection.setSelectedEdge(edge));
     settle(() => store.pickNode('baseline'));
-    expect(store.selectedEdge()).toBeNull();
-    expect(store.selected()).toBe('baseline');
+    expect(store.selection.selectedEdge()).toBeNull();
+    expect(store.selection.selected()).toBe('baseline');
   });
 
   it('jumpToField moves to field level on the graph tab with the field selected', () => {
-    settle(() => store.setTab('matrix'));
+    settle(() => store.selection.setTab('matrix'));
     settle(() => store.jumpToField('age'));
-    expect(store.level()).toBe('field');
+    expect(store.selection.level()).toBe('field');
     expect(store.focusing.focus()).toBe('age');
-    expect(store.selected()).toBe('age');
-    expect(store.tab()).toBe('graph');
+    expect(store.selection.selected()).toBe('age');
+    expect(store.selection.tab()).toBe('graph');
     expect(store.focusing.pair()).toBeNull();
   });
 });
@@ -187,7 +187,7 @@ describe('derived view state', () => {
   });
 
   it('switching to field level changes the view level', () => {
-    settle(() => store.setLevel('field'));
+    settle(() => store.selection.setLevel('field'));
     expect(store.view()?.level).toBe('field');
   });
 
@@ -211,9 +211,9 @@ describe('instanceMode', () => {
   it('is true only with instances on, form level and events present', () => {
     settle(() => store.setInstances(true));
     expect(store.instanceMode()).toBe(true);
-    settle(() => store.setLevel('field'));
+    settle(() => store.selection.setLevel('field'));
     expect(store.instanceMode()).toBe(false);
-    settle(() => store.setLevel('form'));
+    settle(() => store.selection.setLevel('form'));
     settle(() => store.setInstances(false));
     expect(store.instanceMode()).toBe(false);
   });
@@ -254,7 +254,7 @@ describe('expansion of back / forward references', () => {
   it('changing level clears the explore state', () => {
     settle(() => store.expandRef(store.view()!.nodes[0]!.id, 'down'));
     expect(store.explore()).not.toBeNull();
-    settle(() => store.setLevel('field'));
+    settle(() => store.selection.setLevel('field'));
     expect(store.explore()).toBeNull();
   });
 });
@@ -304,7 +304,7 @@ describe('browser history', () => {
 
   it('pushes a state when navigation changes after load', () => {
     const push = vi.spyOn(history, 'pushState');
-    settle(() => store.setTab('matrix'));
+    settle(() => store.selection.setTab('matrix'));
     expect(push).toHaveBeenCalled();
     const [state] = push.mock.calls.at(-1)!;
     expect(state).toEqual(expect.objectContaining({ tab: 'matrix' }));

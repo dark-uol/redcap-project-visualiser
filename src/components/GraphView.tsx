@@ -2,9 +2,11 @@
 import { Show, createEffect, onCleanup, onSettled } from 'solid-js';
 import type { View } from '../lib/types';
 import {
-  model, view, tab, selected, setSelected, setSelectedRaw, setSelectedEdge, svgEl, svgView, busy, renderMsg, tooBig,
+  model, view, selection, svgEl, svgView, busy, renderMsg, tooBig,
   setForcedFor, dotSrc, setAnchorCapture,
 } from '../store';
+
+const { tab, selected, setSelected, setSelectedRaw, setSelectedEdge } = selection;
 import Detail from './Detail';
 import Legend from './Legend';
 import { closestEl, highlightLinks, keyForSelection, nodeKey, normalizeSvg, widenEdgeHits } from './svgDom';

@@ -1,9 +1,10 @@
 import { For } from 'solid-js';
-import { need, model, focusing, clampDepth, setLevel, setExplore } from '../../store';
+import { need, model, focusing, selection, clampDepth, setExplore } from '../../store';
 import { Select } from '../controls';
 import type { FocusDir } from '../../lib/types';
 
 const { focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth, setPair } = focusing;
+const { setLevel } = selection;
 
 export default function FocusSection() {
   const fields = () => need(model()).parsed.fields;

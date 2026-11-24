@@ -1,6 +1,8 @@
 /* Main workspace: sidebar plus the tabbed content area. */
 import { For, Show } from 'solid-js';
-import { tab, setTab, type Tab } from '../store';
+import { selection, type Tab } from '../store';
+
+const { tab, setTab } = selection;
 import Sidebar from './Sidebar';
 import DownloadMenu from './DownloadMenu';
 import GraphView from './GraphView';

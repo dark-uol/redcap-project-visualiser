@@ -210,32 +210,32 @@ describe('downloadSvg', () => {
 describe('popstate', () => {
   it('returns to an earlier navigation state from the same file', () => {
     const push = vi.spyOn(history, 'pushState');
-    settle(() => store.setTab('matrix'));
+    settle(() => store.selection.setTab('matrix'));
     const matrixState = push.mock.calls.at(-1)![0] as { m: number };
-    settle(() => store.setTab('deps'));
-    expect(store.tab()).toBe('deps');
+    settle(() => store.selection.setTab('deps'));
+    expect(store.selection.tab()).toBe('deps');
 
     window.dispatchEvent(new PopStateEvent('popstate', { state: matrixState }));
     flush();
-    expect(store.tab()).toBe('matrix');
+    expect(store.selection.tab()).toBe('matrix');
   });
 
   it('ignores a state from a different file sequence', () => {
     const push = vi.spyOn(history, 'pushState');
-    settle(() => store.setTab('matrix'));
+    settle(() => store.selection.setTab('matrix'));
     const matrixState = push.mock.calls.at(-1)![0] as { m: number };
-    settle(() => store.setTab('deps'));
+    settle(() => store.selection.setTab('deps'));
 
     window.dispatchEvent(new PopStateEvent('popstate', { state: { ...matrixState, m: matrixState.m + 1000 } }));
     flush();
-    expect(store.tab()).toBe('deps');
+    expect(store.selection.tab()).toBe('deps');
   });
 
   it('ignores a null state', () => {
-    settle(() => store.setTab('matrix'));
+    settle(() => store.selection.setTab('matrix'));
     window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
     flush();
-    expect(store.tab()).toBe('matrix');
+    expect(store.selection.tab()).toBe('matrix');
   });
 });
 
@@ -270,16 +270,16 @@ describe('anchor capture', () => {
 
 describe('selection reset when instance mode flips', () => {
   it('clears an instance-scoped selection when instances turn on', () => {
-    settle(() => store.setSelected(instanceIdFor('Form.demographics', 'Event.baseline_arm_1')));
+    settle(() => store.selection.setSelected(instanceIdFor('Form.demographics', 'Event.baseline_arm_1')));
     settle(() => store.setInstances(true));
     expect(store.instanceMode()).toBe(true);
-    expect(store.selected()).toBeNull();
+    expect(store.selection.selected()).toBeNull();
   });
 
   it('keeps a plain selection when instances turn on', () => {
-    settle(() => store.setSelected('Form.demographics'));
+    settle(() => store.selection.setSelected('Form.demographics'));
     settle(() => store.setInstances(true));
     expect(store.instanceMode()).toBe(true);
-    expect(store.selected()).toBe('Form.demographics');
+    expect(store.selection.selected()).toBe('Form.demographics');
   });
 });

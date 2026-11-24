@@ -8,7 +8,8 @@ import { isInstanceScopedId } from '../lib/selection';
 import type { NeighborDir } from '../lib/types';
 
 export function createExplorationActions(state: State, derived: Derived) {
-  const { model, level, expanded, setExpanded, setExplore, selected, setSelectedRaw, captureAnchor } = state;
+  const { model, expanded, setExpanded, setExplore, captureAnchor } = state;
+  const { level, selected, setSelectedRaw } = state.selection;
   const { setPair, setFocus } = state.focusing;
   const { filter, instanceMode, currentExploration, exploreVisible } = derived;
 

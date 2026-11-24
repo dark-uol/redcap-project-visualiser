@@ -5,10 +5,10 @@ import type { State } from './state';
 
 export function createNavigation(state: State) {
   const {
-    model, tab, setTab, level, setLevel, selected, setSelected, setSelectedRaw,
-    selectedEdge, setSelectedEdge, currentModelSequence,
+    model, currentModelSequence,
   } = state;
   const { focus, setFocus, pair, setPair } = state.focusing;
+  const { tab, setTab, level, setLevel, selected, setSelected, setSelectedRaw, selectedEdge, setSelectedEdge } = state.selection;
 
   const currentNav = (): Navigation => ({ tab: tab(), level: level(), focus: focus(), pair: pair(), selection: selected(), edge: selectedEdge() });
   const applyNav = (n: Navigation): void => { setTab(n.tab); setLevel(n.level); setFocus(n.focus); setPair(n.pair); setSelectedRaw(n.selection); setSelectedEdge(n.edge); };
