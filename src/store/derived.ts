@@ -4,6 +4,7 @@ import { MAX_AUTO_EDGES, TYPE_KEYS, need } from './common';
 import type { State } from './state';
 import { buildView } from '../lib/graph';
 import { toMermaid, toDot } from '../lib/exporters';
+import { activeEventIds, enabledFormIds } from '../lib/filterSelection';
 import type { Explore, ExploreFilter, View, ViewFilter, ViewOptions, ViewPresentation } from '../lib/types';
 
 export function createDerived(state: State) {
@@ -29,18 +30,16 @@ export function createDerived(state: State) {
   const filter = createMemo<ViewFilter | null>(() => {
     const loadedModel = model();
     if (!loadedModel) return null;
-    const formsEnabled = formsOn();
     // event/arm filter narrows the form set: only forms collected in at least one selected event stay
-    const events = loadedModel.parsed.events || [], eventsEnabled = eventsOn();
-    const evActive = events.some((e) => eventsEnabled[e.id] === false);
-    const evForms = evActive ? new Set(events.filter((e) => eventsEnabled[e.id] !== false).flatMap((e) => e.forms)) : null;
-    const on = formIds().filter((i) => formsEnabled[i] !== false && (!evForms || evForms.has(i)));
+    const events = loadedModel.parsed.events || [];
+    const activeEvents = activeEventIds(events, eventsOn());
+    const on = enabledFormIds(formIds(), formsOn(), events, activeEvents);
     const typesEnabled = typesOn();
     const currentExplorationValue = currentExploration();
     const explored: ExploreFilter | null = currentExplorationValue ? { level: level(), inst: instanceMode(), set: exploreVisible(currentExplorationValue) } : null;
     return {
       level: level(),
-      eventSet: evActive ? new Set(events.filter((e) => eventsEnabled[e.id] !== false).map((e) => e.id)) : null,
+      eventSet: activeEvents,
       hideIsolated: hideIso(),
       hideIsolatedNodes: hideIsoNodes(),
       showMissing: showMissing(),
