@@ -4,7 +4,7 @@ Client-only SolidJS 2 + Vite app. Loads a REDCap CDISC ODM metadata XML and draw
 
 ## Commands
 - `npm run dev` – dev server, http://localhost:5173 (HMR; use the `dev` entry in `.claude/launch.json` with preview tools).
-- `npm run build` – production build to `dist/`. Vite does not type-check, so also run `npm run typecheck` (`tsc --noEmit`). There are **no tests and no linter**: run both after changes, then verify UI changes in the browser (click "Load sample").
+- `npm run build` – production build to `dist/`. Vite does not type-check, so also run `npm run typecheck` (`tsc --noEmit`). There is **no linter**. `npm test` runs Vitest (jsdom) over `test/`, covering the pan/zoom maths, SVG helpers and click resolution of the graph view. Solid components and `src/lib/` are not covered yet. Run typecheck, build and tests after changes, then verify UI changes in the browser (click "Load sample").
 - `file://` does not work; always serve over http.
 
 ## Layout
@@ -12,7 +12,13 @@ Client-only SolidJS 2 + Vite app. Loads a REDCap CDISC ODM metadata XML and draw
 - `src/store.ts` – all app state (signals/memos, graph-render effect, actions) in one `createRoot`; components import from it. Add new UI state here.
 - `src/lib/` – framework-free modules, no Solid imports: `types.ts` (shared domain types: parsed metadata, model, view), `parser.ts` (XML → fields/forms/events), `graph.ts` (model, cycle/depth/hub analysis, `buildView`), `exporters.ts` (Mermaid/DOT/CSV), `renderers.ts` (lazy-loads viz + mermaid), `download.ts`.
 - `src/components/*.tsx` – one component per tab/panel; `App.tsx` composes them. `src/main.tsx` is the entry point.
+- GraphView helpers (no store, no Solid): `svgDom.ts` (reads the rendered SVG: node/edge keys, highlighting), `panzoom.ts` (pure pan/zoom maths), `hitTest.ts` (`resolveClick`: click target → selection action).
+- `test/` – Vitest specs (`*.test.ts`) plus `fixtures.ts` (hand-written Graphviz/Mermaid-shaped SVG and View builders). Config is `vitest.config.ts`, separate from `vite.config.ts` so tests skip the Solid plugin; test files are type-checked by `npm run typecheck`.
 - `public/sample/sample.xml` – sample project; `css/style.css` – all styles.
+
+## Code style
+- No abbreviations in function/method names (`applyHighlight`, not `applyHl`; `elementFor`, not `elFor`). Prefer full words for variables too; single-letter names are fine only for short-lived locals (`s`, `e`, `w`/`h`).
+- Name anonymous functions and closures where it helps debugging (stack traces, profiler, Solid effects): assign to a named `const`, or use a named function expression, rather than inlining an arrow in a long-lived callback or listener.
 
 ## Gotchas
 - **Solid 2.0.3**, not Solid 1: APIs differ from most training data and online examples (compiled with `@solidjs/vite-plugin`, not `vite-plugin-solid`; `@solidjs/web` for DOM). Check `node_modules/solid-js` / `@solidjs/web` types before assuming an API exists.
