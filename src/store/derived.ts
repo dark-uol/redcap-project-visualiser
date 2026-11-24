@@ -9,7 +9,7 @@ import type { Explore, ExploreFilter, View, ViewFilter, ViewOptions, ViewPresent
 
 export function createDerived(state: State) {
   const {
-    model, instances, expanded, explore, forcedFor,
+    model, instances, expanded, expandedEvents, explore, forcedFor,
   } = state;
   const { level } = state.selection;
   const { focus, focusDir, focusDepth, pair } = state.focusing;
@@ -52,7 +52,8 @@ export function createDerived(state: State) {
       crossOnly: crossOnly(),
       instOnly: instanceOnly(),
       instances: instanceMode(),
-      expanded: level() === 'form' ? expanded() : null,
+      expanded: level() === 'form' || level() === 'event' ? expanded() : null,
+      expandedEvents: level() === 'event' ? expandedEvents() : null,
       explore: explored,
       pair: pair(),
       focus: focus(),

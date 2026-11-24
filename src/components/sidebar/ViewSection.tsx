@@ -31,9 +31,7 @@ export default function ViewSection() {
       <Show when={level() !== 'field'}>
         <Check checked={hideIsoNodes()} onChange={setHideIsoNodes} label={(level() === 'event' ? 'Hide events' : 'Hide forms') + ' with no dependencies'} hint="Leaves out nodes that have no links to anything else." />
       </Show>
-      <Show when={level() !== 'event'}>
-        <Check checked={hideIso()} onChange={setHideIso} label="Hide fields with no dependencies" hint="Leaves out fields that neither use nor are used by any other field." />
-      </Show>
+      <Check checked={hideIso()} onChange={setHideIso} label="Hide fields with no dependencies" hint="Leaves out fields that neither use nor are used by any other field. Applies to fields listed inside a zoomed form." />
       <Check checked={showMissing()} onChange={setShowMissing} label="Show undefined references" hint="Includes names that logic refers to but the project does not define, drawn as separate nodes." />
     </details>
   );

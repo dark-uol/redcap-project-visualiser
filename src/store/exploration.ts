@@ -8,7 +8,7 @@ import { isInstanceScopedId } from '../lib/selection';
 import type { NeighborDir } from '../lib/types';
 
 export function createExplorationActions(state: State, derived: Derived) {
-  const { model, expanded, setExpanded, setExplore, captureAnchor } = state;
+  const { model, expanded, setExpanded, expandedEvents, setExpandedEvents, setExplore, captureAnchor } = state;
   const { level, selected, setSelectedKeepingEdge } = state.selection;
   const { focus, setPair, setFocus } = state.focusing;
   const { filter, instanceMode, currentExploration, exploreVisible, view } = derived;
@@ -57,6 +57,14 @@ export function createExplorationActions(state: State, derived: Derived) {
     else next.add(formId);
     setExpanded(next);
   }
+  function toggleExpandEvent(eventId: string): void {
+    const on = expandedEvents().has(eventId);
+    captureAnchor(eventId, on ? { back: true } : { zoom: true });
+    const next = new Set(expandedEvents());
+    if (on) next.delete(eventId);
+    else next.add(eventId);
+    setExpandedEvents(next);
+  }
 
-  return { expandRef, collapseRef, toggleExpandForm };
+  return { expandRef, collapseRef, toggleExpandForm, toggleExpandEvent };
 }

@@ -1,12 +1,11 @@
 /** Focus controls shared by the sidebar and the detail panel: direction, depth, and a note when depth hides part of the chain. */
 import { For, Show } from 'solid-js';
-import { focusing, view, clampDepth, selection, setExplore } from '../store';
+import { focusing, view, clampDepth, setExplore } from '../store';
 import { MAX_FOCUS_DEPTH } from '../lib/graph';
 import type { FocusDir } from '../lib/types';
 import { HintHeading, Labeled, Select } from './controls';
 
 const { focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth, setPair } = focusing;
-const { setLevel } = selection;
 
 const TRACE_DIRECTIONS: [FocusDir, string, string][] = [
   ['up', '▲ depends on', 'Show everything this field depends on, step by step'],
@@ -58,7 +57,6 @@ export function TraceControl(props: { id: string }) {
   const isActive = (direction: FocusDir): boolean => focus() === props.id && focusDir() === direction;
   const onTrace = function onTrace(direction: FocusDir): void {
     if (isActive(direction)) { setFocus(''); return; }
-    setLevel('field');
     setExplore(null);
     setPair(null);
     setFocusDir(direction);
@@ -66,7 +64,7 @@ export function TraceControl(props: { id: string }) {
   };
   return (
     <div class="focus-box">
-      <HintHeading title="Show chain" hint="Replaces the graph with this field's whole chain of dependencies, as many steps as the depth allows." />
+      <HintHeading title="Show chain" hint="Narrows the graph to this field's chain of dependencies, as many steps as the depth allows. Stays at the current level and keeps what is expanded." />
       <span class="seg">
         <For each={TRACE_DIRECTIONS}>{([direction, label, tip]) => (
           <button class={isActive(direction) ? 'btn sm primary' : 'btn sm'} title={tip} onClick={() => onTrace(direction)}>{label}</button>

@@ -37,7 +37,8 @@ export function createState() {
   const [formQ, setFormQ] = createSignal('');
   const [pair, setPair] = createSignal<FormPair | null>(null); // only the field links of one form->form edge
   const [selectedEdge, setSelectedEdge] = createSignal<FormPair | null>(null); // form-level edge clicked in the graph
-  const [expanded, setExpanded] = createSignal<Set<string>>(new Set()); // form ids expanded in place at form level
+  const [expanded, setExpanded] = createSignal<Set<string>>(new Set()); // form ids (or `form@event` ids) expanded into fields, at form and event level
+  const [expandedEvents, setExpandedEvents] = createSignal<Set<string>>(new Set()); // event ids expanded in place at event level
   const [explore, setExplore] = createSignal<Explore | null>(null); // interactive expansion
 
   // Filter signals, grouped so the sidebar and the filtered view read them from one place
@@ -76,7 +77,7 @@ export function createState() {
     model, setModel, fileBase, setFileBase, dragOver, setDragOver, loadError, setLoadError,
     focusing, presentation, selection,
     instances, setInstances, filters,
-    expanded, setExpanded, explore, setExplore, downloadMenuOpen, setDownloadMenuOpen,
+    expanded, setExpanded, expandedEvents, setExpandedEvents, explore, setExplore, downloadMenuOpen, setDownloadMenuOpen,
     depQ, setDepQ, fieldQ, setFieldQ, svgEl, setSvgEl, svgView, setSvgView, busy, setBusy, renderMsg, setRenderMsg,
     forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture, nextModelSequence, currentModelSequence,
   };

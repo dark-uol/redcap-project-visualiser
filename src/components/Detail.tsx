@@ -12,7 +12,7 @@ import { groupIdFor, parseSelection } from '../lib/selection';
 import type { DepType, Edge, EventDef, Field, Form, FormNode, FormPair, LogicNode, Model, NeighborDir, View, ViewEdge, ViewNode } from '../lib/types';
 import {
   need, model, view, opts, selection, setExplore, expanded,
-  currentExploration, exploreVisible, instanceMode, formLabel, expandRef, collapseRef, toggleExpandForm, jumpToField, focusing,
+  currentExploration, exploreVisible, instanceMode, formLabel, expandRef, collapseRef, toggleExpandForm, toggleExpandEvent, expandedEvents, jumpToField, focusing,
 } from '../store';
 
 const { setFocus, setPair } = focusing;
@@ -95,9 +95,10 @@ function viewInstanceNodes(v: View | null): ViewNode[] {
 /** The Instances-view node with this id, when the view is in instance mode and has it. */
 function instanceNodeFor(id: string): ViewNode | undefined {
   const v = view();
-  if (!v || !v.instances) return undefined;
+  if (!v || !(v.instances || v.level === 'event')) return undefined;
   const node = viewInstanceNodes(v).find((x) => x.id === id);
-  return node && node.form ? node : undefined;
+  // at event level the event nodes have no `event`; only the form nodes drawn inside an expanded event do
+  return node && node.form && (v.instances || node.event) ? node : undefined;
 }
 
 function exploreContext(): ExploreContext {
@@ -254,6 +255,7 @@ function instanceNodeFormLabel(model: Model, node: { form: string; id: string })
 
 function instanceNodeLabel(model: Model, nodes: ViewNode[], nodeId: string): string {
   const node = nodes.find((y) => y.id === nodeId);
+  if (node && node.event === undefined) return node.label; // an event node of the event-level graph
   return node ? (instanceNodeFormLabel(model, node) + (node.event ? ' @ ' + eventLabel(model.parsed.events || [], node.event) : '')) : nodeId;
 }
 
@@ -306,6 +308,8 @@ function eventDetail(ev: EventDef) {
   return (
     <div><h3>{ev.label}</h3><div class="muted small">event <code>{ev.id}</code>{ev.arm ? ' · arm ' + ev.arm + (ev.armName ? ' (' + ev.armName + ')' : '') : ''}{ev.repeating ? ' · repeating' : ''}</div>
       <p class="small" style="margin:6px 0">Forms: {ev.forms.map(formLabel).join(', ') || 'none'}</p>
+      {level() === 'event' ? <div class="focus-box"><HintHeading title="Zoom" hint="Shows this event's forms inside the graph." />
+        <span class="seg"><button class="btn sm" onClick={() => toggleExpandEvent(ev.id)}>{expandedEvents().has(ev.id) ? 'back to event' : 'into forms'}</button></span></div> : ''}
       {repInstr.length ? <p class="small" style="margin:6px 0">Repeating instruments: {repInstr.map((r) => r.label || formLabel(r.form)).join(', ')}</p> : ''}
       <Section title="Read from this event" count={out.length} empty={!out.length}>
         {out.map((e) => <EdgeRow edge={e} onOpen={(x) => jumpToField(x)} detail={eventsOf(e)} />)}
@@ -348,7 +352,7 @@ function lookUpDetailFacts(id: string): DetailFacts {
   const node = findNode(m, id);
   return {
     node,
-    instanceNode: node || !instanceMode() ? undefined : instanceNodeFor(id),
+    instanceNode: node || !(instanceMode() || level() === 'event') ? undefined : instanceNodeFor(id),
     event: (m.parsed.events || []).find((x) => x.id === id),
     form: m.formsById.get(id),
   };

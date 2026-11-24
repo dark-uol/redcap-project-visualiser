@@ -276,7 +276,14 @@ function baseEdges(model: Model, o: ViewFilter): Edge[] {
 export function buildView(model: Model, o: ViewOptions): View {
   let edges = baseEdges(model, o);
   const formOf = (v: string): string => nodeInfo(model, v).form;
-  if (o.level === 'event') return eventView(model, edges, o, formOf);
+  if (o.level === 'event') {
+    // "show chain" keeps the event graph: only the links between the fields of the chain are drawn
+    if (!o.focus || !model.byVar.has(o.focus)) return eventView(model, edges, o, formOf);
+    const reach = focusReach(edges, o.focus, o.focusDir, o.focusDepth);
+    const fullReach = focusReach(edges, o.focus, o.focusDir, MAX_FOCUS_DEPTH);
+    const view = eventView(model, edges.filter((e) => reach.has(e.from) && reach.has(e.to)), o, formOf);
+    return fullReach.size > reach.size ? { ...view, focusHidden: fullReach.size - reach.size } : view;
+  }
   const instMode = !!o.instances && o.level === 'form' && (model.parsed.events || []).length > 0;
   const ex = !instMode && o.explore && o.explore.level === o.level && !o.explore.inst ? o.explore.set : null; // interactively expanded node set
   const exI = instMode && o.explore && o.explore.level === 'form' && o.explore.inst ? o.explore.set : null; // same, as instance node ids
@@ -290,19 +297,20 @@ export function buildView(model: Model, o: ViewOptions): View {
     edges = edges.filter((e) => (model.logicNodes.has(e.to) ? vis(e.from) : model.logicNodes.has(e.from) ? vis(e.to) : vis(e.from) && vis(e.to)));
   }
 
-  // focus (field level only)
+  // focus: at field level the chain's fields are the nodes; at form level only the links between the chain's fields are kept
   let focusSet: Set<string> | null = null;
   let focusHidden = 0;
-  if (!ex && o.focus && model.byVar.has(o.focus) && o.level === 'field') {
+  if (!ex && o.focus && model.byVar.has(o.focus)) {
     const fs = focusReach(edges, o.focus, o.focusDir, o.focusDepth);
-    focusSet = fs;
+    if (o.level === 'field') focusSet = fs;
     const fullReach = focusReach(edges, o.focus, o.focusDir, MAX_FOCUS_DEPTH);
     if (fullReach.size > fs.size) focusHidden = fullReach.size - fs.size;
     edges = edges.filter((e) => fs.has(e.from) && fs.has(e.to));
   }
+  const withFocusHidden = (view: View): View => (focusHidden ? { ...view, focusHidden } : view);
 
-  if (instMode) return instancesView(model, edges, o, formOf, exI);
-  if (o.level === 'form') return formView(model, edges, o);
+  if (instMode) return withFocusHidden(instancesView(model, edges, o, formOf, exI));
+  if (o.level === 'form') return withFocusHidden(formView(model, edges, o));
 
   const merged = new Map<string, EdgeAcc>();
   edges.forEach((e) => {
@@ -395,29 +403,76 @@ export const isGhost = (n: NodeInfo): n is GhostNode => 'ghost' in n;
  */
 function eventView(model: Model, edges: Edge[], o: ViewFilter, formOf: (v: string) => string): View {
   const events = model.parsed.events || [];
+  const { hostsOf, idOf } = instanceCtx(model, o, formOf);
   const shown = (e: EventDef): boolean => !o.eventSet || o.eventSet.has(e.id);
-  const hosts = (form: string): EventDef[] => events.filter((e) => shown(e) && e.forms.includes(form));
+  const hosts = (form: string): EventDef[] => hostsOf.get(form) || [];
+  const expandedEvents = o.expandedEvents && o.expandedEvents.size ? o.expandedEvents : null;
+  const expandedForms = o.expanded && o.expanded.size ? o.expanded : null;
   const merged = new Map<string, EdgeAcc>();
+  const usedEvents = new Set<string>();
+  const usedForms = new Map<string, Set<string>>(); // expanded event id -> form node ids an edge ends on
+  const usedFields = new Map<string, Set<string>>(); // expanded form node id -> variables an edge ends on
+  const addTo = (map: Map<string, Set<string>>, key: string, value: string): void => {
+    if (!map.has(key)) map.set(key, new Set());
+    (map.get(key) as Set<string>).add(value);
+  };
+  /** Where an edge touches `event`: the event node, or, when it is expanded, its form node or that form's field. */
+  const endpoint = (event: EventDef, form: string, variable: string): { id: string; field: boolean } | null => {
+    if (!expandedEvents || !expandedEvents.has(event.id)) return { id: event.id, field: false };
+    // an event that does not collect the form reads blank in REDCap: nothing to draw inside the box
+    if (!event.forms.includes(form)) return null;
+    const formNodeId = idOf(form, event);
+    addTo(usedForms, event.id, formNodeId);
+    if (!expandedForms || !expandedForms.has(formNodeId)) return { id: formNodeId, field: false };
+    addTo(usedFields, formNodeId, variable);
+    return { id: instanceFieldIdFor(variable, formNodeId), field: true };
+  };
+  const draw = (e: Edge, source: EventDef, target: EventDef): void => {
+    const from = endpoint(source, formOf(e.from), e.from), to = endpoint(target, formOf(e.to), e.to);
+    if (!from || !to || from.id === to.id) return;
+    const k = from.id + '\u0000' + to.id;
+    if (!merged.has(k)) {
+      const m = newAcc(from.id, to.id);
+      m.fieldLevel = from.field && to.field;
+      merged.set(k, m);
+    }
+    addDep(merged.get(k) as EdgeAcc, e.type, e.to);
+  };
+  const formsAllowed = (e: Edge): boolean => !o.forms || !o.forms.size || (o.forms.has(formOf(e.from)) && o.forms.has(formOf(e.to)));
   edges.forEach((e) => {
-    if (!e.events || !e.events.length) return;
-    if (o.forms && o.forms.size && !(o.forms.has(formOf(e.from)) && o.forms.has(formOf(e.to)))) return;
+    if (!e.events || !e.events.length || !formsAllowed(e)) return;
     const targets = hosts(formOf(e.to));
-    e.events.forEach((src) => {
-      if (!events.some((x) => x.id === src && shown(x))) return;
-      targets.forEach((t) => {
-        if (t.id === src) return;
-        const k = src + '\u0000' + t.id;
-        if (!merged.has(k)) merged.set(k, newAcc(src, t.id));
-        addDep(merged.get(k) as EdgeAcc, e.type, e.to);
+    e.events.forEach((sourceId) => {
+      const source = events.find((x) => x.id === sourceId && shown(x));
+      if (!source) return;
+      targets.forEach((target) => {
+        // a collapsed event has no link to itself; an expanded one can link its own forms and fields (`[own_event][field]`)
+        const withinEvent = target.id === source.id;
+        if (withinEvent && !(expandedEvents && expandedEvents.has(source.id))) return;
+        usedEvents.add(source.id);
+        usedEvents.add(target.id);
+        draw(e, source, target);
       });
     });
   });
+  // plain references ([field], no event) read the same event, so they are only drawn inside an expanded event that collects both forms
+  if (expandedEvents) {
+    edges.forEach((e) => {
+      if ((e.events && e.events.length) || !formsAllowed(e)) return;
+      const sourceForm = formOf(e.from), targetForm = formOf(e.to);
+      expandedEvents.forEach((eventId) => {
+        const event = events.find((x) => x.id === eventId && shown(x));
+        if (!event || !event.forms.includes(sourceForm) || !event.forms.includes(targetForm)) return;
+        if (e.tgtEvents && !e.tgtAllEvents && !e.tgtEvents.includes(event.id)) return; // form display logic: only the rule's events
+        usedEvents.add(event.id);
+        draw(e, event, event);
+      });
+    });
+  }
   const vedges = [...merged.values()];
   vedges.forEach(finishAcc);
-  const used = new Set<string>();
-  vedges.forEach((e) => { used.add(e.from); used.add(e.to); });
-  const nodes: ViewNode[] = events
-    .filter((e) => shown(e) && (!o.hideIsolatedNodes || used.has(e.id)))
+  const eventNodes: ViewNode[] = events
+    .filter((e) => shown(e) && (!o.hideIsolatedNodes || usedEvents.has(e.id)))
     .map((e) => ({
       id: e.id,
       label: e.label + (e.arm ? ' (arm ' + e.arm + ')' : ''),
@@ -425,7 +480,45 @@ function eventView(model: Model, edges: Edge[], o: ViewFilter, formOf: (v: strin
       form: e.id,
       kind: 'form',
     }));
-  return { level: 'event', nodes, edges: vedges, groups: [] };
+  if (!expandedEvents || !eventNodes.some((n) => expandedEvents.has(n.id))) {
+    return { level: 'event', nodes: eventNodes, edges: vedges, groups: [] };
+  }
+
+  const nodes: ViewNode[] = [], groups: ViewGroup[] = [], expandedNodes: ViewNode[] = [];
+  eventNodes.forEach((eventNode) => {
+    const event = events.find((x) => x.id === eventNode.id);
+    if (!event || !expandedEvents.has(event.id)) { nodes.push(eventNode); return; }
+    // with "hide nodes with no dependencies" off, an expanded event lists every form it collects, linked or not
+    const forms = event.forms
+      .filter((formId) => model.formsById.has(formId) && (!o.forms || !o.forms.size || o.forms.has(formId)))
+      .filter((formId) => !o.hideIsolatedNodes || (usedForms.get(event.id) || new Set()).has(idOf(formId, event)));
+    if (!forms.length) { nodes.push(eventNode); return; }
+    const formIds: string[] = [], fieldClusters: ViewGroup[] = [];
+    forms.forEach((formId) => {
+      const form = model.formsById.get(formId) as Form, id = idOf(formId, event);
+      const formNode: ViewNode = {
+        id, label: form.label + (isRepeatingInstance(model.parsed, form, event.id) ? ' ↻' : ''),
+        sub: form.fields.length + ' fields', form: formId, event: event.id, kind: 'form',
+      };
+      const linked = usedFields.get(id) || new Set<string>();
+      // a form shown here may have no cross-event link at all; zooming into it then lists every field rather than nothing
+      const variables = o.hideIsolated && linked.size
+        ? [...form.fields.filter((v) => linked.has(v)), ...[...linked].filter((v) => !form.fields.includes(v))]
+        : [...form.fields, ...[...linked].filter((v) => !form.fields.includes(v))];
+      if (!expandedForms || !expandedForms.has(id) || !variables.length) { nodes.push(formNode); formIds.push(id); return; }
+      const fieldIds = variables.map((v) => {
+        const info = nodeInfo(model, v), fieldId = instanceFieldIdFor(v, id);
+        nodes.push(isFormNode(info)
+          ? { id: fieldId, label: 'Form: ' + info.label, sub: 'display logic', form: formId, event: event.id, field: v, kind: 'form' }
+          : { id: fieldId, label: v, sub: ('label' in info ? info.label : '') || '', form: formId, event: event.id, field: v, kind: (info as Field).synthetic ? 'status' : (info as Field).type === 'calc' ? 'calc' : 'field', focus: v === o.focus });
+        return fieldId;
+      });
+      expandedNodes.push(formNode);
+      fieldClusters.push({ id, label: formNode.label, nodes: fieldIds, parent: event.id });
+    });
+    groups.push({ id: event.id, label: eventNode.label, nodes: formIds }, ...fieldClusters);
+  });
+  return { level: 'event', mixed: true, nodes, edges: vedges, groups, ...(expandedNodes.length ? { expandedNodes } : {}) };
 }
 
 /** An instance of a form: a node id plus the event it is collected in (null when not in a shown event). */
@@ -600,7 +693,7 @@ function instancesView(model: Model, edges: Edge[], o: ViewOptions, formOf: (v: 
         ids.push(id);
         outNodes.push(isFormNode(f)
           ? { id, label: 'Form: ' + f.label, sub: 'display logic', form: n.form, event: n.event, field: v, kind: 'form' }
-          : { id, label: v, sub: ('label' in f ? f.label : '') || '', form: n.form, event: n.event, field: v, kind: (f as Field).synthetic ? 'status' : (f as Field).type === 'calc' ? 'calc' : 'field' });
+          : { id, label: v, sub: ('label' in f ? f.label : '') || '', form: n.form, event: n.event, field: v, kind: (f as Field).synthetic ? 'status' : (f as Field).type === 'calc' ? 'calc' : 'field', focus: v === o.focus });
       });
       expandedNodes.push(n);
       const band = groups.find((g) => g.id === n.band);
@@ -686,7 +779,7 @@ function mixedView(model: Model, edges: Edge[], o: ViewFilter, formNodes: ViewNo
       const f = nodeInfo(model, v);
       nodes.push(isFormNode(f)
         ? { id: v, label: 'Form: ' + f.label, sub: 'display logic', form: n.id, kind: 'form' }
-        : { id: v, label: v, sub: ('label' in f ? f.label : '') || '', form: n.id, kind: (f as Field).synthetic ? 'status' : (f as Field).type === 'calc' ? 'calc' : 'field' });
+        : { id: v, label: v, sub: ('label' in f ? f.label : '') || '', form: n.id, kind: (f as Field).synthetic ? 'status' : (f as Field).type === 'calc' ? 'calc' : 'field', focus: v === o.focus });
     });
     groups.push({ id: n.id, label: n.label, nodes: ids });
   });

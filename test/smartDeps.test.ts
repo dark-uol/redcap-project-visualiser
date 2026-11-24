@@ -32,7 +32,7 @@ const ALL_TYPES: DepType[] = ['branching', 'calc', 'piping', 'actiontag', 'forml
 
 const options = (types: DepType[], over: Partial<ViewOptions> = {}): ViewOptions => ({
   level: 'field', eventSet: null, types: new Set(types), forms: null, formsNone: false, crossOnly: false, instOnly: false,
-  instances: false, expanded: null, explore: null, pair: null, focus: '', focusDir: 'both', focusDepth: 1,
+  instances: false, expanded: null, expandedEvents: null, explore: null, pair: null, focus: '', focusDir: 'both', focusDepth: 1,
   showMissing: false, hideIsolated: true, hideIsolatedNodes: false,
   dir: 'LR', labelMode: 'label', group: false, groupBy: 'none', edgeLabels: false, ...over,
 });

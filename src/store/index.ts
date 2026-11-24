@@ -27,8 +27,8 @@ const app = createRoot(() => {
 export const {
   model, fileBase, dragOver, setDragOver, loadError, focusing, presentation, selection,
   instances, setInstances, filters,
-  expanded, explore, setExplore, downloadMenuOpen, setDownloadMenuOpen, depQ, setDepQ, fieldQ, setFieldQ,
+  expanded, expandedEvents, explore, setExplore, downloadMenuOpen, setDownloadMenuOpen, depQ, setDepQ, fieldQ, setFieldQ,
   svgEl, svgView, busy, renderMsg, forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture,
   opts, view, dotSrc, mermaidSrc, tooBig, instanceMode, exploreVisible, currentExploration, formLabel,
-  expandRef, collapseRef, toggleExpandForm, loadText, loadSample, readFile, downloadMermaid, downloadDot, downloadCsv, downloadSvg, jumpToField, pickNode,
+  expandRef, collapseRef, toggleExpandForm, toggleExpandEvent, loadText, loadSample, readFile, downloadMermaid, downloadDot, downloadCsv, downloadSvg, jumpToField, pickNode,
 } = app;

@@ -55,5 +55,6 @@ function resolveInstanceTarget(context: ExploreContext, id: string): ExploreTarg
 
 /** The explore buttons for a selected id (or instance id) in the current level and mode. */
 export function resolveExploreTarget(context: ExploreContext, id: string): ExploreTarget {
+  if (context.level === 'event') return { kind: 'none' }; // the event graph has no back / forward expansion
   return context.instanceMode ? resolveInstanceTarget(context, id) : resolveFieldTarget(context, id);
 }

@@ -210,6 +210,7 @@ export interface ViewFilter {
   instOnly: boolean;
   instances: boolean;
   expanded: Set<string> | null;
+  expandedEvents: Set<string> | null;
   explore: ExploreFilter | null;
   pair: FormPair | null;
   focus: string;
