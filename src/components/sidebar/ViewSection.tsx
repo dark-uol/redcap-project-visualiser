@@ -2,11 +2,12 @@ import { Show } from 'solid-js';
 import type { Direction, GroupBy, LabelMode, Level, Renderer } from '../../lib/types';
 import { Select, Check } from '../controls';
 import {
-  need, model, level, setLevel, renderer, setRenderer, dir, setDir, labelMode, setLabelMode, groupBy, setGroupBy,
-  instances, setInstances, edgeLabels, setEdgeLabels, filters,
+  need, model, level, setLevel,
+  instances, setInstances, filters, presentation,
 } from '../../store';
 
 const { hideIsoNodes, setHideIsoNodes, hideIso, setHideIso, showMissing, setShowMissing } = filters;
+const { renderer, setRenderer, dir, setDir, labelMode, setLabelMode, groupBy, setGroupBy, edgeLabels, setEdgeLabels } = presentation;
 
 export default function ViewSection() {
   const hasEvents = (): boolean => (need(model()).parsed.events || []).length > 0;

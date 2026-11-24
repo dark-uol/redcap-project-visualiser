@@ -76,16 +76,16 @@ describe('loadText', () => {
     settle(() => {
       store.setTab('matrix');
       store.setLevel('field');
-      store.setFocus('age');
+      store.focusing.setFocus('age');
       store.setSelected('age');
     });
     load(sampleXml, 'sample');
     expect(store.tab()).toBe('graph');
     expect(store.level()).toBe('form');
-    expect(store.focus()).toBe('');
+    expect(store.focusing.focus()).toBe('');
     expect(store.selected()).toBeNull();
     expect(store.selectedEdge()).toBeNull();
-    expect(store.pair()).toBeNull();
+    expect(store.focusing.pair()).toBeNull();
   });
 
   it('clears a previous load error on success', () => {
@@ -105,12 +105,12 @@ describe('loadText', () => {
 
 describe('setFocusDepth', () => {
   it('clamps values through clampDepth', () => {
-    settle(() => store.setFocusDepth(0));
-    expect(store.focusDepth()).toBe(1);
-    settle(() => store.setFocusDepth(99));
-    expect(store.focusDepth()).toBe(50);
-    settle(() => store.setFocusDepth('x'));
-    expect(store.focusDepth()).toBe(1);
+    settle(() => store.focusing.setFocusDepth(0));
+    expect(store.focusing.focusDepth()).toBe(1);
+    settle(() => store.focusing.setFocusDepth(99));
+    expect(store.focusing.focusDepth()).toBe(50);
+    settle(() => store.focusing.setFocusDepth('x'));
+    expect(store.focusing.focusDepth()).toBe(1);
   });
 });
 
@@ -148,10 +148,10 @@ describe('selection', () => {
     settle(() => store.setTab('matrix'));
     settle(() => store.jumpToField('age'));
     expect(store.level()).toBe('field');
-    expect(store.focus()).toBe('age');
+    expect(store.focusing.focus()).toBe('age');
     expect(store.selected()).toBe('age');
     expect(store.tab()).toBe('graph');
-    expect(store.pair()).toBeNull();
+    expect(store.focusing.pair()).toBeNull();
   });
 });
 

@@ -7,7 +7,8 @@ import type { State } from './state';
 import { renderDot, renderMermaid } from '../lib/renderers';
 
 export function setupRendering(state: State, derived: Derived): void {
-  const { setSvgEl, setSvgView, setBusy, setRenderMsg, renderer } = state;
+  const { setSvgEl, setSvgView, setBusy, setRenderMsg } = state;
+  const { renderer } = state.presentation;
   const { graphSrc, tooBig, graphStatus, view } = derived;
 
   // untracked: monotonic id so a stale async render is discarded when a newer one has started

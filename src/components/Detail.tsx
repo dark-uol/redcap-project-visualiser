@@ -9,9 +9,11 @@ import type { ExploreContext } from '../lib/exploreTarget';
 import { groupIdFor, parseSelection } from '../lib/selection';
 import type { DepType, Edge, EventDef, Field, Form, FormNode, FormPair, LogicNode, Model, NeighborDir, View, ViewEdge, ViewNode } from '../lib/types';
 import {
-  need, model, view, opts, level, selected, selectedEdge, setSelectedEdge, setSelected, setLevel, setFocus, setPair, setExplore, expanded,
-  currentExploration, exploreVisible, instanceMode, formLabel, expandRef, collapseRef, toggleExpandForm, jumpToField,
+  need, model, view, opts, level, selected, selectedEdge, setSelectedEdge, setSelected, setLevel, setExplore, expanded,
+  currentExploration, exploreVisible, instanceMode, formLabel, expandRef, collapseRef, toggleExpandForm, jumpToField, focusing,
 } from '../store';
+
+const { setFocus, setPair } = focusing;
 
 const TOKEN_RE = /(\[[A-Za-z][A-Za-z0-9_]*(?:\([^)\]]*\))?(?::[A-Za-z0-9_]+)?\])/;
 

@@ -13,7 +13,9 @@ import {
 } from '../lib/matrix';
 import type { MatrixBand, MatrixGeometry, MxData, MxNode } from '../lib/matrix';
 import type { Form, ViewEdge } from '../lib/types';
-import { need, model, view, groupBy, mxCell, setMxCell, setSelected } from '../store';
+import { need, model, view, presentation, mxCell, setMxCell, setSelected } from '../store';
+
+const { groupBy } = presentation;
 import Detail from './Detail';
 
 /** Cell size from which row and column labels are drawn. */

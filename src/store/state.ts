@@ -46,6 +46,10 @@ export function createState() {
     hideIso, setHideIso, hideIsoNodes, setHideIsoNodes, showMissing, setShowMissing, formQ, setFormQ,
   };
 
+  // Focus and presentation signals, grouped the same way as filters
+  const focusing = { focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth, pair, setPair };
+  const presentation = { dir, setDir, labelMode, setLabelMode, groupBy, setGroupBy, edgeLabels, setEdgeLabels, renderer, setRenderer };
+
   const [tab, setTab] = createSignal<Tab>('graph');
   const [downloadMenuOpen, setDownloadMenuOpen] = createSignal(false);
   const [selected, setSelectedRaw] = createSignal<string | null>(null);
@@ -66,9 +70,8 @@ export function createState() {
 
   return {
     model, setModel, fileBase, setFileBase, dragOver, setDragOver, loadError, setLoadError,
-    level, setLevel, renderer, setRenderer, dir, setDir, labelMode, setLabelMode,
-    groupBy, setGroupBy, edgeLabels, setEdgeLabels, focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth,
-    instances, setInstances, pair, setPair, selectedEdge, setSelectedEdge, filters,
+    level, setLevel, focusing, presentation,
+    instances, setInstances, selectedEdge, setSelectedEdge, filters,
     expanded, setExpanded, explore, setExplore, tab, setTab, downloadMenuOpen, setDownloadMenuOpen, selected, setSelected, setSelectedRaw,
     depQ, setDepQ, fieldQ, setFieldQ, svgEl, setSvgEl, svgView, setSvgView, busy, setBusy, renderMsg, setRenderMsg,
     forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture, nextModelSequence, currentModelSequence,

@@ -52,8 +52,8 @@ beforeEach(() => {
   load(sampleXml, 'sample');
   settle(() => {
     store.setInstances(false);
-    store.setRenderer('graphviz');
-    store.setDir('LR'); // loadText does not reset direction, so an earlier test could leave it changed
+    store.presentation.setRenderer('graphviz');
+    store.presentation.setDir('LR'); // loadText does not reset direction, so an earlier test could leave it changed
     store.filters.setFormsOn({});
     store.setForcedFor('');
     store.setAnchorCapture(null);
@@ -77,7 +77,7 @@ describe('graph rendering', () => {
 
   it('uses renderMermaid when the renderer is switched to mermaid', async () => {
     vi.clearAllMocks();
-    settle(() => store.setRenderer('mermaid'));
+    settle(() => store.presentation.setRenderer('mermaid'));
     await vi.waitFor(() => expect(renderMermaid).toHaveBeenCalled());
     expect(renderDot).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(store.svgEl()?.querySelector('g')?.getAttribute('data-label')).toBe('mermaid'));
@@ -85,7 +85,7 @@ describe('graph rendering', () => {
 
   it('a rejected render sets a message prefixed "Could not render graph:" and clears the SVG', async () => {
     vi.mocked(renderDot).mockRejectedValueOnce(new Error('boom'));
-    settle(() => store.setDir('TD'));
+    settle(() => store.presentation.setDir('TD'));
     await vi.waitFor(() => expect(store.renderMsg()).toMatch(/^Could not render graph:/));
     expect(store.renderMsg()).toContain('boom');
     expect(store.svgEl()).toBeNull();
@@ -104,8 +104,8 @@ describe('graph rendering', () => {
       return renderCount === 1 ? first.promise : Promise.resolve(secondSvg);
     });
 
-    settle(() => store.setDir('TD'));
-    settle(() => store.setDir('LR'));
+    settle(() => store.presentation.setDir('TD'));
+    settle(() => store.presentation.setDir('LR'));
     await vi.waitFor(() => expect(store.svgEl()).toBe(secondSvg));
 
     first.resolve(firstSvg);

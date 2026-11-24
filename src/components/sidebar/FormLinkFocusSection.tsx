@@ -1,4 +1,6 @@
-import { need, pair, setPair, formLabel } from '../../store';
+import { need, focusing, formLabel } from '../../store';
+
+const { pair, setPair } = focusing;
 
 export default function FormLinkFocusSection() {
   const onClearPair = function onClearPair(): void {

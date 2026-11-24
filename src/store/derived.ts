@@ -9,9 +9,10 @@ import type { Explore, ExploreFilter, View, ViewFilter, ViewOptions, ViewPresent
 
 export function createDerived(state: State) {
   const {
-    model, level, instances, expanded, pair, focus, focusDir, focusDepth,
-    explore, dir, labelMode, groupBy, edgeLabels, renderer, forcedFor,
+    model, level, instances, expanded, explore, forcedFor,
   } = state;
+  const { focus, focusDir, focusDepth, pair } = state.focusing;
+  const { dir, labelMode, groupBy, edgeLabels, renderer } = state.presentation;
   const { formsOn, eventsOn, typesOn, crossOnly, instanceOnly, hideIso, hideIsoNodes, showMissing } = state.filters;
 
   const formIds = createMemo<string[]>(() => {
@@ -58,7 +59,7 @@ export function createDerived(state: State) {
       focusDepth: focusDepth(),
     };
   });
-  const presentation = createMemo<ViewPresentation | null>(() => {
+  const presentationOptions = createMemo<ViewPresentation | null>(() => {
     if (!model()) return null;
     return {
       dir: dir(),
@@ -69,7 +70,7 @@ export function createDerived(state: State) {
     };
   });
   const opts = createMemo<ViewOptions | null>(() => {
-    const f = filter(), p = presentation();
+    const f = filter(), p = presentationOptions();
     return f && p ? { ...f, ...p } : null;
   });
   const view = createMemo<View | null>(() => {
@@ -111,7 +112,7 @@ export function createDerived(state: State) {
   };
 
   return {
-    formIds, instanceMode, exploreVisible, currentExploration, filter, presentation, opts, view,
+    formIds, instanceMode, exploreVisible, currentExploration, filter, presentationOptions, opts, view,
     mermaidSrc, dotSrc, graphSrc, graphStatus, tooBig, formLabel,
   };
 }

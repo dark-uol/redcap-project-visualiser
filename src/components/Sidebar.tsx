@@ -1,5 +1,5 @@
 import { Show } from 'solid-js';
-import { need, model, currentExploration, pair } from '../store';
+import { need, model, currentExploration, focusing } from '../store';
 import ViewSection from './sidebar/ViewSection';
 import DependencyTypesSection from './sidebar/DependencyTypesSection';
 import ExploringSection from './sidebar/ExploringSection';
@@ -7,6 +7,8 @@ import FormLinkFocusSection from './sidebar/FormLinkFocusSection';
 import FocusSection from './sidebar/FocusSection';
 import EventsSection from './sidebar/EventsSection';
 import FormsSection from './sidebar/FormsSection';
+
+const { pair } = focusing;
 
 export default function Sidebar() {
   return (
