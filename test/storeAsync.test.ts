@@ -1,4 +1,4 @@
-/* Characterization tests for the async and side-effecting parts of src/store.ts: graph rendering, status messages,
+/* Characterization tests for the async and side-effecting parts of src/store/: graph rendering, status messages,
    sample and file loading, SVG download, browser history, anchor capture and selection reset.
    Complements test/store.test.ts. The store is a module singleton, so every test starts from a freshly loaded sample. */
 import sampleRaw from '../public/sample/sample.xml?raw';

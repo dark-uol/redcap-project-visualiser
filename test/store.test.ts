@@ -1,4 +1,4 @@
-/* Characterization tests for src/store.ts: pin current behaviour before the store is refactored.
+/* Characterization tests for src/store/: pin current behaviour before the store is refactored.
    The store is a module singleton, so each test starts from a freshly loaded sample (loadText resets navigation). */
 import sampleRaw from '../public/sample/sample.xml?raw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
