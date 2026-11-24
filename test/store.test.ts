@@ -1,0 +1,312 @@
+/* Characterization tests for src/store.ts: pin current behaviour before the store is refactored.
+   The store is a module singleton, so each test starts from a freshly loaded sample (loadText resets navigation). */
+import sampleRaw from '../public/sample/sample.xml?raw';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { flush } from 'solid-js';
+import { download } from '../src/lib/download';
+import * as store from '../src/store';
+import type { FormPair } from '../src/lib/types';
+
+vi.mock('../src/lib/download', () => ({ download: vi.fn() }));
+
+const sampleXml: string = sampleRaw;
+
+/** Loads text as the app does and settles Solid's batched updates. */
+const load = (text: string, name?: string): void => {
+  store.loadText(text, name);
+  flush();
+};
+
+/** Shorthand for a write followed by a flush, so reads see the new value. */
+const settle = (write: () => void): void => {
+  write();
+  flush();
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  load(sampleXml, 'sample');
+  settle(() => store.setInstances(false));
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('clampDepth', () => {
+  it('clamps to 1..50 and rounds', () => {
+    expect(store.clampDepth(0)).toBe(1);
+    expect(store.clampDepth(99)).toBe(50);
+    expect(store.clampDepth(3.6)).toBe(4);
+    expect(store.clampDepth(7)).toBe(7);
+  });
+
+  it('falls back to 1 for non-numeric input', () => {
+    expect(store.clampDepth('x')).toBe(1);
+    expect(store.clampDepth(undefined)).toBe(1);
+    expect(store.clampDepth(NaN)).toBe(1);
+  });
+});
+
+describe('need', () => {
+  it('returns the value when present, including falsy non-nullish values', () => {
+    expect(store.need(5)).toBe(5);
+    expect(store.need(0)).toBe(0);
+    expect(store.need('')).toBe('');
+  });
+
+  it('throws when null or undefined', () => {
+    expect(() => store.need(null)).toThrow('No project loaded');
+    expect(() => store.need(undefined)).toThrow('No project loaded');
+  });
+});
+
+describe('loadText', () => {
+  it('sets the model and derives fileBase from the name', () => {
+    expect(store.model()).not.toBeNull();
+    expect(store.fileBase()).toBe('sample');
+  });
+
+  it('strips .xml case-insensitively and replaces unsafe characters in fileBase', () => {
+    load(sampleXml, 'my study (v2).XML');
+    expect(store.fileBase()).toBe('my_study_v2_');
+  });
+
+  it('resets navigation to the default state', () => {
+    settle(() => {
+      store.setTab('matrix');
+      store.setLevel('field');
+      store.setFocus('age');
+      store.setSelected('age');
+    });
+    load(sampleXml, 'sample');
+    expect(store.tab()).toBe('graph');
+    expect(store.level()).toBe('form');
+    expect(store.focus()).toBe('');
+    expect(store.selected()).toBeNull();
+    expect(store.selEdge()).toBeNull();
+    expect(store.pair()).toBeNull();
+  });
+
+  it('clears a previous load error on success', () => {
+    load('<not xml', 'bad');
+    expect(store.loadError()).not.toBe('');
+    load(sampleXml, 'sample');
+    expect(store.loadError()).toBe('');
+  });
+
+  it('on invalid XML sets loadError and leaves the previous model', () => {
+    const before = store.model();
+    load('<not xml', 'bad');
+    expect(store.loadError()).not.toBe('');
+    expect(store.model()).toBe(before);
+  });
+});
+
+describe('setFocusDepth', () => {
+  it('clamps values through clampDepth', () => {
+    settle(() => store.setFocusDepth(0));
+    expect(store.focusDepth()).toBe(1);
+    settle(() => store.setFocusDepth(99));
+    expect(store.focusDepth()).toBe(50);
+    settle(() => store.setFocusDepth('x'));
+    expect(store.focusDepth()).toBe(1);
+  });
+});
+
+describe('selection', () => {
+  const edge: FormPair = { from: 'a', to: 'b' } as FormPair;
+
+  it('setSelected(non-null) clears selEdge', () => {
+    settle(() => store.setSelEdge(edge));
+    settle(() => store.setSelected('demographics'));
+    expect(store.selEdge()).toBeNull();
+    expect(store.selected()).toBe('demographics');
+  });
+
+  it('setSelected(null) does not clear selEdge', () => {
+    settle(() => store.setSelEdge(edge));
+    settle(() => store.setSelected(null));
+    expect(store.selEdge()).toBe(edge);
+  });
+
+  it('setSelectedRaw leaves selEdge alone', () => {
+    settle(() => store.setSelEdge(edge));
+    settle(() => store.setSelectedRaw('demographics'));
+    expect(store.selEdge()).toBe(edge);
+    expect(store.selected()).toBe('demographics');
+  });
+
+  it('pickNode selects the node and clears selEdge', () => {
+    settle(() => store.setSelEdge(edge));
+    settle(() => store.pickNode('baseline'));
+    expect(store.selEdge()).toBeNull();
+    expect(store.selected()).toBe('baseline');
+  });
+
+  it('jumpToField moves to field level on the graph tab with the field selected', () => {
+    settle(() => store.setTab('matrix'));
+    settle(() => store.jumpToField('age'));
+    expect(store.level()).toBe('field');
+    expect(store.focus()).toBe('age');
+    expect(store.selected()).toBe('age');
+    expect(store.tab()).toBe('graph');
+    expect(store.pair()).toBeNull();
+  });
+});
+
+describe('derived view state', () => {
+  it('view, opts, dotSrc and mermaidSrc are non-null after load', () => {
+    expect(store.view()).not.toBeNull();
+    expect(store.opts()).not.toBeNull();
+    expect(store.dotSrc()).toEqual(expect.stringContaining('digraph'));
+    expect(store.mermaidSrc()).not.toBe('');
+  });
+
+  it('view and opts are null before any load; the DOT and Mermaid sources are empty strings', async () => {
+    vi.resetModules();
+    const fresh = await import('../src/store');
+    expect(fresh.model()).toBeNull();
+    expect(fresh.view()).toBeNull();
+    expect(fresh.opts()).toBeNull();
+    expect(fresh.dotSrc()).toBe('');
+    expect(fresh.mermaidSrc()).toBe('');
+  });
+
+  it('starts at form level with a non-empty form view', () => {
+    const view = store.view();
+    expect(view?.level).toBe('form');
+    expect(view?.nodes.length).toBeGreaterThan(0);
+  });
+
+  it('turning off all dependency types changes the view', () => {
+    const before = store.view();
+    settle(() => store.setTypesOn({ branching: false, calc: false, piping: false, action: false, form: false } as never));
+    expect(store.view()).not.toBe(before);
+    expect(store.view()?.edges.length ?? 0).toBeLessThanOrEqual(before?.edges.length ?? 0);
+  });
+
+  it('switching to field level changes the view level', () => {
+    settle(() => store.setLevel('field'));
+    expect(store.view()?.level).toBe('field');
+  });
+
+  it('hiding a form removes it from the form view', () => {
+    const formId = store.view()!.nodes[0]!.id;
+    settle(() => store.setFormsOn({ [formId]: false }));
+    expect(store.view()?.nodes.some((n) => n.id === formId)).toBe(false);
+  });
+
+  it('formLabel returns the form label, or the id for unknown forms', () => {
+    expect(store.formLabel('demographics')).toBe('Demographics');
+    expect(store.formLabel('nope')).toBe('nope');
+  });
+});
+
+describe('instMode', () => {
+  it('is false by default', () => {
+    expect(store.instMode()).toBe(false);
+  });
+
+  it('is true only with instances on, form level and events present', () => {
+    settle(() => store.setInstances(true));
+    expect(store.instMode()).toBe(true);
+    settle(() => store.setLevel('field'));
+    expect(store.instMode()).toBe(false);
+    settle(() => store.setLevel('form'));
+    settle(() => store.setInstances(false));
+    expect(store.instMode()).toBe(false);
+  });
+
+  it('is false with instances on when the project has no events', () => {
+    const noEvents = sampleXml.replace(/<StudyEventDef[\s\S]*?<\/StudyEventDef>/g, '');
+    load(noEvents, 'noev');
+    settle(() => store.setInstances(true));
+    expect(store.instMode()).toBe(false);
+  });
+});
+
+describe('expansion of back / forward references', () => {
+  it('expandRef adds an explore entry seeded with the node', () => {
+    const node = store.view()!.nodes[0]!.id;
+    settle(() => store.expandRef(node, 'up'));
+    const ex = store.curEx();
+    expect(ex).not.toBeNull();
+    expect(ex!.seeds).toContain(node);
+    expect(ex!.exp).toHaveLength(1);
+    expect(ex!.exp[0]!.node).toBe(node);
+    expect(store.exVisible(ex!).has(node)).toBe(true);
+  });
+
+  it('collapseRef removes that expansion step', () => {
+    const node = store.view()!.nodes[0]!.id;
+    settle(() => store.expandRef(node, 'up'));
+    settle(() => store.collapseRef(node, 'up'));
+    expect(store.curEx()?.exp ?? []).toHaveLength(0);
+  });
+
+  it('collapseRef does nothing when nothing is being explored', () => {
+    store.collapseRef('demographics', 'up');
+    flush();
+    expect(store.explore()).toBeNull();
+  });
+
+  it('changing level clears the explore state', () => {
+    settle(() => store.expandRef(store.view()!.nodes[0]!.id, 'down'));
+    expect(store.explore()).not.toBeNull();
+    settle(() => store.setLevel('field'));
+    expect(store.explore()).toBeNull();
+  });
+});
+
+describe('toggleExpandForm', () => {
+  it('toggles a form id in and out of the expanded set', () => {
+    expect(store.expanded().has('demographics')).toBe(false);
+    settle(() => store.toggleExpandForm('demographics'));
+    expect(store.expanded().has('demographics')).toBe(true);
+    settle(() => store.toggleExpandForm('demographics'));
+    expect(store.expanded().has('demographics')).toBe(false);
+  });
+});
+
+describe('downloads', () => {
+  it('dlCsv downloads dependencies as CSV named after the file', () => {
+    store.dlCsv();
+    expect(download).toHaveBeenCalledTimes(1);
+    const [name, body, mime] = vi.mocked(download).mock.calls[0]!;
+    expect(name).toBe('sample_dependencies.csv');
+    expect(typeof body).toBe('string');
+    expect(mime).toBe('text/csv;charset=utf-8');
+  });
+
+  it('dlDot downloads the DOT source with a level suffix', () => {
+    store.dlDot();
+    expect(download).toHaveBeenCalledWith('sample_forms.dot', store.dotSrc());
+  });
+
+  it('dlMermaid downloads the Mermaid source with a level suffix', () => {
+    store.dlMermaid();
+    expect(download).toHaveBeenCalledWith('sample_forms.mmd', store.mermaidSrc());
+  });
+});
+
+describe('browser history', () => {
+  it('replaces (does not push) the first state after a load', async () => {
+    vi.resetModules();
+    const fresh = await import('../src/store');
+    const push = vi.spyOn(history, 'pushState');
+    const replace = vi.spyOn(history, 'replaceState');
+    fresh.loadText(sampleXml, 'sample');
+    flush();
+    expect(replace).toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it('pushes a state when navigation changes after load', () => {
+    const push = vi.spyOn(history, 'pushState');
+    settle(() => store.setTab('matrix'));
+    expect(push).toHaveBeenCalled();
+    const [state] = push.mock.calls.at(-1)!;
+    expect(state).toEqual(expect.objectContaining({ tab: 'matrix' }));
+  });
+});
