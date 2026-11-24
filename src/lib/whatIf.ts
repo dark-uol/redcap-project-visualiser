@@ -2,7 +2,7 @@
 
 import { evaluateCondition } from './logic';
 import type { LogicFieldRef, LogicLookup } from './logic';
-import type { Field, ModelBase } from './types';
+import type { EventDef, Field, ModelBase } from './types';
 
 export type Visibility = 'shown' | 'hidden' | 'unknown';
 /** A plain value, or (for a checkbox field) the list of checked option codes. */
@@ -214,6 +214,24 @@ function fieldOutcome(model: ModelBase, field: Field, context: WhatIfContext, ev
   };
 }
 
+/**
+ * Smart variables (`[user-role-label]`, `[record-dag-name]`, …) are set like fields, in the ANY_EVENT bucket (or an event's), under
+ * their bracketed name. Brackets and hyphens keep the key apart from every REDCap variable name.
+ */
+export const smartKey = (name: string): string => '[' + name + ']';
+export const isSmartKey = (variable: string): boolean => variable.startsWith('[');
+
+/** Smart variables that follow from the event the record is viewed in; undefined for any other name. */
+function eventSmartValue(event: EventDef, name: string): string | undefined {
+  switch (name) {
+    case 'event-name': return event.id;
+    case 'event-label': return event.label;
+    case 'arm-number': return event.arm;
+    case 'arm-label': return event.armName;
+    default: return undefined;
+  }
+}
+
 /** The event a reference reads from: its own prefix, else the event the record is viewed in (null when neither). */
 const targetEvent = (ref: LogicFieldRef, context: WhatIfContext): string | null => ref.event || context.event;
 
@@ -238,8 +256,17 @@ function makeEvaluate(model: ModelBase, context: WhatIfContext, blankFields: Rea
     }
     return Array.isArray(value) ? value.join(',') : value;
   };
+  const viewedEvent = (model.parsed.events || []).find((candidate) => candidate.id === context.event);
   const lookupSmart = function lookupSmart(name: string): string | undefined {
-    return name === 'event-name' ? context.event ?? undefined : undefined;
+    // the event the record is viewed in answers its own smart variables; anything else is a value the user sets
+    if (name === 'event-name' && context.event !== null) return context.event;
+    if (viewedEvent) {
+      const derived = eventSmartValue(viewedEvent, name);
+      if (derived !== undefined) return derived;
+    }
+    const key = smartKey(name);
+    const value = (context.event !== null ? context.values[context.event]?.[key] : undefined) ?? context.values[ANY_EVENT]?.[key];
+    return Array.isArray(value) ? value.join(',') : value;
   };
   return function evaluate(text: string): TrackedResult {
     const recorded: MissingInput[] = [];
@@ -249,7 +276,11 @@ function makeEvaluate(model: ModelBase, context: WhatIfContext, blankFields: Rea
         if (value === undefined) recorded.push({ variable: ref.name, event: targetEvent(ref, context) });
         return value;
       },
-      smart: lookupSmart,
+      smart: function trackedSmart(name: string): string | undefined {
+        const value = lookupSmart(name);
+        if (value === undefined) recorded.push({ variable: smartKey(name), event: null });
+        return value;
+      },
     };
     const result = evaluateCondition(text, tracking).result;
     return { result, missing: result === undefined ? uniqueInputs(recorded) : [] };
@@ -305,6 +336,39 @@ export function dependentsOf(model: ModelBase, variable: string): string[] {
     .filter((edge) => edge.from === variable && (edge.type === 'branching' || edge.type === 'actiontag' || edge.type === 'formlogic'))
     .map((edge) => edge.to);
   return unique(targets);
+}
+
+const VISIBILITY_EDGES = new Set(['branching', 'actiontag', 'formlogic']);
+
+/** The variables that directly decide whether a field or form node (`form:<id>`) is shown: its branching logic and action tags, and for a field the display logic of its form. */
+function directControllersOf(model: ModelBase, nodeId: string): string[] {
+  const formId = model.byVar.get(nodeId)?.form;
+  const targets = new Set([nodeId, ...(formId === undefined ? [] : ['form:' + formId])]);
+  return unique(model.edges.filter((edge) => targets.has(edge.to) && VISIBILITY_EDGES.has(edge.type)).map((edge) => edge.from));
+}
+
+/** One variable upstream of a field: how many steps away it is (1 = named in the field's own logic or its form's display logic). */
+export interface Controller { variable: string; depth: number }
+
+/**
+ * Working backwards: every variable that can decide whether `nodeId` is shown, nearest first. A controller counts as blank when it
+ * is itself hidden, so the variables deciding its visibility are followed too (breadth first, each listed once at its smallest depth).
+ * Calculations are not followed: a calculated controller is set directly. The node itself is never listed, even in a cycle.
+ */
+export function controllersOf(model: ModelBase, nodeId: string): Controller[] {
+  const found = new Map<string, number>([[nodeId, 0]]);
+  let frontier = [nodeId];
+  for (let depth = 1; frontier.length; depth++) {
+    const next: string[] = [];
+    frontier.forEach((current) => directControllersOf(model, current).forEach((variable) => {
+      if (found.has(variable)) return;
+      found.set(variable, depth);
+      next.push(variable);
+    }));
+    frontier = next;
+  }
+  found.delete(nodeId);
+  return [...found].map(([variable, depth]) => ({ variable, depth }));
 }
 
 /** The events whose forms include the field's form, in project order (empty for a non-longitudinal project). */

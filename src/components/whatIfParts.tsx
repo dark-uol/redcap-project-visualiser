@@ -66,6 +66,16 @@ export function WhatIfBadge(props: { variable: string }) {
   );
 }
 
+/** A text input for a smart variable's value (`variable` is its bracketed key, e.g. `[user-role-label]`); an empty value removes it. */
+export function SmartValueInput(props: { variable: string; event: string | null; compact?: boolean }) {
+  const currentText = (): string => { const value = bucketFor(props.event)[props.variable]; return Array.isArray(value) ? value.join(',') : value ?? ''; };
+  const onTextChange = function onTextChange(event: Event & { currentTarget: HTMLInputElement }): void {
+    const trimmed = event.currentTarget.value.trim();
+    whatIf.setValueIn(props.event, props.variable, trimmed === '' ? null : trimmed);
+  };
+  return <input type="text" class={props.compact ? 'wi-compact' : ''} value={currentText()} onChange={onTextChange} placeholder="value" />;
+}
+
 /** The input for a field's value in one event's bucket (null = the project has no events), matched to the field's type. `compact` is for tables. */
 export function ValueInput(props: { field: Field; event: string | null; compact?: boolean }) {
   const variable = (): string => props.field.variable;

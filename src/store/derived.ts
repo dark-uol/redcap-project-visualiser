@@ -115,10 +115,13 @@ export function createDerived(state: State) {
     model(); state.whatIf.values(); state.whatIf.mode();
     return new Map();
   });
-  /** Visibility as seen in `event` (null = no event), evaluated on first use. Null when nothing is set, so normal use costs nothing. */
-  const visibilityIn = (event: string | null): Map<string, VisibilityInfo> | null => {
+  /**
+   * Visibility as seen in `event` (null = no event), evaluated on first use. Null when nothing is set, so normal use costs nothing,
+   * unless `evenWithoutValues`: the What if tab evaluates from nothing to list what a field needs (working backwards).
+   */
+  const visibilityIn = (event: string | null, evenWithoutValues = false): Map<string, VisibilityInfo> | null => {
     const loadedModel = model();
-    if (!loadedModel || state.whatIf.valueCount() === 0) return null;
+    if (!loadedModel || (state.whatIf.valueCount() === 0 && !evenWithoutValues)) return null;
     const cache = visibilityCache();
     const key = event ?? '';
     let result = cache.get(key);

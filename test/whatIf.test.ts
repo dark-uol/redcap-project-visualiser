@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildModel } from '../src/lib/graph';
 import type { Field, Form, FormLogicRule, ParsedODM } from '../src/lib/types';
-import { ANY_EVENT, dependentsOf, evaluateVisibility, eventForField, eventsForField, eventsToEvaluate, parseActionTags, splitTopLevel } from '../src/lib/whatIf';
+import { ANY_EVENT, controllersOf, dependentsOf, smartKey, evaluateVisibility, eventForField, eventsForField, eventsToEvaluate, parseActionTags, splitTopLevel } from '../src/lib/whatIf';
 import type { WhatIfContext, WhatIfValue } from '../src/lib/whatIf';
 
 const field = (variable: string, form: string, over: Partial<Field> = {}): Field => ({
@@ -333,6 +333,52 @@ describe('dependentsOf', () => {
     const model = buildModel(parsedWith(fields, rules, ['f1', 'f2']));
     expect(dependentsOf(model, 'a')).toEqual(['b', 'c', 'form:f2']);
     expect(dependentsOf(model, 'zzz')).toEqual([]);
+  });
+});
+
+describe('smart variables', () => {
+  const fields = [field('role_q', 'f1', { branching: "[user-role-label] = 'Nurse'" }), field('visit_q', 'f1', { branching: "[event-name] = 'baseline'" })];
+  const parsed = {
+    ...parsedWith(fields),
+    events: [
+      { id: 'baseline', label: 'Baseline', arm: '1', armName: 'Arm 1', repeating: false, forms: ['f1'] },
+      { id: 'week_4', label: 'Week 4', arm: '1', armName: 'Arm 1', repeating: false, forms: ['f1'] },
+    ],
+  };
+  const model = buildModel(parsed);
+
+  it('asks for a smart variable it cannot derive, and uses the value once set', () => {
+    const unset = evaluateVisibility(model, { values: { baseline: { other: '1' } }, mode: 'form', event: 'baseline' }).get('role_q');
+    expect(unset?.state).toBe('unknown');
+    expect(unset?.missing).toEqual([{ variable: smartKey('user-role-label'), event: null }]);
+    const values = { [ANY_EVENT]: { [smartKey('user-role-label')]: 'Nurse' } };
+    expect(evaluateVisibility(model, { values, mode: 'form', event: 'baseline' }).get('role_q')?.state).toBe('shown');
+  });
+
+  it('derives event smart variables from the event the record is viewed in', () => {
+    const values = { [ANY_EVENT]: { [smartKey('user-role-label')]: 'Nurse' } };
+    expect(evaluateVisibility(model, { values, mode: 'form', event: 'baseline' }).get('visit_q')?.state).toBe('shown');
+    expect(evaluateVisibility(model, { values, mode: 'form', event: 'week_4' }).get('visit_q')?.state).toBe('hidden');
+  });
+});
+
+describe('controllersOf', () => {
+  it('works backwards through branching, action tags and form display logic, nearest first', () => {
+    const fields = [
+      field('consent', 'f1'),
+      field('smoker', 'f1', { branching: '[consent] = 1' }),
+      field('packs', 'f2', { branching: '[smoker] = 1', annotation: '@IF([age] > 18, @HIDDEN, @READONLY)' }),
+      field('age', 'f1', { calc: '[dob] + 1' }),
+      field('dob', 'f1'),
+      field('loop', 'f1', { branching: '[packs] = 1' }),
+    ];
+    const rules: FormLogicRule[] = [{ logic: '[consent] = 1', forms: ['f2'] }];
+    const model = buildModel(parsedWith(fields, rules, ['f1', 'f2']));
+    expect(controllersOf(model, 'packs').map((controller) => controller.variable).sort()).toEqual(['age', 'consent', 'smoker']);
+    expect(controllersOf(model, 'packs').every((controller) => controller.depth === 1)).toBe(true);
+    expect(controllersOf(model, 'loop')).toEqual(expect.arrayContaining([{ variable: 'packs', depth: 1 }, { variable: 'smoker', depth: 2 }, { variable: 'consent', depth: 2 }]));
+    expect(controllersOf(model, 'loop')).toHaveLength(4);
+    expect(controllersOf(model, 'dob')).toEqual([]);
   });
 });
 
