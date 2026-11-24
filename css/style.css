@@ -104,3 +104,14 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 .seg{display:inline-flex;gap:0}.exhead{display:block;width:100%;margin:2px 0 4px}.exhead b{margin-right:4px}.seg .btn{border-radius:0;margin-left:-1px}.seg .btn:first-child{border-radius:4px 0 0 4px}.seg .btn:last-child{border-radius:0 4px 4px 0}.exrow .chk{margin-left:4px}
 .hint-toggle{background:none;border:0;padding:0 4px;color:var(--muted);cursor:pointer;font-size:13px;line-height:1}.hint-toggle:hover{color:inherit}.hint-text{display:block;margin:2px 0 8px}
 .navstate{list-style:none;margin:0 0 8px;padding:0}.navstate li{display:flex;justify-content:space-between;gap:8px;align-items:baseline;font-size:12px;padding:3px 0;border-bottom:1px dotted var(--line)}
+.whatif select,.whatif input[type=text]{font:inherit;font-size:12px;max-width:100%}
+.wi-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}
+.wi-checks{display:flex;flex-direction:column;gap:2px}
+.wi-group{margin:6px 0 2px}
+.wi-event{margin-top:6px}
+.wi-event-title{font-weight:600;margin-top:8px}
+.wi-state{border:1px solid var(--line);border-radius:10px;padding:0 6px}
+.wi-state.shown,.chip.wi-chip.shown{background:rgba(22,163,74,.15);border-color:#16a34a;color:#15803d}
+.wi-state.hidden,.chip.wi-chip.hidden{color:var(--muted);text-decoration:line-through}
+.wi-state.unknown,.chip.wi-chip.unknown{background:transparent;border-color:#d97706;color:#b45309}
+@media (prefers-color-scheme:dark){.wi-state.shown,.chip.wi-chip.shown{color:#4ade80}.wi-state.unknown,.chip.wi-chip.unknown{color:#fbbf24}}

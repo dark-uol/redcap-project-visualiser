@@ -25,7 +25,7 @@ const app = createRoot(() => {
 });
 
 export const {
-  model, fileBase, dragOver, setDragOver, loadError, focusing, presentation, selection,
+  model, fileBase, dragOver, setDragOver, loadError, focusing, presentation, selection, whatIf, visibility, visibilityIn,
   instances, setInstances, filters,
   expanded, expandedEvents, explore, setExplore, downloadMenuOpen, setDownloadMenuOpen, depQ, setDepQ, fieldQ, setFieldQ,
   svgEl, svgView, busy, renderMsg, forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture,

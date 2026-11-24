@@ -2,6 +2,8 @@
 import { createSignal } from 'solid-js';
 import { allTypesOn, clampDepth, DEFAULT_DIRECTION, DEFAULT_RENDERER } from './common';
 import type { AnchorCapture, Tab } from './common';
+import { ANY_EVENT } from '../lib/whatIf';
+import type { WhatIfValue } from '../lib/whatIf';
 import type {
   DepType, Direction, Explore, FocusDir, FormPair, GroupBy, LabelMode, Level, Model, Renderer, View,
 } from '../lib/types';
@@ -57,6 +59,30 @@ export function createState() {
   const focusing = { focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth, pair, setPair };
   const presentation = { dir, setDir, labelMode, setLabelMode, groupBy, setGroupBy, edgeLabels, setEdgeLabels, renderer, setRenderer };
 
+  // What-if values: picked field values, and the context they are evaluated in
+  const [whatIfValues, setWhatIfValues] = createSignal<Record<string, Record<string, WhatIfValue>>>({});
+  const [whatIfMode, setWhatIfMode] = createSignal<'survey' | 'form'>('form');
+  const [whatIfEvent, setWhatIfEvent] = createSignal<string | null>(null);
+  // Writes into the bucket of the selected event (ANY_EVENT when none), dropping buckets that become empty
+  const setWhatIfValue = function setWhatIfValue(variable: string, value: WhatIfValue | null): void {
+    const key = whatIfEvent() ?? ANY_EVENT;
+    const next = { ...whatIfValues() };
+    const bucket = { ...next[key] };
+    if (value === null || value === '' || (Array.isArray(value) && !value.length)) delete bucket[variable];
+    else bucket[variable] = value;
+    if (Object.keys(bucket).length) next[key] = bucket;
+    else delete next[key];
+    setWhatIfValues(next);
+  };
+  const clearWhatIfValues = function clearWhatIfValues(): void { setWhatIfValues({}); };
+  const whatIfValueCount = function whatIfValueCount(): number {
+    return Object.values(whatIfValues()).reduce((total, bucket) => total + Object.keys(bucket).length, 0);
+  };
+  const whatIf = {
+    values: whatIfValues, valueCount: whatIfValueCount, setValue: setWhatIfValue, clearValues: clearWhatIfValues,
+    mode: whatIfMode, setMode: setWhatIfMode, event: whatIfEvent, setEvent: setWhatIfEvent,
+  };
+
   const [tab, setTab] = createSignal<Tab>('graph');
   const [downloadMenuOpen, setDownloadMenuOpen] = createSignal(false);
   // setSelectedKeepingEdge sets the selection without clearing selectedEdge; setSelected also clears selectedEdge.
@@ -81,7 +107,7 @@ export function createState() {
 
   return {
     model, setModel, fileBase, setFileBase, dragOver, setDragOver, loadError, setLoadError,
-    focusing, presentation, selection,
+    focusing, presentation, selection, whatIf,
     instances, setInstances: animated(setInstances), rawSetInstances: setInstances, filters, rawFilters,
     expanded, setExpanded, expandedEvents, setExpandedEvents, explore, setExplore, downloadMenuOpen, setDownloadMenuOpen,
     depQ, setDepQ, fieldQ, setFieldQ, svgEl, setSvgEl, svgView, setSvgView, busy, setBusy, renderMsg, setRenderMsg,

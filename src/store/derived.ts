@@ -5,6 +5,8 @@ import type { State } from './state';
 import { buildView } from '../lib/graph';
 import { toMermaid, toDot } from '../lib/exporters';
 import { activeEventIds, enabledFormIds } from '../lib/filterSelection';
+import { evaluateVisibility } from '../lib/whatIf';
+import type { VisibilityInfo } from '../lib/whatIf';
 import type { Explore, ExploreFilter, View, ViewFilter, ViewOptions, ViewPresentation } from '../lib/types';
 
 export function createDerived(state: State) {
@@ -108,6 +110,25 @@ export function createDerived(state: State) {
     return '';
   });
   const tooBig = createMemo<boolean>(() => !!view() && (view()?.edges.length ?? 0) > MAX_AUTO_EDGES && forcedFor() !== dotSrc());
+  // Results per event for the current model, values and mode; a fresh cache whenever any of them changes
+  const visibilityCache = createMemo<Map<string, Map<string, VisibilityInfo>>>(() => {
+    model(); state.whatIf.values(); state.whatIf.mode();
+    return new Map();
+  });
+  /** Visibility as seen in `event` (null = no event), evaluated on first use. Null when nothing is set, so normal use costs nothing. */
+  const visibilityIn = (event: string | null): Map<string, VisibilityInfo> | null => {
+    const loadedModel = model();
+    if (!loadedModel || state.whatIf.valueCount() === 0) return null;
+    const cache = visibilityCache();
+    const key = event ?? '';
+    let result = cache.get(key);
+    if (!result) {
+      result = evaluateVisibility(loadedModel, { values: state.whatIf.values(), mode: state.whatIf.mode(), event });
+      cache.set(key, result);
+    }
+    return result;
+  };
+  const visibility = createMemo<Map<string, VisibilityInfo> | null>(() => visibilityIn(state.whatIf.event()));
   const formLabel = (id: string): string => {
     const f = model()?.formsById.get(id);
     return f ? f.label : id;
@@ -115,7 +136,7 @@ export function createDerived(state: State) {
 
   return {
     formIds, instanceMode, exploreVisible, currentExploration, filter, presentationOptions, opts, view,
-    mermaidSrc, dotSrc, graphSrc, graphStatus, tooBig, formLabel,
+    mermaidSrc, dotSrc, graphSrc, graphStatus, tooBig, formLabel, visibility, visibilityIn,
   };
 }
 
