@@ -3,7 +3,7 @@ import { extractRefs, extractSmart } from './parser';
 import { groupFormIdOf, instanceFieldIdFor, instanceIdFor } from './selection';
 import type {
   Analysis, DepType, Edge, EventDef, Field, Form, FormNode, GhostNode, LogicNode, Model, ModelBase,
-  NeighborDir, NodeInfo, ParsedODM, TypeMeta, View, ViewEdge, ViewFilter, ViewGroup, ViewNode, ViewOptions,
+  NeighborDir, NodeInfo, ParsedODM, RefToken, TypeMeta, View, ViewEdge, ViewFilter, ViewGroup, ViewNode, ViewOptions,
 } from './types';
 
 export type { Model } from './types';
@@ -18,6 +18,8 @@ export const TYPES: Record<DepType, TypeMeta> = {
 };
 
 const LOGIC_TYPES = new Set<DepType>(['branching', 'calc', 'actiontag']); // used for cycle detection
+/** Smart variables that depend on the current event / instance context rather than on another field. */
+const CONTEXT_SMART = /^(event-name|event-label|event-number|arm-name|arm-number|current-instance|first-instance|last-instance|previous-instance|next-instance|previous-event-name|next-event-name|first-event-name|last-event-name)$/;
 const UNKNOWN_FORM = '(unknown)';
 const LOGIC_FORM = '(logic sources)';
 
@@ -44,6 +46,18 @@ function finishAcc(m: EdgeAcc): void {
   (Object.keys(m.typeDeps) as DepType[]).forEach((t) => { m.byType[t] = m.typeDeps[t]?.size ?? 0; });
 }
 
+/**
+ * Attach the event prefix and smart variables of the reference at `toks[index]` to its edge. An event applies only to
+ * the token it directly prefixes (`[evt][var]`), so only the token just before `index` is checked, and only if adjacent.
+ */
+function annotateRefEdge(edge: Edge | undefined, toks: RefToken[], index: number, eventIds: Set<string>, smart: string[]): void {
+  if (!edge) return;
+  const prev = toks[index - 1];
+  const evs = prev && prev.adjNext && eventIds.has(prev.name) ? [prev.name] : [];
+  if (evs.length) edge.events = [...new Set([...(edge.events || []), ...evs])];
+  if (smart.length) edge.smart = [...new Set([...(edge.smart || []), ...smart])];
+}
+
 export function buildModel(parsed: ParsedODM): Model {
   const byVar = new Map<string, Field>();
   parsed.fields.forEach((f) => byVar.set(f.variable, f));
@@ -53,6 +67,7 @@ export function buildModel(parsed: ParsedODM): Model {
   const edgeByKey = new Map<string, Edge>();
   const selfRefs: ModelBase['selfRefs'] = [];
   const eventIds = new Set((parsed.events || []).map((e) => e.id));
+  const smartDeps: ModelBase['smartDeps'] = new Map();
 
   // <form>_complete status pseudo-fields are valid references but not ItemDefs
   parsed.forms.forEach((fm) => {
@@ -93,19 +108,19 @@ export function buildModel(parsed: ParsedODM): Model {
       if (!text) return;
       const crossRef = /\]\s*\[/.test(text) && type !== 'piping';
       const smart = extractSmart(text);
+      const contextSmart = smart.filter((name) => CONTEXT_SMART.test(name));
+      if (contextSmart.length) {
+        const list = smartDeps.get(f.variable) ?? [];
+        list.push({ type, smart: contextSmart });
+        smartDeps.set(f.variable, list);
+      }
       const toks = extractRefs(text);
       toks.forEach((r, i) => {
-        // the event applies only to the token it directly prefixes
-        const prev = toks[i - 1];
-        const evs = prev && prev.adjNext && eventIds.has(prev.name) ? [prev.name] : [];
         // [event][var]: an unknown name directly followed by another token is an event prefix
         if (r.adjNext && !byVar.has(r.name)) return;
         const e = add(r.name, f.variable, type, text.trim(), false);
         if (e && crossRef) e.cross = true;
-        if (e) {
-          if (evs.length) e.events = [...new Set([...(e.events || []), ...evs])];
-          if (smart.length) e.smart = [...new Set([...(e.smart || []), ...smart])];
-        }
+        annotateRefEdge(e, toks, i, eventIds, smart);
       });
     });
   });
@@ -124,9 +139,12 @@ export function buildModel(parsed: ParsedODM): Model {
       fn.logic.push(rule.logic);
       // REDCap unique event names this rule applies the form in (empty = all events)
       fn.logicEvents.push((rule.formEvents || []).filter((x) => x.form === fid).map((x) => x.event));
-      extractRefs(rule.logic).forEach((r) => {
+      const toks = extractRefs(rule.logic);
+      const smart = extractSmart(rule.logic);
+      toks.forEach((r, i) => {
         if (r.adjNext && !byVar.has(r.name)) return;
         const e = add(r.name, node, 'formlogic', rule.logic.trim(), false);
+        annotateRefEdge(e, toks, i, eventIds, smart);
         if (e) { // the rule applies only to the listed events' instances of this form (none listed = every event)
           const evs = (rule.formEvents || []).filter((x) => x.form === fid).map((x) => x.event);
           if (!evs.length) e.tgtAllEvents = true;
@@ -140,14 +158,20 @@ export function buildModel(parsed: ParsedODM): Model {
   const logicNodes = new Map<string, LogicNode>();
   (parsed.logicSources || []).forEach((src) => {
     const node = 'logic:' + src.id;
-    const refs = src.refs.filter((n) => byVar.has(n));
-    if (!refs.length) return;
+    const toks = extractRefs(src.logic);
+    if (!toks.some((r) => byVar.has(r.name))) return;
+    const smart = extractSmart(src.logic);
     logicNodes.set(node, { variable: node, type: 'logicnode', label: src.label, form: LOGIC_FORM, logicNode: true, kind: src.kind, logic: src.logic });
-    refs.forEach((n) => add(n, node, 'logicsrc', src.logic.trim(), false));
+    toks.forEach((r, i) => {
+      // event prefixes are unknown names, so they are skipped here as in the field loop
+      if (r.adjNext && !byVar.has(r.name)) return;
+      if (!byVar.has(r.name)) return; // logic sources feed only from known fields, never ghosts
+      annotateRefEdge(add(r.name, node, 'logicsrc', src.logic.trim(), false), toks, i, eventIds, smart);
+    });
   });
 
   const formsById = new Map<string, Form>(parsed.forms.map((x) => [x.id, x]));
-  const base: ModelBase = { parsed, byVar, ghosts, formNodes, logicNodes, edges, selfRefs, formsById };
+  const base: ModelBase = { parsed, byVar, ghosts, formNodes, logicNodes, edges, selfRefs, formsById, smartDeps };
   return { ...base, analysis: analyse(base) };
 }
 
@@ -303,7 +327,7 @@ export function buildView(model: Model, o: ViewOptions): View {
   let names = model.parsed.fields.map((f) => f.variable).filter((v) => ex || pair || !o.forms || !o.forms.size || o.forms.has(formOf(v)));
   if (ex) names = names.filter((v) => ex.has(v));
   else if (focusSet) names = names.filter((v) => (focusSet as Set<string>).has(v));
-  else if (o.hideIsolated || pair) names = names.filter((v) => used.has(v));
+  else if (o.hideIsolated || pair) names = names.filter((v) => used.has(v) || (!pair && smartTokensFor(model, v, o.types).length > 0));
   used.forEach((v) => {
     if ((o.showMissing && model.ghosts.has(v)) || model.formNodes.has(v) || model.logicNodes.has(v) || model.byVar.get(v)?.synthetic) {
       if (!names.includes(v)) names.push(v);
@@ -314,13 +338,15 @@ export function buildView(model: Model, o: ViewOptions): View {
     if (isFormNode(f)) return { id: v, label: 'Form: ' + f.label, sub: 'display logic', form: f.form, kind: 'form', focus: false };
     if (isLogicNode(f)) return { id: v, label: f.label, sub: f.kind, form: f.form, kind: 'logic', focus: false };
     const fld = f as Field | GhostNode;
+    const smart = smartTokensFor(model, v, o.types);
     return {
       id: v,
       label: v,
-      sub: ('label' in fld ? fld.label : '') || '',
+      sub: withSmart(('label' in fld ? fld.label : '') || '', smart),
       form: fld.form,
       kind: isGhost(fld) ? 'missing' : fld.synthetic ? 'status' : fld.type === 'calc' ? 'calc' : 'field',
       focus: v === o.focus,
+      ...(smart.length ? { smart } : {}),
     };
   });
   const groups: ViewGroup[] = [];
@@ -350,6 +376,22 @@ export function buildView(model: Model, o: ViewOptions): View {
     });
   }
   return { level: 'field', nodes, edges: vedges, groups };
+}
+
+/** The context smart variables a field's logic uses, restricted to the enabled dependency types (first-seen order, no duplicates). */
+function smartTokensFor(model: ModelBase, field: string, types: Set<DepType>): string[] {
+  const out: string[] = [];
+  (model.smartDeps.get(field) ?? []).forEach((dep) => {
+    if (types.has(dep.type)) dep.smart.forEach((name) => { if (!out.includes(name)) out.push(name); });
+  });
+  return out;
+}
+
+/** Node detail text with the smart variables appended, e.g. `Label · [event-name]`. */
+function withSmart(sub: string, smart: string[]): string {
+  if (!smart.length) return sub;
+  const tokens = '[' + smart.join(', ') + ']';
+  return sub ? sub + ' · ' + tokens : tokens;
 }
 
 export const isFormNode = (n: NodeInfo): n is FormNode => 'formNode' in n;

@@ -189,6 +189,8 @@ export interface ModelBase {
   edges: Edge[];
   selfRefs: SelfRef[];
   formsById: Map<string, Form>;
+  /** Per field: the event/context smart variables its logic sources use (no `[field]` edge is drawn for these). */
+  smartDeps: Map<string, { type: DepType; smart: string[] }[]>;
 }
 
 export interface Model extends ModelBase {
@@ -266,6 +268,8 @@ export interface ViewNode {
   extra?: string[];
   event?: string | null;
   field?: string;
+  /** Event/context smart variables (e.g. `event-name`) used by the node's logic, for enabled types only. */
+  smart?: string[];
   /** Temporary: the band (group id) an instance node belongs to while the view is built. */
   band?: string;
 }
