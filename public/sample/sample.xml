@@ -13,11 +13,12 @@
 		<StudyEventRef StudyEventOID="Event.enrol_arm_2" OrderNumber="3" Mandatory="No"/>
 		<StudyEventRef StudyEventOID="Event.followup_arm_2" OrderNumber="4" Mandatory="No"/>
 	</Protocol>
-	<StudyEventDef OID="Event.baseline_arm_1" Name="Baseline" Type="Common" Repeating="No" redcap:EventName="Baseline" redcap:UniqueEventName="baseline_arm_1" redcap:ArmNum="1" redcap:ArmName="Mother" redcap:DayOffset="0">
+	<StudyEventDef OID="Event.baseline_arm_1" Name="Baseline" Type="Common" Repeating="No" redcap:EventName="Baseline" redcap:UniqueEventName="baseline_arm_1" redcap:ArmNum="1" redcap:ArmName="Mother" redcap:DayOffset="0" redcap:CustomEventLabel="Baseline of [first_name]" redcap:OffsetMin="0" redcap:OffsetMax="3">
 		<FormRef FormOID="Form.demographics" OrderNumber="1" Mandatory="No" redcap:FormName="demographics"/>
 		<FormRef FormOID="Form.baseline" OrderNumber="2" Mandatory="No" redcap:FormName="baseline"/>
+		<FormRef FormOID="Form.screening" OrderNumber="3" Mandatory="No" redcap:FormName="screening"/>
 	</StudyEventDef>
-	<StudyEventDef OID="Event.followup_arm_1" Name="Follow-up" Type="Common" Repeating="Yes" redcap:EventName="Follow-up" redcap:UniqueEventName="followup_arm_1" redcap:ArmNum="1" redcap:ArmName="Mother" redcap:DayOffset="30">
+	<StudyEventDef OID="Event.followup_arm_1" Name="Follow-up" Type="Common" Repeating="Yes" redcap:EventName="Follow-up" redcap:UniqueEventName="followup_arm_1" redcap:ArmNum="1" redcap:ArmName="Mother" redcap:DayOffset="30" redcap:OffsetMin="7" redcap:OffsetMax="7">
 		<FormRef FormOID="Form.followup" OrderNumber="1" Mandatory="No" redcap:FormName="followup"/>
 	</StudyEventDef>
 	<StudyEventDef OID="Event.enrol_arm_2" Name="Enrolment" Type="Common" Repeating="No" redcap:EventName="Enrolment" redcap:UniqueEventName="enrol_arm_2" redcap:ArmNum="2" redcap:ArmName="Partner" redcap:DayOffset="0">
@@ -35,6 +36,11 @@
 	</FormDef>
 	<FormDef OID="Form.followup" Name="Follow-up" Repeating="No" redcap:FormName="followup">
 		<ItemGroupRef ItemGroupOID="followup.fu_date" Mandatory="No"/>
+	</FormDef>
+	<FormDef OID="Form.screening" Name="Screening" Repeating="No" redcap:FormName="screening">
+		<ItemGroupRef ItemGroupOID="screening.sc_intro" Mandatory="No"/>
+		<ItemGroupRef ItemGroupOID="screening.sc_int" Mandatory="No"/>
+		<ItemGroupRef ItemGroupOID="screening.sc_pain" Mandatory="No"/>
 	</FormDef>
 	<ItemGroupDef OID="demographics.record_id" Name="Demographics" Repeating="No">
 		<ItemRef ItemOID="record_id" Mandatory="No" redcap:Variable="record_id"/>
@@ -70,6 +76,42 @@
 		<ItemRef ItemOID="fu_details" Mandatory="No" redcap:Variable="fu_details"/>
 		<ItemRef ItemOID="fu_trend" Mandatory="No" redcap:Variable="fu_trend"/>
 		<ItemRef ItemOID="partner_note" Mandatory="No" redcap:Variable="partner_note"/>
+	</ItemGroupDef>
+
+	<ItemGroupDef OID="screening.sc_intro" Name="Screening" Repeating="No">
+		<ItemRef ItemOID="sc_intro" Mandatory="No" redcap:Variable="sc_intro"/>
+		<ItemRef ItemOID="sc_date" Mandatory="No" redcap:Variable="sc_date"/>
+		<ItemRef ItemOID="sc_dts" Mandatory="No" redcap:Variable="sc_dts"/>
+		<ItemRef ItemOID="sc_dmy" Mandatory="No" redcap:Variable="sc_dmy"/>
+		<ItemRef ItemOID="sc_time" Mandatory="No" redcap:Variable="sc_time"/>
+		<ItemRef ItemOID="sc_email" Mandatory="No" redcap:Variable="sc_email"/>
+		<ItemRef ItemOID="sc_sig" Mandatory="No" redcap:Variable="sc_sig"/>
+		<ItemRef ItemOID="sc_upload" Mandatory="No" redcap:Variable="sc_upload"/>
+	</ItemGroupDef>
+	<ItemGroupDef OID="screening.sc_int" Name="Screening numbers" Repeating="No">
+		<ItemRef ItemOID="sc_int" Mandatory="No" redcap:Variable="sc_int"/>
+		<ItemRef ItemOID="sc_float" Mandatory="No" redcap:Variable="sc_float"/>
+		<ItemRef ItemOID="sc_num" Mandatory="No" redcap:Variable="sc_num"/>
+		<ItemRef ItemOID="sc_num1" Mandatory="No" redcap:Variable="sc_num1"/>
+		<ItemRef ItemOID="sc_num2" Mandatory="No" redcap:Variable="sc_num2"/>
+		<ItemRef ItemOID="sc_score" Mandatory="No" redcap:Variable="sc_score"/>
+		<ItemRef ItemOID="sc_total" Mandatory="No" redcap:Variable="sc_total"/>
+		<ItemRef ItemOID="sc_mean" Mandatory="No" redcap:Variable="sc_mean"/>
+		<ItemRef ItemOID="sc_code" Mandatory="No" redcap:Variable="sc_code"/>
+		<ItemRef ItemOID="sc_flag" Mandatory="No" redcap:Variable="sc_flag"/>
+		<ItemRef ItemOID="sc_cur" Mandatory="No" redcap:Variable="sc_cur"/>
+	</ItemGroupDef>
+	<ItemGroupDef OID="screening.sc_pain" Name="Screening matrix and tags" Repeating="No">
+		<ItemRef ItemOID="sc_pain" Mandatory="No" redcap:Variable="sc_pain"/>
+		<ItemRef ItemOID="sc_sleep" Mandatory="No" redcap:Variable="sc_sleep"/>
+		<ItemRef ItemOID="sc_flags" Mandatory="No" redcap:Variable="sc_flags"/>
+		<ItemRef ItemOID="sc_agree" Mandatory="No" redcap:Variable="sc_agree"/>
+		<ItemRef ItemOID="sc_comments" Mandatory="No" redcap:Variable="sc_comments"/>
+		<ItemRef ItemOID="sc_hidden" Mandatory="No" redcap:Variable="sc_hidden"/>
+		<ItemRef ItemOID="sc_setval" Mandatory="No" redcap:Variable="sc_setval"/>
+		<ItemRef ItemOID="sc_img" Mandatory="No" redcap:Variable="sc_img"/>
+		<ItemRef ItemOID="sc_table" Mandatory="No" redcap:Variable="sc_table"/>
+		<ItemRef ItemOID="sc_ghost" Mandatory="No" redcap:Variable="sc_ghost"/>
 	</ItemGroupDef>
 
 	<ItemDef OID="record_id" Name="record_id" DataType="text" Length="999" redcap:Variable="record_id" redcap:FieldType="text">
@@ -158,14 +200,126 @@
 		<Question><TranslatedText>Partner note (cross-arm reference)</TranslatedText></Question>
 	</ItemDef>
 
+	<ItemDef OID="sc_intro" Name="sc_intro" DataType="text" Length="999" redcap:Variable="sc_intro" redcap:FieldType="descriptive" redcap:BranchingLogic="[demographics_complete] = '2'" redcap:SectionHeader="Screening for [first_name] (born [dob])">
+		<Question><TranslatedText>Hello [user-fullname] ([user-role-label]). Record [record-name], event [event-label]. Sex code [sex:value], photo [sc_sig:inline]. Queue: [survey-queue-url]</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_date" Name="sc_date" DataType="datetime" Length="999" redcap:Variable="sc_date" redcap:FieldType="text" redcap:TextValidationType="datetime_dmy" redcap:FieldAnnotation="@TODAY-SERVER" redcap:RequiredField="y" redcap:Identifier="y">
+		<Question><TranslatedText>Screening date and time</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_dts" Name="sc_dts" DataType="partialDatetime" Length="999" redcap:Variable="sc_dts" redcap:FieldType="text" redcap:TextValidationType="datetime_seconds_dmy">
+		<Question><TranslatedText>Timestamp with seconds</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_dmy" Name="sc_dmy" DataType="date" Length="999" redcap:Variable="sc_dmy" redcap:FieldType="text" redcap:TextValidationType="date_dmy" redcap:FieldAnnotation="@CALCDATE([dob], 18, 'y')">
+		<Question><TranslatedText>Eighteenth birthday</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_time" Name="sc_time" DataType="partialTime" Length="999" redcap:Variable="sc_time" redcap:FieldType="text" redcap:TextValidationType="time">
+		<Question><TranslatedText>Time of day</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_email" Name="sc_email" DataType="text" Length="999" redcap:Variable="sc_email" redcap:FieldType="text" redcap:TextValidationType="email" redcap:FieldAnnotation="@PLACEHOLDER='name@example.org' @CHARLIMIT=80" redcap:FieldNote="Contact for [first_name]" redcap:RequiredField="y" redcap:Identifier="y">
+		<Question><TranslatedText>Contact email</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_sig" Name="sc_sig" DataType="text" Length="999" redcap:Variable="sc_sig" redcap:FieldType="file" redcap:TextValidationType="signature" redcap:FieldAnnotation="@HIDEBUTTON">
+		<Question><TranslatedText>Signature</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_upload" Name="sc_upload" DataType="text" Length="999" redcap:Variable="sc_upload" redcap:FieldType="file" redcap:FieldAnnotation="@HIDE-BUTTON">
+		<Question><TranslatedText>Supporting document</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_int" Name="sc_int" DataType="integer" Length="999" redcap:Variable="sc_int" redcap:FieldType="text" redcap:TextValidationType="int">
+		<Question><TranslatedText>Whole number</TranslatedText></Question>
+		<RangeCheck Comparator="GE" SoftHard="Soft"><CheckValue>0</CheckValue><ErrorMessage><TranslatedText>Should be 0 or more</TranslatedText></ErrorMessage></RangeCheck>
+	</ItemDef>
+	<ItemDef OID="sc_float" Name="sc_float" DataType="float" Length="999" redcap:Variable="sc_float" redcap:FieldType="text" redcap:TextValidationType="float">
+		<Question><TranslatedText>Decimal number</TranslatedText></Question>
+		<RangeCheck Comparator="LE" SoftHard="Hard"><CheckValue>300</CheckValue><ErrorMessage><TranslatedText>Must be 300 or less</TranslatedText></ErrorMessage></RangeCheck>
+	</ItemDef>
+	<ItemDef OID="sc_num" Name="sc_num" DataType="float" Length="999" redcap:Variable="sc_num" redcap:FieldType="text" redcap:TextValidationType="number">
+		<Question><TranslatedText>Number</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_num1" Name="sc_num1" DataType="float" Length="999" redcap:Variable="sc_num1" redcap:FieldType="text" redcap:TextValidationType="number_1dp" redcap:SignificantDigits="1">
+		<Question><TranslatedText>Number (1dp)</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_num2" Name="sc_num2" DataType="float" Length="999" redcap:Variable="sc_num2" redcap:FieldType="text" redcap:TextValidationType="number_2dp">
+		<Question><TranslatedText>Number (2dp)</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_score" Name="sc_score" DataType="integer" Length="999" redcap:Variable="sc_score" redcap:FieldType="slider" redcap:BranchingLogic="[sex] &lt;&gt; '1'&#10;and [sc_int] != ''&#10;and [age] &gt;= 18" redcap:SliderLabels="Low|Medium|High">
+		<Question><TranslatedText>Score</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_total" Name="sc_total" DataType="float" Length="999" redcap:Variable="sc_total" redcap:FieldType="calc" redcap:Calculation="sum([sc_int], [sc_float], abs([weight_change]))">
+		<Question><TranslatedText>Total</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_mean" Name="sc_mean" DataType="float" Length="999" redcap:Variable="sc_mean" redcap:FieldType="calc" redcap:Calculation="mean([sc_int], [sc_num], max([sc_num1], [sc_num2]))">
+		<Question><TranslatedText>Mean</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_code" Name="sc_code" DataType="text" Length="999" redcap:Variable="sc_code" redcap:FieldType="calc" redcap:Calculation="concat(left([first_name], 1), mid([first_name], 2, 3), right([record_id], 2), trim([sc_email]))">
+		<Question><TranslatedText>Code</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_flag" Name="sc_flag" DataType="integer" Length="999" redcap:Variable="sc_flag" redcap:FieldType="calc" redcap:Calculation="if(contains([sc_comments], 'x') or length([sc_email]) &gt; 5, roundup([sc_float]), 0)">
+		<Question><TranslatedText>Flag</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_cur" Name="sc_cur" DataType="float" Length="999" redcap:Variable="sc_cur" redcap:FieldType="calc" redcap:Calculation="[fu_weight][current-instance] - [sc_float] + [ghost_calc]">
+		<Question><TranslatedText>Current instance minus decimal (repeating)</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_pain" Name="sc_pain" DataType="text" Length="999" redcap:Variable="sc_pain" redcap:FieldType="select" redcap:FieldAnnotation="@HIDECHOICE='3'" redcap:SectionHeader="Pain for [first_name]" redcap:CustomAlignment="RH" redcap:MatrixGroupName="pain_grid">
+		<Question><TranslatedText>Pain</TranslatedText></Question>
+		<CodeListRef CodeListOID="pain.choices"/>
+	</ItemDef>
+	<ItemDef OID="sc_sleep" Name="sc_sleep" DataType="text" Length="999" redcap:Variable="sc_sleep" redcap:FieldType="radio" redcap:FieldAnnotation="@IF([sex] = '2', @READONLY, @HIDDEN)" redcap:CustomAlignment="RH" redcap:MatrixGroupName="pain_grid">
+		<Question><TranslatedText>Sleep</TranslatedText></Question>
+		<CodeListRef CodeListOID="pain.choices"/>
+	</ItemDef>
+	<ItemDef OID="sc_flags" Name="sc_flags" DataType="text" Length="999" redcap:Variable="sc_flags" redcap:FieldType="checkbox" redcap:FieldAnnotation="@NONEOFTHEABOVE='99' @NONEOFTHE='99' @NOMISSING">
+		<Question><TranslatedText>Flags</TranslatedText></Question>
+		<CodeListRef CodeListOID="flags.choices"/>
+	</ItemDef>
+	<ItemDef OID="sc_agree" Name="sc_agree" DataType="text" Length="999" redcap:Variable="sc_agree" redcap:FieldType="radio" redcap:BranchingLogic="[symptoms(99)] = '1' or [sc_flags(2)] = '1'" redcap:CustomAlignment="LH" redcap:StopActions="2">
+		<Question><TranslatedText>Agree to continue?</TranslatedText></Question>
+		<CodeListRef CodeListOID="agree.choices"/>
+	</ItemDef>
+	<ItemDef OID="sc_comments" Name="sc_comments" DataType="text" Length="999" redcap:Variable="sc_comments" redcap:FieldType="textarea" redcap:FieldAnnotation="@READONLY">
+		<Question><TranslatedText>Comments</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_hidden" Name="sc_hidden" DataType="text" Length="999" redcap:Variable="sc_hidden" redcap:FieldType="text" redcap:FieldAnnotation="@HIDDEN @HIDDEN-FORM @HIDDEN-SURVEY @HIDDEN-PDF @HIDDEN_SURVEY">
+		<Question><TranslatedText>Hidden everywhere</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_setval" Name="sc_setval" DataType="text" Length="999" redcap:Variable="sc_setval" redcap:FieldType="text" redcap:FieldAnnotation="@SETVALUE='[bmi_cat]'">
+		<Question><TranslatedText>Set from another field</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_img" Name="sc_img" DataType="text" Length="999" redcap:Variable="sc_img" redcap:FieldType="descriptive" redcap:FieldAnnotation="@INLINE='sc_sig'">
+		<Question><TranslatedText>Inline image</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_table" Name="sc_table" DataType="text" Length="999" redcap:Variable="sc_table" redcap:FieldType="descriptive" redcap:FieldAnnotation="@INSTANCETABLE='followup' @INSTANCETABLE-PAGESIZE=5 @INSTANCETABLE-SORTCOL=1 @INSTANCETABLE_HIDEFORMSTATUS @INSTANCETABLE_HIDECHOICEVALUES @INSTANCETABLE_VARLIST='fu_date,fu_weight'">
+		<Question><TranslatedText>First [fu_weight][first-instance], last [fu_weight][last-instance]</TranslatedText></Question>
+	</ItemDef>
+	<ItemDef OID="sc_ghost" Name="sc_ghost" DataType="text" Length="999" redcap:Variable="sc_ghost" redcap:FieldType="text" redcap:BranchingLogic="[nonexistent_gate] = '1'" redcap:FieldAnnotation="@DEFAULT='[missing_default]'" redcap:SectionHeader="Header with [missing_header]">
+		<Question><TranslatedText>Piped [missing_pipe]</TranslatedText></Question>
+	</ItemDef>
+
 	<CodeList OID="sex.choices" Name="sex" DataType="text">
 		<CodeListItem CodedValue="1"><Decode><TranslatedText>Male</TranslatedText></Decode></CodeListItem>
 		<CodeListItem CodedValue="2"><Decode><TranslatedText>Female</TranslatedText></Decode></CodeListItem>
 	</CodeList>
-	<CodeList OID="symptoms.choices" Name="symptoms" DataType="text">
+	<CodeList OID="symptoms.choices" Name="symptoms" DataType="text" redcap:Variable="symptoms" redcap:CheckboxChoices="1, Cough | 99, Other">
 		<CodeListItem CodedValue="1"><Decode><TranslatedText>Cough</TranslatedText></Decode></CodeListItem>
 		<CodeListItem CodedValue="99"><Decode><TranslatedText>Other</TranslatedText></Decode></CodeListItem>
 	</CodeList>
+	<CodeList OID="pain.choices" Name="pain" DataType="text">
+		<CodeListItem CodedValue="1"><Decode><TranslatedText>None</TranslatedText></Decode></CodeListItem>
+		<CodeListItem CodedValue="2"><Decode><TranslatedText>Some</TranslatedText></Decode></CodeListItem>
+		<CodeListItem CodedValue="3"><Decode><TranslatedText>Severe</TranslatedText></Decode></CodeListItem>
+	</CodeList>
+	<CodeList OID="flags.choices" Name="flags" DataType="text" redcap:Variable="sc_flags" redcap:CheckboxChoices="1, Red | 2, Amber | 99, None of the above">
+		<CodeListItem CodedValue="1"><Decode><TranslatedText>Red</TranslatedText></Decode></CodeListItem>
+		<CodeListItem CodedValue="2"><Decode><TranslatedText>Amber</TranslatedText></Decode></CodeListItem>
+		<CodeListItem CodedValue="99"><Decode><TranslatedText>None of the above</TranslatedText></Decode></CodeListItem>
+	</CodeList>
+	<CodeList OID="agree.choices" Name="agree" DataType="text">
+		<CodeListItem CodedValue="1"><Decode><TranslatedText>Yes</TranslatedText></Decode></CodeListItem>
+		<CodeListItem CodedValue="2"><Decode><TranslatedText>No</TranslatedText></Decode></CodeListItem>
+	</CodeList>
+	<redcap:FormDisplayLogicConditionsGroup>
+		<redcap:FormDisplayLogicConditions redcap:apply_to_data_entry="1" redcap:apply_to_survey="0" redcap:apply_to_mycap="0" redcap:control_condition="[consent] = '1'" redcap:forms_events="baseline_arm_1:screening,followup_arm_1:followup"/>
+		<redcap:FormDisplayLogicConditions redcap:apply_to_data_entry="1" redcap:apply_to_survey="1" redcap:apply_to_mycap="0" redcap:control_condition="[demographics_complete] = '2' and [undefined_gate] = '1'" redcap:forms_events="baseline_arm_1:baseline"/>
+	</redcap:FormDisplayLogicConditionsGroup>
 </MetaDataVersion>
 </Study>
 </ODM>
