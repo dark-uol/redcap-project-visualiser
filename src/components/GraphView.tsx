@@ -3,10 +3,20 @@ import { Show, createEffect, onSettled } from 'solid-js';
 import type { View, ViewNode } from '../lib/types';
 import {
   model, view, tab, selected, setSelected, setSelectedRaw, setSelEdge, svgEl, svgView, busy, renderMsg, tooBig,
-  setForcedFor, dotSrc, viewAnchor, type Anchor,
+  setForcedFor, dotSrc, setAnchorCapture,
 } from '../store';
 import Detail from './Detail';
 import Legend from './Legend';
+
+/** Where the graph was when a node was acted on, so re-rendering can keep that node in place. */
+interface Anchor {
+  t: string;
+  k: number;
+  time: number;
+  zoom: boolean;
+  sx?: number;
+  sy?: number;
+}
 
 type Pan = { x: number; y: number; k: number };
 
@@ -36,6 +46,8 @@ export default function GraphView() {
   let canvas!: HTMLDivElement;
   let pz: Pan = { x: 0, y: 0, k: 1 };
   // latest committed svg / view / selection, mirrored by the effects below so helpers and listeners need no signal reads
+  const pendingAnchor = { value: null as Anchor | null };
+  const zoomBack = new Map<string, number>();
   let curSvg: SVGSVGElement | null = null;
   let curView: View | null = null;
   let curSel: string | null = null;
@@ -81,25 +93,25 @@ export default function GraphView() {
     }
     return [...s.querySelectorAll('g.node')].find((n) => nodeKey(n) === 'n' + ni) || null;
   };
-  viewAnchor.capture = (t, opt = {}) => {
-    if (!curSvg) { viewAnchor.pending = null; return; }
+  setAnchorCapture((t, opt = {}) => {
+    if (!curSvg) { pendingAnchor.value = null; return; }
     const el = elFor(t), sr = stage.getBoundingClientRect();
     const a: Anchor = { t, k: pz.k, time: Date.now(), zoom: !!opt.zoom };
-    if (opt.zoom) viewAnchor.zoomBack.set(t, pz.k);
-    if (opt.back && viewAnchor.zoomBack.has(t)) {
-      a.k = viewAnchor.zoomBack.get(t) as number;
-      viewAnchor.zoomBack.delete(t);
+    if (opt.zoom) zoomBack.set(t, pz.k);
+    if (opt.back && zoomBack.has(t)) {
+      a.k = zoomBack.get(t) as number;
+      zoomBack.delete(t);
     }
     if (el) {
       const r = el.getBoundingClientRect();
       a.sx = r.left + r.width / 2 - sr.left;
       a.sy = r.top + r.height / 2 - sr.top;
     }
-    viewAnchor.pending = a;
-  };
+    pendingAnchor.value = a;
+  });
   const restoreOrFit = (): void => {
-    const a = viewAnchor.pending;
-    viewAnchor.pending = null;
+    const a = pendingAnchor.value;
+    pendingAnchor.value = null;
     if (!a || Date.now() - a.time > 15000) { fit(); return; }
     pz = { k: a.k, x: 0, y: 0 };
     apply();

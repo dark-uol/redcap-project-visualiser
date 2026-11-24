@@ -17,22 +17,6 @@ export const clampDepth = (v: unknown): number => Math.min(50, Math.max(1, Math.
 
 export type Tab = 'graph' | 'matrix' | 'analysis' | 'deps' | 'fields';
 
-/** Where the graph was when a node was acted on, so re-rendering can keep that node in place. */
-export interface Anchor {
-  t: string;
-  k: number;
-  time: number;
-  zoom: boolean;
-  sx?: number;
-  sy?: number;
-}
-
-export interface ViewAnchor {
-  capture: ((t: string, opt?: { zoom?: boolean; back?: boolean }) => void) | null;
-  pending: Anchor | null;
-  zoomBack: Map<string, number>;
-}
-
 /** Browser history entry: tab, level, focus and selection. */
 interface HistState {
   m: number;
@@ -102,7 +86,9 @@ const app = createRoot(() => {
   const [mxCell, setMxCell] = createSignal(0); // matrix cell size, 0 = automatic
 
   // keeps zoom + the position of the node you acted on across expand/collapse re-renders
-  const viewAnchor: ViewAnchor = { capture: null, pending: null, zoomBack: new Map() };
+  let anchorCapture: ((t: string, opt?: { zoom?: boolean; back?: boolean }) => void) | null = null;
+  const captureAnchor = (t: string, opt?: { zoom?: boolean; back?: boolean }): void => { anchorCapture?.(t, opt); };
+  const setAnchorCapture = (fn: typeof anchorCapture): void => { anchorCapture = fn; };
 
   // ================= derived =================
   const formIds = createMemo<string[]>(() => {
@@ -205,7 +191,7 @@ const app = createRoot(() => {
 
   // ================= interactive expansion of back / forward references =================
   function expandRef(t: string, d: NeighborDir): void {
-    viewAnchor.capture?.(t);
+    captureAnchor(t);
     const ex = curEx() || { level: level(), seeds: [], exp: [] };
     const nb = neighbors(need(model()), need(opts()), t, d);
     const seeds = exVisible(ex).has(t) ? ex.seeds : [...ex.seeds, t];
@@ -216,7 +202,7 @@ const app = createRoot(() => {
   function collapseRef(t: string, d: NeighborDir): void {
     const ex = curEx();
     if (!ex) return;
-    viewAnchor.capture?.(t);
+    captureAnchor(t);
     let exp = ex.exp.filter((x) => !(x.node === t && x.dir === d));
     for (;;) { // drop expansions whose own node is no longer visible
       const vis = exVisible({ seeds: ex.seeds, exp });
@@ -239,7 +225,7 @@ const app = createRoot(() => {
   );
   function toggleExpandForm(F: string): void {
     const on = expanded().has(F);
-    viewAnchor.capture?.(F, on ? { back: true } : { zoom: true });
+    captureAnchor(F, on ? { back: true } : { zoom: true });
     const next = new Set(expanded());
     if (on) next.delete(F);
     else next.add(F);
@@ -359,7 +345,7 @@ const app = createRoot(() => {
     typesOn, setTypesOn, formsOn, setFormsOn, focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth, eventsOn, setEventsOn,
     instOnly, setInstOnly, instances, setInstances, crossOnly, setCrossOnly, formQ, setFormQ, pair, setPair, selEdge, setSelEdge,
     expanded, explore, setExplore, tab, setTab, dlOpen, setDlOpen, selected, setSelected, setSelectedRaw, depQ, setDepQ, fieldQ, setFieldQ,
-    svgEl, svgView, busy, renderMsg, forcedFor, setForcedFor, mxCell, setMxCell, viewAnchor,
+    svgEl, svgView, busy, renderMsg, forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture,
     filter, presentation, opts, view, dotSrc, mermaidSrc, tooBig, instMode, exVisible, curEx, formLabel,
     expandRef, collapseRef, toggleExpandForm, loadText, loadSample, readFile, dlMermaid, dlDot, dlCsv, dlSvg, jumpToField, pickNode,
   };
@@ -371,7 +357,7 @@ export const {
   typesOn, setTypesOn, formsOn, setFormsOn, focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth, eventsOn, setEventsOn,
   instOnly, setInstOnly, instances, setInstances, crossOnly, setCrossOnly, formQ, setFormQ, pair, setPair, selEdge, setSelEdge,
   expanded, explore, setExplore, tab, setTab, dlOpen, setDlOpen, selected, setSelected, setSelectedRaw, depQ, setDepQ, fieldQ, setFieldQ,
-  svgEl, svgView, busy, renderMsg, forcedFor, setForcedFor, mxCell, setMxCell, viewAnchor,
+  svgEl, svgView, busy, renderMsg, forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture,
   filter, presentation, opts, view, dotSrc, mermaidSrc, tooBig, instMode, exVisible, curEx, formLabel,
   expandRef, collapseRef, toggleExpandForm, loadText, loadSample, readFile, dlMermaid, dlDot, dlCsv, dlSvg, jumpToField, pickNode,
 } = app;
