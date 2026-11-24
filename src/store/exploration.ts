@@ -10,12 +10,14 @@ import type { NeighborDir } from '../lib/types';
 export function createExplorationActions(state: State, derived: Derived) {
   const { model, expanded, setExpanded, setExplore, captureAnchor } = state;
   const { level, selected, setSelectedKeepingEdge } = state.selection;
-  const { setPair, setFocus } = state.focusing;
-  const { filter, instanceMode, currentExploration, exploreVisible } = derived;
+  const { focus, setPair, setFocus } = state.focusing;
+  const { filter, instanceMode, currentExploration, exploreVisible, view } = derived;
 
   function expandRef(t: string, direction: NeighborDir): void {
     captureAnchor(t);
-    const exploration = currentExploration() || { level: level(), seeds: [], exp: [] };
+    // expanding while focused keeps the focused chain: its fields become the seeds, instead of being replaced by this node alone
+    const focusedFields = !currentExploration() && focus() && level() === 'field' ? (view()?.nodes ?? []).map((node) => node.id) : [];
+    const exploration = currentExploration() || { level: level(), seeds: focusedFields, exp: [] };
     const neighborIds = neighbors(need(model()), need(filter()), t, direction);
     const seeds = exploreVisible(exploration).has(t) ? exploration.seeds : [...exploration.seeds, t];
     setExplore({ level: exploration.level, inst: instanceMode(), seeds, exp: [...exploration.exp, { node: t, dir: direction, added: neighborIds }] });

@@ -2,10 +2,12 @@ import { For, createMemo } from 'solid-js';
 import { withFlags } from '../../lib/flags';
 import { need, model, filters } from '../../store';
 import { stopClick } from './stopClick';
+import { createHint, HintToggle, HintText } from '../controls';
 
 const { formQ, setFormQ, formsOn, setFormsOn } = filters;
 
 export default function FormsSection() {
+  const help = createHint();
   const shownForms = createMemo(() => {
     const query = formQ().toLowerCase().trim();
     return need(model()).parsed.forms.filter((form) => !query || (form.label + ' ' + form.id).toLowerCase().includes(query));
@@ -27,7 +29,8 @@ export default function FormsSection() {
 
   return (
     <details class="sec">
-      <summary><h2>Forms <button class="link" onClick={onAllForms}>all</button> <button class="link" onClick={onNoForms}>none</button></h2></summary>
+      <summary><h2>Forms <button class="link" onClick={onAllForms}>all</button> <button class="link" onClick={onNoForms}>none</button> <HintToggle help={help} title="Forms" /></h2></summary>
+      <HintText help={help}>Keeps only the ticked forms. All and none apply to the forms currently listed, so you can search first and then select the matches. The number is how many fields the form has.</HintText>
       <input type="search" class="formsearch" placeholder="Search forms…" value={formQ()} onInput={onFormSearchInput} />
       <div id="forms">
         <For each={shownForms()}>

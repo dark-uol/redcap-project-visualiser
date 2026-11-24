@@ -1,13 +1,14 @@
 import { For, Show } from 'solid-js';
 import { withFlags } from '../../lib/flags';
 import type { Arm, EventDef } from '../../lib/types';
-import { Check } from '../controls';
+import { Check, createHint, HintToggle, HintText } from '../controls';
 import { need, model, filters } from '../../store';
 import { stopClick } from './stopClick';
 
 const { eventsOn, setEventsOn, crossOnly, setCrossOnly, instanceOnly, setInstanceOnly } = filters;
 
 export default function EventsSection() {
+  const help = createHint();
   const events = (): EventDef[] => need(model()).parsed.events;
   const arms = (): Arm[] => need(model()).parsed.arms;
 
@@ -36,9 +37,10 @@ export default function EventsSection() {
 
   return (
     <details class="sec">
-      <summary><h2>Events &amp; arms <button class="link" onClick={onAllEvents}>all</button> <button class="link" onClick={onNoEvents}>none</button></h2></summary>
-      <Check checked={crossOnly()} onChange={setCrossOnly} label="Only cross-event references" />
-      <Check checked={instanceOnly()} onChange={setInstanceOnly} label="Only repeating-instance logic" />
+      <summary><h2>Events &amp; arms <button class="link" onClick={onAllEvents}>all</button> <button class="link" onClick={onNoEvents}>none</button> <HintToggle help={help} title="Events and arms" /></h2></summary>
+      <HintText help={help}>Keeps forms collected in the ticked events (↻ = repeating). Combines with the Forms list. The number is how many forms the event collects.</HintText>
+      <Check checked={crossOnly()} onChange={setCrossOnly} label="Only cross-event references" hint="Keeps only dependencies whose logic names an event, such as [event][field]." />
+      <Check checked={instanceOnly()} onChange={setInstanceOnly} label="Only repeating-instance logic" hint="Keeps only dependencies whose logic uses instance smart variables such as [current-instance]." />
       <div id="events">
         <For each={armRows()}>
           {(arm) => (
@@ -55,7 +57,6 @@ export default function EventsSection() {
           )}
         </For>
       </div>
-      <p class="muted small">Keeps forms collected in the ticked events (↻ = repeating). Combines with the Forms list.</p>
     </details>
   );
 }

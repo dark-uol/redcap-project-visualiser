@@ -304,4 +304,6 @@ export interface View {
   mixed?: boolean;
   instEdges?: ViewEdge[];
   expandedNodes?: ViewNode[];
+  /** Field level with a focus: how many more fields lie beyond the current focus depth. */
+  focusHidden?: number;
 }
