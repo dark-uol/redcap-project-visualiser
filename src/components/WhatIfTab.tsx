@@ -1,7 +1,7 @@
 /* What if tab: set field values (per event) and see which fields and forms REDCap would show, hide, or cannot decide yet. */
 import { For, Show, createMemo, createSignal } from 'solid-js';
 import { ANY_EVENT, countMissingInputs, dependentsOf, eventsToEvaluate } from '../lib/whatIf';
-import type { MissingInput, VisibilityInfo, WhatIfValue } from '../lib/whatIf';
+import type { MissingInput, Visibility, VisibilityInfo, WhatIfValue } from '../lib/whatIf';
 import type { Field } from '../lib/types';
 import { need, model, selection, whatIf, visibility, visibilityIn, formLabel } from '../store';
 import { STATE_ORDER, StateBadge, ValueInput, choicesFor, eventLabel, missingText, tooltipFor } from './whatIfParts';
@@ -71,39 +71,52 @@ function ControlsRow() {
   );
 }
 
+interface ValueRow {
+  event: string | null;
+  variable: string;
+  value: WhatIfValue;
+}
+
 function ValuesSet() {
-  // "Any event" first, then the events in project order
-  const buckets = (): { event: string | null; entries: [string, WhatIfValue][] }[] => {
+  // "Any event" first, then the events in project order; within an event, in the order the values were set
+  const rows = (): ValueRow[] => {
     const all = whatIf.values();
     return [ANY_EVENT, ...loadedEvents().map((event) => event.id)]
       .filter((key) => all[key] !== undefined)
-      .map((key) => ({ event: key === ANY_EVENT ? null : key, entries: Object.entries(all[key]) }));
+      .flatMap((key) => Object.entries(all[key]).map(([variable, value]) => ({ event: key === ANY_EVENT ? null : key, variable, value })));
   };
   return (
     <div class="wi-section">
       <h4>Values set</h4>
-      <Show when={buckets().length} fallback={<div class="muted small">No values set yet. Pick a field below.</div>}>
-        <For each={buckets()}>
-          {(bucket) => (
-            <div class="wi-event">
-              <Show when={loadedEvents().length}>
-                <div class="small wi-event-title">{bucket.event === null ? 'Any event' : eventLabel(bucket.event)}</div>
-              </Show>
-              <For each={bucket.entries}>
-                {([variable, value]) => (
-                  <div class="wi-value small">
-                    <button class="link" title="Edit this value" onClick={() => editField(variable, bucket.event)}>{variable}</button>
-                    <span> = {valueText(variable, value)}</span>
-                    <button class="link wi-remove" title="Remove this value" onClick={() => whatIf.setValueIn(bucket.event, variable, null)}>✕</button>
-                  </div>
-                )}
-              </For>
-            </div>
-          )}
-        </For>
+      <Show when={rows().length} fallback={<div class="muted small">No values set yet. Pick a field below.</div>}>
+        <table class="wi-table">
+          <thead><tr>
+            <Show when={loadedEvents().length}><th>Event</th></Show>
+            <th>Field</th><th>Label</th><th>Value</th><th></th>
+          </tr></thead>
+          <tbody>
+            <For each={rows()}>
+              {(row) => (
+                <tr>
+                  <Show when={loadedEvents().length}><td>{row.event === null ? 'Any event' : eventLabel(row.event)}</td></Show>
+                  <td><button class="link" title="Edit this value" onClick={() => editField(row.variable, row.event)}>{row.variable}</button></td>
+                  <td>{fieldFor(row.variable)?.label ?? ''}</td>
+                  <td>{valueText(row.variable, row.value)}</td>
+                  <td><button class="link wi-remove" title="Remove this value" onClick={() => whatIf.setValueIn(row.event, row.variable, null)}>✕</button></td>
+                </tr>
+              )}
+            </For>
+          </tbody>
+        </table>
       </Show>
     </div>
   );
+}
+
+/** The logic that decides whether a field is shown: its branching logic and the action tags that can hide it. */
+function visibilityLogic(field: Field): { branching: string; tags: string } {
+  const annotation = field.annotation || '';
+  return { branching: field.branching.trim(), tags: /@(HIDDEN|IF)\b/i.test(annotation) ? annotation.trim() : '' };
 }
 
 function FieldSearch() {
@@ -202,6 +215,16 @@ function FormResults() {
     if (main !== null && candidates.includes(main)) return main;
     return candidates[0] ?? null;
   };
+  /** The form display logic rules for a form that apply in the results event (all of them when no event). */
+  const formRulesFor = (id: string): string[] => {
+    const node = need(model()).formNodes.get(FORM_PREFIX + id);
+    if (!node) return [];
+    const event = resultsEvent();
+    return node.logic.filter((_rule, index) => {
+      const events = node.logicEvents[index] ?? [];
+      return event === null || events.length === 0 || events.includes(event);
+    });
+  };
   const results = createMemo(() => {
     const id = formId();
     const form = id === null ? undefined : need(model()).formsById.get(id);
@@ -212,8 +235,12 @@ function FormResults() {
     const unknownInfos = entries.filter((entry) => entry.info?.state === 'unknown').map((entry) => entry.info as VisibilityInfo);
     const formInfo = info.get(FORM_PREFIX + form.id);
     if (formInfo?.state === 'unknown') unknownInfos.push(formInfo);
-    return { groups, formInfo, needed: countMissingInputs(unknownInfos) };
+    return { entries, groups, formInfo, formRules: formRulesFor(form.id), needed: countMissingInputs(unknownInfos) };
   });
+  const [stateFilter, setStateFilter] = createSignal<'all' | Visibility>('all');
+  const onStateFilterChange = function onStateFilterChange(event: Event & { currentTarget: HTMLSelectElement }): void {
+    setStateFilter(event.currentTarget.value as 'all' | Visibility);
+  };
   const onFormChange = function onFormChange(event: Event & { currentTarget: HTMLSelectElement }): void {
     whatIf.setResultsForm(event.currentTarget.value || null);
     whatIf.setResultsEvent(null);
@@ -243,14 +270,38 @@ function FormResults() {
             <>
               <Show when={current().formInfo}>
                 <div class="small" style="margin:4px 0">Form: <StateBadge info={current().formInfo} /></div>
+                <For each={current().formRules}>{(rule) => <pre class="wi-logic">{rule}</pre>}</For>
               </Show>
-              <div class="small">{current().groups.map((group) => group.title + ' (' + group.variables.length + ')').join(' · ')}</div>
-              <For each={current().groups.filter((group) => group.variables.length)}>
-                {(group) => (
-                  <div class="wi-group"><div class="small muted">{group.title} ({group.variables.length})</div>
-                    <div class="chips"><For each={group.variables}>{(variable) => <StateChip id={variable} event={resultsEvent()} />}</For></div></div>
-                )}
-              </For>
+              <div class="wi-row small">
+                <span>{current().groups.map((group) => group.title + ' (' + group.variables.length + ')').join(' · ')}</span>
+                <select title="Show fields in this state" onChange={onStateFilterChange}>
+                  <option value="all" selected={stateFilter() === 'all'}>all fields</option>
+                  <For each={STATE_ORDER}>{([state, title]) => <option value={state} selected={stateFilter() === state}>{title.toLowerCase()} only</option>}</For>
+                </select>
+              </div>
+              <table class="wi-table">
+                <thead><tr><th>Field</th><th>Label</th><th>State</th><th>Logic</th><th>Needs</th></tr></thead>
+                <tbody>
+                  <For each={current().entries.filter((entry) => stateFilter() === 'all' || (entry.info?.state ?? 'unknown') === stateFilter())}>
+                    {(entry) => {
+                      const field = fieldFor(entry.variable);
+                      const logic = field ? visibilityLogic(field) : { branching: '', tags: '' };
+                      return (
+                        <tr>
+                          <td><button class="link" title="Edit this field" onClick={() => editField(entry.variable, resultsEvent())}>{entry.variable}</button></td>
+                          <td>{field?.label ?? ''}</td>
+                          <td><StateBadge info={entry.info} /></td>
+                          <td class="expr">
+                            <Show when={logic.branching}><div>{logic.branching}</div></Show>
+                            <Show when={logic.tags}><div class="muted">{logic.tags}</div></Show>
+                          </td>
+                          <td class="small">{(entry.info?.missing ?? []).map((input) => missingText(input, resultsEvent())).join(', ')}</td>
+                        </tr>
+                      );
+                    }}
+                  </For>
+                </tbody>
+              </table>
               <Show when={current().needed.length}>
                 <h4 class="wi-needed">Inputs still needed</h4>
                 <div class="chips">

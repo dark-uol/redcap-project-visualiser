@@ -115,7 +115,10 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 .wi-state.hidden,.chip.wi-chip.hidden{color:var(--muted);text-decoration:line-through}
 .wi-state.unknown,.chip.wi-chip.unknown{background:transparent;border-color:#d97706;color:#b45309}
 @media (prefers-color-scheme:dark){.wi-state.shown,.chip.wi-chip.shown{color:#4ade80}.wi-state.unknown,.chip.wi-chip.unknown{color:#fbbf24}}
-.wi-tab{max-width:760px}
+.wi-tab{max-width:1200px}
+.wi-table{margin:4px 0 8px}
+.wi-table td .link{padding:0}
+.wi-logic{margin:2px 0 6px;font-size:12px;white-space:pre-wrap;word-break:break-word}
 .wi-section{margin-top:14px}
 .wi-section h4,.wi-needed{margin:0 0 6px}
 .wi-needed{margin-top:10px}
