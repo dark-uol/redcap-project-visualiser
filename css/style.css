@@ -66,6 +66,8 @@ pre{background:var(--code);border:1px solid var(--line);border-radius:8px;paddin
 .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
 .card b{display:block;font-size:22px}
 .card.warn b{color:var(--danger)}
+.card.clickable{cursor:pointer}
+.card.clickable:hover,.card.clickable:focus-visible{border-color:var(--accent)}
 .an h3{margin:16px 0 6px;font-size:14px}
 .an ul{margin:0;padding-left:18px}
 .tag{display:inline-block;font-size:11px;padding:0 6px;border-radius:9px;color:#fff;margin-right:3px}
