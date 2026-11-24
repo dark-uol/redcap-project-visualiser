@@ -195,7 +195,7 @@ const app = createRoot(() => {
   function expandRef(t: string, d: NeighborDir): void {
     captureAnchor(t);
     const ex = curEx() || { level: level(), seeds: [], exp: [] };
-    const nb = neighbors(need(model()), need(opts()), t, d);
+    const nb = neighbors(need(model()), need(filter()), t, d);
     const seeds = exVisible(ex).has(t) ? ex.seeds : [...ex.seeds, t];
     setExplore({ level: ex.level, inst: instMode(), seeds, exp: [...ex.exp, { node: t, dir: d, added: nb }] });
     setPair(null);
@@ -346,7 +346,7 @@ const app = createRoot(() => {
     instOnly, setInstOnly, instances, setInstances, crossOnly, setCrossOnly, formQ, setFormQ, pair, setPair, selEdge, setSelEdge,
     expanded, explore, setExplore, tab, setTab, dlOpen, setDlOpen, selected, setSelected, setSelectedRaw, depQ, setDepQ, fieldQ, setFieldQ,
     svgEl, svgView, busy, renderMsg, forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture,
-    filter, presentation, opts, view, dotSrc, mermaidSrc, tooBig, instMode, exVisible, curEx, formLabel,
+    opts, view, dotSrc, mermaidSrc, tooBig, instMode, exVisible, curEx, formLabel,
     expandRef, collapseRef, toggleExpandForm, loadText, loadSample, readFile, dlMermaid, dlDot, dlCsv, dlSvg, jumpToField, pickNode,
   };
 });
@@ -358,6 +358,6 @@ export const {
   instOnly, setInstOnly, instances, setInstances, crossOnly, setCrossOnly, formQ, setFormQ, pair, setPair, selEdge, setSelEdge,
   expanded, explore, setExplore, tab, setTab, dlOpen, setDlOpen, selected, setSelected, setSelectedRaw, depQ, setDepQ, fieldQ, setFieldQ,
   svgEl, svgView, busy, renderMsg, forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture,
-  filter, presentation, opts, view, dotSrc, mermaidSrc, tooBig, instMode, exVisible, curEx, formLabel,
+  opts, view, dotSrc, mermaidSrc, tooBig, instMode, exVisible, curEx, formLabel,
   expandRef, collapseRef, toggleExpandForm, loadText, loadSample, readFile, dlMermaid, dlDot, dlCsv, dlSvg, jumpToField, pickNode,
 } = app;

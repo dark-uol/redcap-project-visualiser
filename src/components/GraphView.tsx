@@ -1,5 +1,5 @@
 /* Graph tab: pan / zoom stage showing the rendered SVG, link highlighting and click selection. */
-import { Show, createEffect, onSettled } from 'solid-js';
+import { Show, createEffect, onCleanup, onSettled } from 'solid-js';
 import type { View, ViewNode } from '../lib/types';
 import {
   model, view, tab, selected, setSelected, setSelectedRaw, setSelEdge, svgEl, svgView, busy, renderMsg, tooBig,
@@ -46,7 +46,7 @@ export default function GraphView() {
   let canvas!: HTMLDivElement;
   let pz: Pan = { x: 0, y: 0, k: 1 };
   // latest committed svg / view / selection, mirrored by the effects below so helpers and listeners need no signal reads
-  const pendingAnchor = { value: null as Anchor | null };
+  let pendingAnchor: Anchor | null = null;
   const zoomBack = new Map<string, number>();
   let curSvg: SVGSVGElement | null = null;
   let curView: View | null = null;
@@ -94,7 +94,7 @@ export default function GraphView() {
     return [...s.querySelectorAll('g.node')].find((n) => nodeKey(n) === 'n' + ni) || null;
   };
   setAnchorCapture((t, opt = {}) => {
-    if (!curSvg) { pendingAnchor.value = null; return; }
+    if (!curSvg) { pendingAnchor = null; return; }
     const el = elFor(t), sr = stage.getBoundingClientRect();
     const a: Anchor = { t, k: pz.k, time: Date.now(), zoom: !!opt.zoom };
     if (opt.zoom) zoomBack.set(t, pz.k);
@@ -107,11 +107,12 @@ export default function GraphView() {
       a.sx = r.left + r.width / 2 - sr.left;
       a.sy = r.top + r.height / 2 - sr.top;
     }
-    pendingAnchor.value = a;
+    pendingAnchor = a;
   });
+  onCleanup(() => setAnchorCapture(null));
   const restoreOrFit = (): void => {
-    const a = pendingAnchor.value;
-    pendingAnchor.value = null;
+    const a = pendingAnchor;
+    pendingAnchor = null;
     if (!a || Date.now() - a.time > 15000) { fit(); return; }
     pz = { k: a.k, x: 0, y: 0 };
     apply();
