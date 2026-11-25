@@ -8,15 +8,18 @@ function selectField(variable: string): void {
 }
 
 export default function FieldsTab() {
+  // Rows and their search text depend only on the model, so the row objects keep their identity (and their <tr>) while the filter changes.
+  const entries = createMemo(() => {
+    const degree = need(model()).analysis.degree;
+    return need(model()).parsed.fields.map((f) => {
+      const deg = degree.get(f.variable) ?? { in: 0, out: 0 };
+      const row: FieldRow = { variable: f.variable, formLabel: formLabel(f.form), type: f.type, label: f.label, dependsOn: deg.in, usedBy: deg.out };
+      return { row, searchText: [f.variable, f.form, f.type, f.label].join(' ').toLowerCase() };
+    });
+  });
   const rows = createMemo((): FieldRow[] => {
     const q = fieldQ().toLowerCase().trim();
-    const degree = need(model()).analysis.degree;
-    return need(model()).parsed.fields
-      .filter((f) => !q || [f.variable, f.form, f.type, f.label].join(' ').toLowerCase().includes(q))
-      .map((f) => {
-        const deg = degree.get(f.variable) ?? { in: 0, out: 0 };
-        return { variable: f.variable, formLabel: formLabel(f.form), type: f.type, label: f.label, dependsOn: deg.in, usedBy: deg.out };
-      });
+    return entries().filter((entry) => !q || entry.searchText.includes(q)).map((entry) => entry.row);
   });
   return <FieldsTabView rows={rows()} query={fieldQ()} onQueryChange={setFieldQ} onSelectField={selectField} />;
 }
