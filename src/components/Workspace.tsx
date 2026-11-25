@@ -14,10 +14,13 @@ import WhatIfTab from './WhatIfTab';
 
 const TABS: [Tab, string][] = [['graph', 'Graph'], ['matrix', 'Matrix'], ['analysis', 'Analysis'], ['deps', 'Dependencies'], ['fields', 'Fields'], ['whatif', 'What if']];
 
+/** The tabs that read the side panel's view settings (level, filters, focus). */
+const TABS_WITH_SIDE_PANEL = new Set<Tab>(['graph', 'matrix', 'deps']);
+
 export default function Workspace() {
   return (
-    // the view settings belong to the graph, so other tabs get the full width; hidden rather than unmounted, so open sections stay open
-    <main id="app" class={{ 'no-side': tab() !== 'graph' }}>
+    // the view settings drive the graph, matrix and dependency list, so other tabs get the full width; hidden rather than unmounted, so open sections stay open
+    <main id="app" class={{ 'no-side': !TABS_WITH_SIDE_PANEL.has(tab()) }}>
       <Sidebar />
       <div id="content">
         <nav id="tabs">
