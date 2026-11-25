@@ -1,7 +1,7 @@
 /* What-if visibility: given values for some fields, decide which fields and forms are shown, hidden or unknown. Pure: no Solid, no DOM. */
 
-import { evaluateCondition } from './logic';
-import type { LogicFieldRef, LogicLookup } from './logic';
+import { evaluateCondition, splitLogicParts } from './logic';
+import type { LogicFieldRef, LogicLookup, LogicPart } from './logic';
 import type { EventDef, Field, ModelBase } from './types';
 
 export type Visibility = 'shown' | 'hidden' | 'unknown';
@@ -315,7 +315,23 @@ export function evaluateVisibility(model: ModelBase, context: WhatIfContext): Ma
     blankFields = nextBlank;
     if (!changed) break;
   }
+  blankFieldsOf.set(current, blankFields);
   return current;
+}
+
+/** The fields each evaluateVisibility result treated as blank, so a piece of logic can be judged again exactly as it was. */
+const blankFieldsOf = new WeakMap<Map<string, VisibilityInfo>, ReadonlySet<string>>();
+
+/** One top-level operand of a condition and how it came out: true, false, or undefined when it cannot be decided yet. */
+export interface ExplainedPart extends LogicPart { result: boolean | undefined }
+
+/**
+ * A condition split at its top-level `and` / `or`, each operand judged with the same values, event and blank fields that
+ * produced `results` (from evaluateVisibility with this context), to show which part decides it.
+ */
+export function explainLogic(model: ModelBase, context: WhatIfContext, results: Map<string, VisibilityInfo>, text: string): ExplainedPart[] {
+  const evaluate = makeEvaluate(model, context, blankFieldsOf.get(results) ?? new Set());
+  return splitLogicParts(text).map((part) => ({ ...part, result: evaluate(part.text).result }));
 }
 
 /**

@@ -112,10 +112,17 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 .wi-state.hidden{color:var(--muted);text-decoration:line-through}
 .wi-state.unknown{background:transparent;border-color:#d97706;color:#b45309}
 @media (prefers-color-scheme:dark){.wi-state.shown{color:#4ade80}.wi-state.unknown{color:#fbbf24}}
+.wi-part{border-radius:3px;padding:0 2px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.wi-part.true{background:rgba(22,163,74,.15);color:#15803d}
+.wi-part.false{background:rgba(220,38,38,.12);color:#b91c1c}
+.wi-part.unknown{border-bottom:1px dashed #d97706}
+.wi-joiner{color:var(--muted)}
+@media (prefers-color-scheme:dark){.wi-part.true{color:#4ade80}.wi-part.false{color:#f87171}}
 .wi-tab{max-width:1200px}
 .wi-table{margin:4px 0 8px}
 .wi-table td .link{padding:0}
-.wi-section{margin-top:14px}
+.wi-table td.expr{min-width:260px;word-break:normal;overflow-wrap:anywhere}
+.wi-section{margin-top:14px;overflow-x:auto}
 .wi-section h4,.wi-editor h4{margin:0 0 6px}
 .wi-row h4{margin:0}
 .wi-editor{margin-top:10px}

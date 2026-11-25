@@ -1,7 +1,7 @@
 /* Pieces shared by the What if tab and the field detail: event labels, state badge and tooltip, the type-matched value input. */
 import { For, Show } from 'solid-js';
-import { ANY_EVENT, eventForField, eventsToEvaluate } from '../lib/whatIf';
-import type { MissingInput, VisibilityInfo, WhatIfValue } from '../lib/whatIf';
+import { ANY_EVENT, eventForField, eventsToEvaluate, explainLogic } from '../lib/whatIf';
+import type { ExplainedPart, MissingInput, VisibilityInfo, WhatIfValue } from '../lib/whatIf';
 import type { Choice, Field } from '../lib/types';
 import { need, model, whatIf, visibility, visibilityIn } from '../store';
 
@@ -63,6 +63,30 @@ export function WhatIfBadge(props: { variable: string }) {
     <Show when={worthShowing() && info()}>
       <span class="small">What-if: <StateBadge info={info()} /></span>
     </Show>
+  );
+}
+
+const PART_TITLES = { true: 'true', false: 'false', unknown: 'not decided yet' } as const;
+
+/** A condition with each top-level and/or operand coloured by its result in `event`, so the part that decides it stands out. */
+export function LogicText(props: { text: string; event: string | null }) {
+  const parts = (): ExplainedPart[] => {
+    const results = visibilityIn(props.event, true);
+    if (!results) return [{ joiner: '', text: props.text, result: undefined }];
+    return explainLogic(need(model()), { values: whatIf.values(), mode: whatIf.mode(), event: props.event }, results, props.text);
+  };
+  const outcome = (part: ExplainedPart): keyof typeof PART_TITLES => (part.result === undefined ? 'unknown' : part.result ? 'true' : 'false');
+  return (
+    <div>
+      <For each={parts()}>
+        {(part) => (
+          <>
+            <Show when={part.joiner}><span class="wi-joiner"> {part.joiner} </span></Show>
+            <span class={'wi-part ' + outcome(part)} title={PART_TITLES[outcome(part)]}>{part.text}</span>
+          </>
+        )}
+      </For>
+    </div>
   );
 }
 

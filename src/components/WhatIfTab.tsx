@@ -4,7 +4,7 @@ import { ANY_EVENT, controllersOf, dependentsOf, eventsForField, eventsToEvaluat
 import type { MissingInput, Visibility, VisibilityInfo, WhatIfValue } from '../lib/whatIf';
 import type { Field } from '../lib/types';
 import { need, model, selection, whatIf, visibilityIn, formLabel } from '../store';
-import { STATE_ORDER, SmartValueInput, StateBadge, ValueInput, choicesFor, editField, eventLabel, missingText } from './whatIfParts';
+import { LogicText, STATE_ORDER, SmartValueInput, StateBadge, ValueInput, choicesFor, editField, eventLabel, missingText } from './whatIfParts';
 
 const FORM_PREFIX = 'form:';
 const MAX_MATCHES = 20;
@@ -238,7 +238,7 @@ function VisibilityTable(props: { title: string; emptyText: string; rows: Affect
                     </td>
                     <td><StateBadge info={row().info} /></td>
                     <td class="expr">
-                      <For each={logic().main}>{(text) => <div>{text}</div>}</For>
+                      <For each={logic().main}>{(text) => <LogicText text={text} event={row().event} />}</For>
                       <Show when={logic().note}><div class="muted">{logic().note}</div></Show>
                     </td>
                     <td>

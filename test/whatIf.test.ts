@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildModel } from '../src/lib/graph';
 import type { Field, Form, FormLogicRule, ParsedODM } from '../src/lib/types';
-import { ANY_EVENT, controllersOf, dependentsOf, smartKey, evaluateVisibility, eventForField, eventsForField, eventsToEvaluate, parseActionTags, splitTopLevel } from '../src/lib/whatIf';
+import { ANY_EVENT, controllersOf, dependentsOf, explainLogic, smartKey, evaluateVisibility, eventForField, eventsForField, eventsToEvaluate, parseActionTags, splitTopLevel } from '../src/lib/whatIf';
 import type { WhatIfContext, WhatIfValue } from '../src/lib/whatIf';
 
 const field = (variable: string, form: string, over: Partial<Field> = {}): Field => ({
@@ -405,5 +405,18 @@ describe('eventForField', () => {
     expect(eventForField(model, 'dep', 'baseline')).toBe('delivery');
     expect(eventForField(model, 'dep', null)).toBe('delivery');
     expect(eventForField(plain, 'dep', 'baseline')).toBeNull();
+  });
+});
+
+describe('explainLogic', () => {
+  it('judges each operand as the evaluation did, a hidden field counting as blank', () => {
+    const fields = [field('gate', 'f1'), field('a', 'f1', { branching: "[gate] = '1'" }), field('b', 'f1'), field('c', 'f1', { branching: "[a] = '' and [b] = '1'" })];
+    const model = buildModel(parsedWith(fields));
+    const context: WhatIfContext = { values: { [ANY_EVENT]: { gate: '0', a: '5' } }, mode: 'form', event: null };
+    const results = evaluateVisibility(model, context);
+    expect(explainLogic(model, context, results, "[a] = '' and [b] = '1'")).toEqual([
+      { joiner: '', text: "[a] = ''", result: true },
+      { joiner: 'and', text: "[b] = '1'", result: undefined },
+    ]);
   });
 });

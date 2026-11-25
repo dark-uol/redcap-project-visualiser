@@ -629,3 +629,42 @@ export function evaluateCondition(text: string, lookup: LogicLookup): ConditionR
   const { value, missing, unsupported } = evaluateLogic(parseLogic(text), lookup);
   return { result: toTruth(value), missing, unsupported };
 }
+
+/** One top-level operand of a condition, with the `and` / `or` (as written) that joins it to the previous one ('' for the first). */
+export interface LogicPart { joiner: string; text: string }
+
+const JOINER = /^(?:and|or)\b|^&&|^\|\|/i;
+const BEFORE_WORD_JOINER = /[\s)\]'"]/;
+
+/**
+ * Split a condition at its top-level `and` / `or` (outside brackets, parentheses and quotes), keeping the text as written, so each
+ * operand can be judged on its own. Text with no top-level joiner comes back as a single part.
+ */
+export function splitLogicParts(text: string): LogicPart[] {
+  const parts: LogicPart[] = [];
+  let depth = 0, quote = '', start = 0, joiner = '';
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index]!;
+    if (quote) {
+      if (character === '\\') index++;
+      else if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'") { quote = character; continue; }
+    if (character === '(' || character === '[') { depth++; continue; }
+    if (character === ')' || character === ']') { depth = Math.max(0, depth - 1); continue; }
+    if (depth > 0) continue;
+    const symbolic = character === '&' || character === '|';
+    const wordAllowed = index > 0 && BEFORE_WORD_JOINER.test(text[index - 1]!);
+    const match = symbolic || wordAllowed ? JOINER.exec(text.slice(index)) : null;
+    if (!match) continue;
+    const before = text.slice(start, index).trim();
+    if (before) parts.push({ joiner, text: before });
+    joiner = match[0];
+    start = index + match[0].length;
+    index = start - 1;
+  }
+  const rest = text.slice(start).trim();
+  if (rest) parts.push({ joiner, text: rest });
+  return parts;
+}

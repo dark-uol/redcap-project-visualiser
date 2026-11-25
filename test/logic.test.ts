@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateCondition, evaluateLogic, parseLogic, type LogicFieldRef, type LogicLookup, type LogicValue } from '../src/lib/logic';
+import { evaluateCondition, evaluateLogic, parseLogic, splitLogicParts, type LogicFieldRef, type LogicLookup, type LogicValue } from '../src/lib/logic';
 
 /** Lookup over plain values. Keys: `name`, `name(code)`, or `event.name`; smart variables under `smart:name`. */
 function lookupOf(values: Record<string, string | undefined>): LogicLookup {
@@ -316,5 +316,18 @@ describe('missing', () => {
     const result = evaluateCondition("[enrol_arm_1][age] > 3", lookupOf({}));
     expect(result.result).toBeUndefined();
     expect(result.missing).toEqual(['age']);
+  });
+});
+
+describe('splitLogicParts', () => {
+  it('splits at top-level and / or, keeping the joiner as written', () => {
+    expect(splitLogicParts("[a] = '1' and [ev_arm_1][b]>'1'")).toEqual([{ joiner: '', text: "[a] = '1'" }, { joiner: 'and', text: "[ev_arm_1][b]>'1'" }]);
+    expect(splitLogicParts("[a]='1' OR [b]='2' && [c]<>''").map((part) => part.joiner)).toEqual(['', 'OR', '&&']);
+  });
+
+  it('leaves parentheses, quotes, brackets and words containing and/or alone', () => {
+    expect(splitLogicParts("([a]='1' or [b]='1') and [c]='x and y'")).toEqual([{ joiner: '', text: "([a]='1' or [b]='1')" }, { joiner: 'and', text: "[c]='x and y'" }]);
+    expect(splitLogicParts('[brand] = [order]')).toHaveLength(1);
+    expect(splitLogicParts('')).toEqual([]);
   });
 });
