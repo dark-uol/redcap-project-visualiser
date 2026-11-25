@@ -122,7 +122,6 @@ export function createState() {
   };
 
   const [tab, setTab] = createSignal<Tab>('graph');
-  const [downloadMenuOpen, setDownloadMenuOpen] = createSignal(false);
   // setSelectedKeepingEdge sets the selection without clearing selectedEdge; setSelected also clears selectedEdge.
   const [selected, setSelectedKeepingEdge] = createSignal<string | null>(null);
   const setSelected = (v: string | null): void => { if (v) setSelectedEdge(null); setSelectedKeepingEdge(v); };
@@ -147,7 +146,7 @@ export function createState() {
     model, setModel, fileBase, setFileBase, dragOver, setDragOver, loadError, setLoadError,
     focusing, presentation, selection, whatIf,
     instances, setInstances: animated(setInstances), rawSetInstances: setInstances, filters, rawFilters,
-    expanded, setExpanded, expandedEvents, setExpandedEvents, explore, setExplore, downloadMenuOpen, setDownloadMenuOpen,
+    expanded, setExpanded, expandedEvents, setExpandedEvents, explore, setExplore,
     depQ, setDepQ, fieldQ, setFieldQ, svgEl, setSvgEl, svgView, setSvgView, busy, setBusy, renderMsg, setRenderMsg,
     forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture, nextModelSequence, currentModelSequence,
   };
