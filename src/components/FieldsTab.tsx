@@ -1,26 +1,22 @@
-import { For, createMemo } from 'solid-js';
+import { createMemo } from 'solid-js';
 import { need, model, fieldQ, setFieldQ, selection, formLabel } from '../store';
+import { FieldsTabView, type FieldRow } from './FieldsTabView';
 
-const { setSelected, setTab } = selection;
+function selectField(variable: string): void {
+  selection.setSelected(variable);
+  selection.setTab('graph');
+}
 
 export default function FieldsTab() {
-  const rows = createMemo(() => {
+  const rows = createMemo((): FieldRow[] => {
     const q = fieldQ().toLowerCase().trim();
-    return need(model()).parsed.fields.filter((f) => !q || [f.variable, f.form, f.type, f.label].join(' ').toLowerCase().includes(q));
+    const degree = need(model()).analysis.degree;
+    return need(model()).parsed.fields
+      .filter((f) => !q || [f.variable, f.form, f.type, f.label].join(' ').toLowerCase().includes(q))
+      .map((f) => {
+        const deg = degree.get(f.variable) ?? { in: 0, out: 0 };
+        return { variable: f.variable, formLabel: formLabel(f.form), type: f.type, label: f.label, dependsOn: deg.in, usedBy: deg.out };
+      });
   });
-  const deg = (v: string) => need(model()).analysis.degree.get(v) ?? { in: 0, out: 0 };
-  return (
-    <div>
-      <input class="filter" placeholder="Filter fields…" value={fieldQ()} onInput={(e) => setFieldQ(e.currentTarget.value)} />
-      <table id="fieldTable"><thead><tr><th>Variable</th><th>Form</th><th>Type</th><th>Label</th><th>Depends on</th><th>Used by</th></tr></thead><tbody>
-        <For each={rows()}>
-          {(f) => (
-            <tr data-v="1" onClick={() => { setSelected(f.variable); setTab('graph'); }}>
-              <td>{f.variable}</td><td>{formLabel(f.form)}</td><td>{f.type}</td><td>{f.label.slice(0, 80)}</td><td>{deg(f.variable).in}</td><td>{deg(f.variable).out}</td>
-            </tr>
-          )}
-        </For>
-      </tbody></table>
-    </div>
-  );
+  return <FieldsTabView rows={rows()} query={fieldQ()} onQueryChange={setFieldQ} onSelectField={selectField} />;
 }
