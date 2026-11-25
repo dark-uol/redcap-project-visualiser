@@ -79,7 +79,13 @@ export function createState() {
   const whatIfValueCount = function whatIfValueCount(): number {
     return Object.values(whatIfValues()).reduce((total, bucket) => total + Object.keys(bucket).length, 0);
   };
+  // What if tab sections the user collapsed, by title; kept here so they stay collapsed across fields and tab switches
+  const [whatIfCollapsed, setWhatIfCollapsed] = createSignal<Readonly<Record<string, boolean>>>({});
+  const toggleWhatIfSection = function toggleWhatIfSection(title: string): void {
+    setWhatIfCollapsed({ ...whatIfCollapsed(), [title]: !whatIfCollapsed()[title] });
+  };
   const whatIf = {
+    collapsed: whatIfCollapsed, toggleSection: toggleWhatIfSection,
     values: whatIfValues, valueCount: whatIfValueCount, setValueIn: setWhatIfValueIn, clearValues: clearWhatIfValues,
     mode: whatIfMode, setMode: setWhatIfMode, event: whatIfEvent, setEvent: setWhatIfEvent,
     field: whatIfField, setField: setWhatIfField,

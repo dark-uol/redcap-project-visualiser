@@ -183,15 +183,21 @@ function VisibilityTable(props: { title: string; emptyText: string; rows: Affect
     (activeEvent() === '' || row.event === activeEvent()) &&
     (activeForm() === '' || formOf(row.id) === activeForm()));
   const countOf = (state: Visibility): number => props.rows.filter((row) => row.state === state).length;
+  const collapsed = (): boolean => !!whatIf.collapsed()[props.title];
   /** The inputs a row still needs, minus the edited field itself in its own event, which has its input above. */
   const needsOf = (row: AffectedRow): MissingInput[] =>
     (row.info?.missing ?? []).filter((input) => !(input.variable === props.excludedInput.variable && input.event === whatIf.event()));
   return (
     <div class="wi-section">
-      <h4>{props.title}</h4>
+      {/* the heading folds the section away; the counts stay in view so a collapsed section still says how things stand */}
+      <button class="wi-fold" aria-expanded={collapsed() ? "false" : "true"} onClick={() => whatIf.toggleSection(props.title)}>
+        <span class="wi-fold-mark">{collapsed() ? '▸' : '▾'}</span>
+        <h4>{props.title}</h4>
+        <Show when={props.rows.length}><span class="small muted">{STATE_ORDER.map(([state, title]) => title + ' (' + countOf(state) + ')').join(' · ')}</span></Show>
+      </button>
+      <Show when={!collapsed()}>
       <Show when={props.rows.length} fallback={<div class="muted small">{props.emptyText}</div>}>
         <div class="wi-row small">
-          <span>{STATE_ORDER.map(([state, title]) => title + ' (' + countOf(state) + ')').join(' · ')}</span>
           <select title="Show rows in this state" onChange={onStateFilterChange}>
             <option value="all" selected={stateFilter() === 'all'}>all</option>
             <For each={STATE_ORDER}>{([state, title]) => <option value={state} selected={stateFilter() === state}>{title.toLowerCase()} only</option>}</For>
@@ -250,6 +256,7 @@ function VisibilityTable(props: { title: string; emptyText: string; rows: Affect
             </For>
           </tbody>
         </table>
+      </Show>
       </Show>
     </div>
   );
