@@ -1,26 +1,17 @@
-/* What if tab: pick a field, set its value, and see which fields and forms it affects (shown, hidden, or still unknown), with inputs for whatever else is needed. */
+/* What if tab: one editable table of the values set (fields and smart variables, each with the event its value is for), then the explored field's state, what decides whether it is shown and what it affects. */
 import { For, Show, createMemo, createSignal } from 'solid-js';
-import { ANY_EVENT, controllersOf, dependentsOf, eventsForField, eventsToEvaluate, isSmartKey, smartKey } from '../lib/whatIf';
-import type { MissingInput, Visibility, VisibilityInfo, WhatIfValue } from '../lib/whatIf';
+import { ANY_EVENT, controllersOf, dependentsOf, eventForField, eventsForField, eventsToEvaluate, isSmartKey, smartKey } from '../lib/whatIf';
+import type { MissingInput, Visibility, VisibilityInfo } from '../lib/whatIf';
 import type { Field } from '../lib/types';
 import { need, model, selection, whatIf, visibilityIn, formLabel } from '../store';
-import { LogicText, STATE_ORDER, SmartValueInput, StateBadge, ValueInput, choicesFor, editField, eventLabel, missingText } from './whatIfParts';
+import { LogicText, STATE_ORDER, SmartValueInput, StateBadge, ValueInput, editField, eventLabel, missingText } from './whatIfParts';
 
 const FORM_PREFIX = 'form:';
 const MAX_MATCHES = 20;
+const DERIVED_SMART = new Set(['event-name', 'event-label', 'arm-number', 'arm-label']);
 
 const loadedEvents = () => need(model()).parsed.events || [];
 const fieldFor = (variable: string | null): Field | undefined => (variable === null ? undefined : need(model()).byVar.get(variable));
-
-/** `1` or `2 (Female)` for a plain value, `1, 3 (Yes, No)` for a checkbox list; the labels only when the field has choices. */
-function valueText(variable: string, value: WhatIfValue): string {
-  const codes = Array.isArray(value) ? value : [value];
-  const field = fieldFor(variable);
-  const choices = field ? choicesFor(field) : [];
-  const labels = codes.map((code) => choices.find((choice) => choice.code === code)?.label);
-  const plain = codes.join(', ');
-  return choices.length && labels.every((label) => label !== undefined) ? plain + ' (' + labels.join(', ') + ')' : plain;
-}
 
 /** The logic that decides whether a field or form is shown, in the event it is judged in: branching logic and the action tags that can hide a field, the display rules of a form. */
 function visibilityLogic(id: string, event: string | null): { main: string[]; note: string } {
@@ -38,36 +29,6 @@ function visibilityLogic(id: string, event: string | null): { main: string[]; no
   return { main: field?.branching.trim() ? [field.branching.trim()] : [], note: /@(HIDDEN|IF)\b/i.test(annotation) ? annotation.trim() : '' };
 }
 
-function FieldSearch() {
-  const [query, setQuery] = createSignal('');
-  const [listOpen, setListOpen] = createSignal(true);
-  const matches = createMemo(() => {
-    const needle = query().toLowerCase().trim();
-    if (!needle) return [];
-    return need(model()).parsed.fields.filter((field) => field.variable.toLowerCase().includes(needle) || field.label.toLowerCase().includes(needle)).slice(0, MAX_MATCHES);
-  });
-  const onInput = function onInput(event: Event & { currentTarget: HTMLInputElement }): void {
-    setQuery(event.currentTarget.value);
-    setListOpen(true);
-  };
-  const choose = function choose(variable: string): void {
-    editField(variable);
-    setListOpen(false);
-  };
-  return (
-    <div class="wi-search">
-      <input class="filter" placeholder="Search fields by variable or label…" value={query()} onInput={onInput} />
-      <Show when={listOpen() && matches().length}>
-        <div class="wi-matches">
-          <For each={matches()}>
-            {(field) => <button class="wi-match small" onClick={() => choose(field.variable)}>{field.variable} — {field.label} ({formLabel(field.form)})</button>}
-          </For>
-        </div>
-      </Show>
-    </div>
-  );
-}
-
 function ModeSelect() {
   const onModeChange = function onModeChange(event: Event & { currentTarget: HTMLSelectElement }): void {
     whatIf.setMode(event.currentTarget.value === 'survey' ? 'survey' : 'form');
@@ -83,29 +44,171 @@ function ModeSelect() {
   );
 }
 
-/** The chosen field: its heading, value input, the event it is entered in (only when its form is used in several), and its own state. */
-function FieldEditor(props: { field: Field }) {
-  const events = () => eventsForField(need(model()), props.field.variable);
-  const onEventChange = function onEventChange(event: Event & { currentTarget: HTMLSelectElement }): void {
-    whatIf.setEvent(event.currentTarget.value);
+/** One row of the values table: a field or smart variable key, and the event its value is for (null: every event, or no events). */
+interface TableRow { variable: string; event: string | null }
+
+const rowKeyOf = (row: TableRow): string => row.variable + '|' + (row.event ?? '');
+const isExploredRow = (row: TableRow): boolean => row.variable === whatIf.field() && row.event === whatIf.event();
+
+/** One entry of the chooser's dropdown: a field, or a smart variable (`smart`, with its key in `variable`). */
+interface ChooserMatch { variable: string; smart: boolean; text: string }
+
+/** The rows as listed: the ones the user added, in order, then any value set elsewhere (the Needs inputs) that no row lists yet. */
+function displayRowsOf(): TableRow[] {
+  const listed: TableRow[] = [...whatIf.rows()];
+  const seen = new Set(listed.map(rowKeyOf));
+  const all = whatIf.values();
+  const unlisted = [ANY_EVENT, ...loadedEvents().map((event) => event.id)]
+    .filter((key) => all[key] !== undefined)
+    .flatMap((key): TableRow[] => Object.keys(all[key]).map((variable) => ({ variable, event: key === ANY_EVENT ? null : key })))
+    .filter((row) => !seen.has(rowKeyOf(row)));
+  return [...listed, ...unlisted];
+}
+
+/** The values table: every row with its field, event, label, value and state, a row to change its event or remove it, and the chooser that adds a field or smart variable as the last row. */
+function ValuesTable() {
+  const [query, setQuery] = createSignal('');
+  const [listOpen, setListOpen] = createSignal(true);
+  // smart variables the project's logic uses (the derived ones follow from the event and are not offered)
+  const smartNames = createMemo(() => {
+    const found = new Set<string>();
+    need(model()).smartDeps.forEach((deps) => deps.forEach((dep) => dep.smart.forEach((name) => { if (!DERIVED_SMART.has(name)) found.add(name); })));
+    return [...found];
+  });
+  const matches = createMemo<ChooserMatch[]>(() => {
+    const needle = query().toLowerCase().trim();
+    if (!needle) return [];
+    const fields = need(model()).parsed.fields
+      .filter((field) => field.variable.toLowerCase().includes(needle) || field.label.toLowerCase().includes(needle))
+      .slice(0, MAX_MATCHES)
+      .map((field): ChooserMatch => ({ variable: field.variable, smart: false, text: field.variable + ' — ' + field.label + ' (' + formLabel(field.form) + ')' }));
+    const smarts = smartNames()
+      .filter((name) => name.toLowerCase().includes(needle))
+      .map((name): ChooserMatch => ({ variable: smartKey(name), smart: true, text: smartKey(name) + ' — smart variable' }));
+    return [...fields, ...smarts];
+  });
+  const choose = function choose(match: ChooserMatch): void {
+    if (match.smart) {
+      whatIf.addRow(match.variable, null);
+    } else {
+      const event = eventForField(need(model()), match.variable, whatIf.event());
+      whatIf.addRow(match.variable, event);
+      editField(match.variable, event);
+    }
+    setQuery('');
+    setListOpen(false);
   };
+  const onInput = function onInput(event: Event & { currentTarget: HTMLInputElement }): void {
+    setQuery(event.currentTarget.value);
+    setListOpen(true);
+  };
+  // Enter picks the first match
+  const onKeyDown = function onKeyDown(event: KeyboardEvent): void {
+    const first = matches()[0];
+    if (event.key !== 'Enter' || !first) return;
+    event.preventDefault();
+    choose(first);
+  };
+  const onClearAll = function onClearAll(): void {
+    whatIf.clearValues();
+  };
+  const changeEvent = function changeEvent(row: TableRow, value: string): void {
+    const explored = isExploredRow(row);
+    const next = value === '' ? null : value;
+    whatIf.moveRow(row.variable, row.event, next);
+    if (explored) whatIf.setEvent(next);
+  };
+  const removeTableRow = function removeTableRow(row: TableRow): void {
+    const explored = isExploredRow(row);
+    whatIf.removeRow(row.variable, row.event);
+    if (explored) whatIf.setField(null);
+  };
+  const columnCount = (): number => (loadedEvents().length ? 6 : 5);
+  return (
+    <div class="wi-section">
+      <div class="wi-row">
+        <h4>Values</h4>
+        <Show when={whatIf.valueCount() || whatIf.rows().length}>
+          <button class="btn sm" onClick={onClearAll}>Clear all ({displayRowsOf().length})</button>
+        </Show>
+        <ModeSelect />
+      </div>
+      <table class="wi-table">
+        <thead><tr>
+          <th>Field</th><Show when={loadedEvents().length}><th>Event</th></Show><th>Label</th><th>Value</th><th>State</th><th></th>
+        </tr></thead>
+        <tbody>
+          <For each={displayRowsOf()} keyed={rowKeyOf}>
+            {(row) => {
+              const field = () => fieldFor(row().variable);
+              const isSmart = () => isSmartKey(row().variable);
+              const eventIds = (): string[] => (isSmart() ? loadedEvents().map((event) => event.id) : eventsForField(need(model()), row().variable));
+              return (
+                <tr class={{ 'wi-current': isExploredRow(row()) }}>
+                  <td>
+                    <Show when={field()} fallback={<code>{row().variable}</code>}>
+                      <button class="link" title="Explore this field" onClick={() => editField(row().variable, row().event)}>{row().variable}</button>
+                    </Show>
+                  </td>
+                  <Show when={loadedEvents().length}>
+                    <td>
+                      <Show when={isSmart() || eventIds().length > 1} fallback={<span>{row().event === null ? '' : eventLabel(row().event as string)}</span>}>
+                        <select title="Event the value is entered in" onChange={(changed) => changeEvent(row(), changed.currentTarget.value)}>
+                          <Show when={isSmart()}><option value="" selected={row().event === null}>all events</option></Show>
+                          <For each={eventIds()}>{(id) => <option value={id} selected={row().event === id}>{eventLabel(id)}</option>}</For>
+                        </select>
+                      </Show>
+                    </td>
+                  </Show>
+                  <td>
+                    <Show when={!isSmart()} fallback="smart variable">
+                      <Show when={field()} fallback={<span class="muted small">not defined in this project</span>}>{field()?.label ?? ''}</Show>
+                    </Show>
+                  </td>
+                  <td>
+                    <Show when={!isSmart()} fallback={<SmartValueInput variable={row().variable} event={row().event} compact />}>
+                      <Show when={field()} keyed>{(defined) => <ValueInput field={defined} event={row().event} compact />}</Show>
+                    </Show>
+                  </td>
+                  <td>
+                    <Show when={!isSmart() && field()}><StateBadge info={visibilityIn(row().event, true)?.get(row().variable)} /></Show>
+                  </td>
+                  <td><button class="link wi-remove" title="Remove this row" onClick={() => removeTableRow(row())}>✕</button></td>
+                </tr>
+              );
+            }}
+          </For>
+          <tr class="wi-chooser">
+            <td colspan={columnCount()}>
+              <input class="filter" placeholder="Add a field or smart variable…" value={query()} onInput={onInput} onKeyDown={onKeyDown} />
+              <Show when={listOpen() && matches().length}>
+                <div class="wi-matches">
+                  <For each={matches()}>{(match) => <button class="wi-match small" onClick={() => choose(match)}>{match.text}</button>}</For>
+                </div>
+              </Show>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** The explored field's heading: its event (when the project has events), its own state and the link to the graph. Its value is set in the table above. */
+function FieldEditor(props: { field: Field }) {
+  const eventId = (): string | null => (loadedEvents().length ? whatIf.event() : null);
   const showInGraph = function showInGraph(): void {
     selection.setSelected(props.field.variable);
     selection.setTab('graph');
   };
   return (
     <div class="wi-editor">
-      <h4>{props.field.variable}{props.field.label ? ' — ' + props.field.label : ''} <button class="link" onClick={showInGraph}>Show in graph</button></h4>
-      <div class="wi-row">
-        <ValueInput field={props.field} event={whatIf.event()} />
-        <Show when={events().length > 1}>
-          <span class="muted small">in</span>
-          <select title="Event the value is entered in" onChange={onEventChange}>
-            <For each={events()}>{(id) => <option value={id} selected={whatIf.event() === id}>{eventLabel(id)}</option>}</For>
-          </select>
-        </Show>
-        <span class="small">State: <StateBadge info={visibilityIn(whatIf.event(), true)?.get(props.field.variable)} /></span>
-      </div>
+      <h4>
+        Exploring {props.field.variable}{props.field.label ? ' — ' + props.field.label : ''}
+        <Show when={eventId()} keyed>{(id) => <span class="small muted"> in {eventLabel(id)}</span>}</Show>
+        {' '}<span class="small">State: <StateBadge info={visibilityIn(whatIf.event(), true)?.get(props.field.variable)} /></span>
+        {' '}<button class="link" onClick={showInGraph}>Show in graph</button>
+      </h4>
     </div>
   );
 }
@@ -298,101 +401,12 @@ function ShownWhenTable(props: { field: Field }) {
   );
 }
 
-interface ValueRow {
-  event: string | null;
-  variable: string;
-  value: WhatIfValue;
-}
-
-const DERIVED_SMART = new Set(['event-name', 'event-label', 'arm-number', 'arm-label']);
-
-/** A compact way to set any smart variable the project's logic uses (the ones that follow from the event are worked out automatically). */
-function SmartVariableSetter() {
-  const names = createMemo(() => {
-    const found = new Set<string>();
-    need(model()).smartDeps.forEach((deps) => deps.forEach((dep) => dep.smart.forEach((name) => { if (!DERIVED_SMART.has(name)) found.add(name); })));
-    return [...found];
-  });
-  const [chosen, setChosen] = createSignal('');
-  const onChosenChange = function onChosenChange(event: Event & { currentTarget: HTMLSelectElement }): void {
-    setChosen(event.currentTarget.value);
-  };
-  const onValueChange = function onValueChange(event: Event & { currentTarget: HTMLInputElement }): void {
-    const input = event.currentTarget;
-    const trimmed = input.value.trim();
-    if (!chosen() || trimmed === '') return;
-    whatIf.setValueIn(null, smartKey(chosen()), trimmed);
-    input.value = '';
-  };
-  return (
-    <Show when={names().length}>
-      <label class="wi-row small">
-        <span class="muted">Set smart variable</span>
-        <select onChange={onChosenChange}>
-          <option value="" selected={chosen() === ''}>(choose)</option>
-          <For each={names()}>{(name) => <option value={name} selected={chosen() === name}>{smartKey(name)}</option>}</For>
-        </select>
-        <input type="text" class="wi-compact" placeholder="value" onChange={onValueChange} />
-      </label>
-    </Show>
-  );
-}
-
-function ValuesSet() {
-  // events in project order, with the no-event bucket first; within an event, in the order the values were set
-  const rows = (): ValueRow[] => {
-    const all = whatIf.values();
-    return [ANY_EVENT, ...loadedEvents().map((event) => event.id)]
-      .filter((key) => all[key] !== undefined)
-      .flatMap((key) => Object.entries(all[key]).map(([variable, value]) => ({ event: key === ANY_EVENT ? null : key, variable, value })));
-  };
-  return (
-    <div class="wi-section">
-      <div class="wi-row">
-        <h4>Values set</h4>
-        <Show when={whatIf.valueCount()}>
-          <button class="btn sm" onClick={() => whatIf.clearValues()}>Clear all ({whatIf.valueCount()})</button>
-        </Show>
-        <SmartVariableSetter />
-      </div>
-      <Show when={rows().length} fallback={<div class="muted small">No values set yet.</div>}>
-        <table class="wi-table">
-          <thead><tr>
-            <th>Field</th><Show when={loadedEvents().length}><th>Event</th></Show><th>Label</th><th>Value</th><th></th>
-          </tr></thead>
-          <tbody>
-            <For each={rows()} keyed={(row) => row.variable + '|' + (row.event ?? '')}>
-              {(row) => (
-                <tr>
-                  <td>
-                    <Show when={!isSmartKey(row().variable)} fallback={<code>{row().variable}</code>}>
-                      <button class="link" title="Edit this value" onClick={() => editField(row().variable, row().event)}>{row().variable}</button>
-                    </Show>
-                  </td>
-                  <Show when={loadedEvents().length}><td>{row().event === null ? (isSmartKey(row().variable) ? 'all events' : '') : eventLabel(row().event as string)}</td></Show>
-                  <td>{isSmartKey(row().variable) ? 'smart variable' : fieldFor(row().variable)?.label ?? ''}</td>
-                  <td>{valueText(row().variable, row().value)}</td>
-                  <td><button class="link wi-remove" title="Remove this value" onClick={() => whatIf.setValueIn(row().event, row().variable, null)}>✕</button></td>
-                </tr>
-              )}
-            </For>
-          </tbody>
-        </table>
-      </Show>
-    </div>
-  );
-}
-
 export default function WhatIfTab() {
   return (
     <div class="whatif wi-tab">
-      <div class="wi-top">
-        <FieldSearch />
-        <ModeSelect />
-      </div>
-      <ValuesSet />
-      {/* keyed: a new editor and table per field, so an input can never write to the previous field */}
-      <Show when={fieldFor(whatIf.field())} keyed fallback={<div class="muted small">Search for a field to see what its value affects.</div>}>
+      <ValuesTable />
+      {/* keyed: new tables per field, so an input can never write to the previous field */}
+      <Show when={fieldFor(whatIf.field())} keyed fallback={<div class="muted small">Add a field above, or click one, to see what decides whether it is shown and what it affects.</div>}>
         {(field) => (
           <>
             <FieldEditor field={field} />

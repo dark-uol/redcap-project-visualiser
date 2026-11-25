@@ -134,9 +134,8 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 .wi-fold-mark.collapsed{transform:rotate(-45deg)}
 .wi-fold:hover .wi-fold-mark{border-color:var(--text)}
 .wi-editor{margin-top:10px}
-.wi-top{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;justify-content:space-between}
-.wi-search{flex:1 1 320px;min-width:0}
-.wi-mode{display:flex;gap:6px;align-items:center}
+.wi-mode{display:flex;gap:6px;align-items:center;margin-left:auto}
+.wi-current td{background:var(--code)}
 .wi-need{display:flex;flex-wrap:wrap;gap:4px;align-items:baseline;margin:2px 0}
 .wi-compact{width:110px}
 .wi-value{display:inline-flex;flex-wrap:wrap;gap:4px;align-items:baseline}
