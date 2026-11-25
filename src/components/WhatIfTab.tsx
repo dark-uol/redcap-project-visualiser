@@ -4,7 +4,8 @@ import { ANY_EVENT, controllersOf, dependentsOf, eventForField, eventsForField, 
 import type { MissingInput, Visibility, VisibilityInfo } from '../lib/whatIf';
 import type { Field } from '../lib/types';
 import { need, model, selection, whatIf, visibilityIn, formLabel } from '../store';
-import { LogicText, STATE_ORDER, SmartValueInput, StateBadge, ValueInput, editField, eventLabel, missingText } from './whatIfParts';
+import { LogicText, SmartValueInput, StateBadge, ValueInput, editField, eventLabel, missingText } from './whatIfParts';
+import { STATE_ORDER } from './whatIfViews';
 
 const FORM_PREFIX = 'form:';
 const MAX_MATCHES = 20;
