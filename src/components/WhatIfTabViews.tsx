@@ -5,7 +5,11 @@
 import { For, Show, createMemo, createSignal } from 'solid-js';
 import type { Accessor, Element as SolidElement } from 'solid-js';
 import type { MissingInput, Visibility, VisibilityInfo } from '../lib/whatIf';
+import { countByState, distinctOf, filterVisibilityRows } from '../lib/whatIfRows';
+import type { ChooserMatch } from '../lib/whatIfRows';
 import { STATE_ORDER } from './whatIfViews';
+
+export type { ChooserMatch };
 
 // ---- the values table ----
 
@@ -28,9 +32,6 @@ export type ValuesRow = {
   labelKind: 'label' | 'smart' | 'undefined';
   label: string;
 };
-
-/** One entry of the chooser's dropdown: a field, or a smart variable. */
-export type ChooserMatch = { variable: string; smart: boolean; text: string };
 
 export type ValuesTableViewProps = {
   rows: ValuesRow[];
@@ -210,8 +211,6 @@ export type VisibilityTableViewProps = {
   renderState: (row: Accessor<VisibilityRow>) => SolidElement;
 };
 
-/** The rows' distinct values of a key, in first-seen order. */
-const distinctOf = <Key extends string>(values: (Key | undefined | null)[]): Key[] => [...new Set(values.filter((value): value is Key => value !== undefined && value !== null))];
 const inputKey = (input: MissingInput): string => input.variable + '|' + (input.event ?? '');
 
 /** Presentational: a foldable table of fields/forms with their state: counts, state/event/form filters, logic, and what each still needs. */
@@ -238,11 +237,8 @@ export function VisibilityTableView(props: VisibilityTableViewProps) {
   const onFormFilterChange = function onFormFilterChange(event: Event & { currentTarget: HTMLSelectElement }): void {
     setFormFilter(event.currentTarget.value);
   };
-  const visibleRows = () => props.rows.filter((row) =>
-    (stateFilter() === 'all' || row.state === stateFilter()) &&
-    (activeEvent() === '' || row.event === activeEvent()) &&
-    (activeForm() === '' || row.formId === activeForm()));
-  const countOf = (state: Visibility): number => props.rows.filter((row) => row.state === state).length;
+  const visibleRows = () => filterVisibilityRows(props.rows, { state: stateFilter(), event: activeEvent(), form: activeForm() });
+  const countOf = (state: Visibility): number => countByState(props.rows, state);
   return (
     <div class="wi-section">
       {/* the heading folds the section away; the counts stay in view so a collapsed section still says how things stand */}

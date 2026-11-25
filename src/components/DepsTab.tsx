@@ -1,16 +1,12 @@
 import { createMemo } from 'solid-js';
 import { nodeInfo } from '../lib/graph';
+import { filterEdges } from '../lib/tableFilters';
 import type { Edge } from '../lib/types';
 import { need, model, opts, depQ, setDepQ, formLabel } from '../store';
 import { DepsTabView, MAX_DISPLAYED_ROWS, type DependencyRow } from './DepsTabView';
 
 export default function DepsTab() {
-  const matching = createMemo(() => {
-    const m = need(model()), o = need(opts()), q = depQ().toLowerCase().trim();
-    return m.edges
-      .filter((e) => o.types.has(e.type) && (o.showMissing || !e.missing))
-      .filter((e) => !q || [e.from, e.to, e.type, nodeInfo(m, e.from).form, nodeInfo(m, e.to).form, e.expr].join(' ').toLowerCase().includes(q));
-  });
+  const matching = createMemo(() => filterEdges(need(model()), need(opts()), depQ()));
   // A row is built once per edge and model, so the displayed rows keep their identity (and their <tr>) while the filter changes.
   const rowCache = createMemo(() => { need(model()); return new Map<Edge, DependencyRow>(); });
   const rowFor = (e: Edge): DependencyRow => {

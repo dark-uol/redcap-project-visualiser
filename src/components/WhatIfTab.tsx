@@ -1,35 +1,21 @@
 /* What if tab: one editable table of the values set (fields and smart variables, each with the event its value is for), then the explored field's state, what decides whether it is shown and what it affects. */
 import { Show, createMemo, createSignal } from 'solid-js';
 import type { Accessor } from 'solid-js';
-import { ANY_EVENT, controllersOf, dependentsOf, eventForField, eventsForField, eventsToEvaluate, isSmartKey, smartKey } from '../lib/whatIf';
+import { controllersOf, dependentsOf, eventForField, eventsForField, eventsToEvaluate, isSmartKey } from '../lib/whatIf';
 import type { MissingInput, Visibility, VisibilityInfo } from '../lib/whatIf';
 import type { Field, Model } from '../lib/types';
+import { computeVisibilityLogic, chooserMatches, displayRows, nextExploredRow, rowKeyOf, smartVariableNames } from '../lib/whatIfRows';
+import type { ChooserMatch, TableRow } from '../lib/whatIfRows';
 import { need, model, selection, whatIf, visibilityIn, formLabel } from '../store';
 import { LogicText, SmartValueInput, StateBadge, ValueInput, editField, eventLabel, missingText } from './whatIfParts';
 import { FieldEditorView, ValuesTableView, VisibilityTableView } from './WhatIfTabViews';
-import type { ChooserMatch, ValuesRow, VisibilityRow } from './WhatIfTabViews';
+import type { ValuesRow, VisibilityRow } from './WhatIfTabViews';
 
 const FORM_PREFIX = 'form:';
 const MAX_MATCHES = 20;
-const DERIVED_SMART = new Set(['event-name', 'event-label', 'arm-number', 'arm-label']);
 
 const loadedEvents = () => need(model()).parsed.events || [];
 const fieldFor = (variable: string | null): Field | undefined => (variable === null ? undefined : need(model()).byVar.get(variable));
-
-/** The logic that decides whether a field or form is shown, in the event it is judged in: branching logic and the action tags that can hide a field, the display rules of a form. */
-function computeVisibilityLogic(loadedModel: Model, id: string, event: string | null): { main: string[]; note: string } {
-  const node = loadedModel.formNodes.get(id);
-  if (node) {
-    const rules = node.logic.filter((_rule, index) => {
-      const events = node.logicEvents[index] ?? [];
-      return event === null || events.length === 0 || events.includes(event);
-    });
-    return { main: rules, note: '' };
-  }
-  const field = loadedModel.byVar.get(id);
-  const annotation = field?.annotation || '';
-  return { main: field?.branching.trim() ? [field.branching.trim()] : [], note: /@(HIDDEN|IF)\b/i.test(annotation) ? annotation.trim() : '' };
-}
 
 /** The logic depends only on the model, so it is worked out once per row and event and reused while values change. */
 const visibilityLogicCache = new WeakMap<Model, Map<string, { main: string[]; note: string }>>();
@@ -43,22 +29,11 @@ function visibilityLogic(id: string, event: string | null): { main: string[]; no
   return logic;
 }
 
-/** One row of the values table: a field or smart variable key, and the event its value is for (null: every event, or no events). */
-interface TableRow { variable: string; event: string | null }
-
-const rowKeyOf = (row: TableRow): string => row.variable + '|' + (row.event ?? '');
 const isExploredRow = (row: TableRow): boolean => row.variable === whatIf.field() && row.event === whatIf.event();
 
 /** The rows as listed: the ones the user added, in order, then any value set elsewhere (the Needs inputs) that no row lists yet. */
 function displayRowsOf(): TableRow[] {
-  const listed: TableRow[] = [...whatIf.rows()];
-  const seen = new Set(listed.map(rowKeyOf));
-  const all = whatIf.values();
-  const unlisted = [ANY_EVENT, ...loadedEvents().map((event) => event.id)]
-    .filter((key) => all[key] !== undefined)
-    .flatMap((key): TableRow[] => Object.keys(all[key]).map((variable) => ({ variable, event: key === ANY_EVENT ? null : key })))
-    .filter((row) => !seen.has(rowKeyOf(row)));
-  return [...listed, ...unlisted];
+  return displayRows(whatIf.rows(), whatIf.values(), loadedEvents().map((event) => event.id));
 }
 
 /** The values table: wires the rows, the chooser and the mode to the what-if state, and renders ValuesTableView. */
@@ -66,23 +41,8 @@ function ValuesTable() {
   const [query, setQuery] = createSignal('');
   const [listOpen, setListOpen] = createSignal(true);
   // smart variables the project's logic uses (the derived ones follow from the event and are not offered)
-  const smartNames = createMemo(() => {
-    const found = new Set<string>();
-    need(model()).smartDeps.forEach((deps) => deps.forEach((dep) => dep.smart.forEach((name) => { if (!DERIVED_SMART.has(name)) found.add(name); })));
-    return [...found];
-  });
-  const matches = createMemo<ChooserMatch[]>(() => {
-    const needle = query().toLowerCase().trim();
-    if (!needle) return [];
-    const fields = need(model()).parsed.fields
-      .filter((field) => field.variable.toLowerCase().includes(needle) || field.label.toLowerCase().includes(needle))
-      .slice(0, MAX_MATCHES)
-      .map((field): ChooserMatch => ({ variable: field.variable, smart: false, text: field.variable + ' — ' + field.label + ' (' + formLabel(field.form) + ')' }));
-    const smarts = smartNames()
-      .filter((name) => name.toLowerCase().includes(needle))
-      .map((name): ChooserMatch => ({ variable: smartKey(name), smart: true, text: smartKey(name) + ' — smart variable' }));
-    return [...fields, ...smarts];
-  });
+  const smartNames = createMemo(() => smartVariableNames(need(model())));
+  const matches = createMemo<ChooserMatch[]>(() => chooserMatches(need(model()), query(), smartNames(), formLabel, MAX_MATCHES));
   const choose = function choose(match: ChooserMatch): void {
     if (match.smart) {
       whatIf.addRow(match.variable, null);
@@ -114,7 +74,7 @@ function ValuesTable() {
   const removeTableRow = function removeTableRow(row: TableRow): void {
     // worked out before the removal: a signal read straight after a write still returns the old value in Solid 2
     const next = isExploredRow(row)
-      ? displayRowsOf().find((other) => rowKeyOf(other) !== rowKeyOf(row) && fieldFor(other.variable) !== undefined)
+      ? nextExploredRow(displayRowsOf(), row, (variable) => fieldFor(variable) !== undefined)
       : undefined;
     const explored = isExploredRow(row);
     whatIf.removeRow(row.variable, row.event);
