@@ -1,44 +1,46 @@
-import { For, createMemo } from 'solid-js';
+import { createMemo } from 'solid-js';
 import { withFlags } from '../../lib/flags';
 import { need, model, filters } from '../../store';
-import { stopClick } from './stopClick';
-import { createHint, HintToggle, HintText } from '../controls';
+import { FormsSectionView } from './FormsSectionView';
+import type { FormRow } from './FormsSectionView';
 
 const { formQ, setFormQ, formsOn, setFormsOn } = filters;
 
+/** Connector: the form list from the model, filtered by the search box, with ticks written back to the store. */
 export default function FormsSection() {
-  const help = createHint();
-  const shownForms = createMemo(() => {
+  // Rows depend only on the model, so they keep their identity while the ticks and the search change.
+  const forms = createMemo((): FormRow[] => need(model()).parsed.forms.map((form) => ({ id: form.id, label: form.label, fieldCount: form.fields.length })));
+  const shownForms = createMemo((): FormRow[] => {
     const query = formQ().toLowerCase().trim();
-    return need(model()).parsed.forms.filter((form) => !query || (form.label + ' ' + form.id).toLowerCase().includes(query));
+    return forms().filter((form) => !query || (form.label + ' ' + form.id).toLowerCase().includes(query));
   });
+  const checkedById = createMemo((): Record<string, boolean> => {
+    const on = formsOn();
+    return Object.fromEntries(forms().map((form) => [form.id, on[form.id] !== false]));
+  });
+
   // all / none apply to the forms currently listed (so you can search, then select the matches)
   const setForms = (value: boolean): void => {
     setFormsOn(withFlags(formsOn(), shownForms().map((form) => form.id), value));
   };
-
-  const onAllForms = stopClick(function onAllForms(): void { setForms(true); });
-  const onNoForms = stopClick(function onNoForms(): void { setForms(false); });
-  const onFormSearchInput = function onFormSearchInput(event: Event & { currentTarget: HTMLInputElement }): void {
-    setFormQ(event.currentTarget.value);
+  const onAllForms = function onAllForms(): void { setForms(true); };
+  const onNoForms = function onNoForms(): void { setForms(false); };
+  const onQueryInput = function onQueryInput(value: string): void {
+    setFormQ(value);
   };
-
-  const formToggleHandler = (formId: string) => function onFormToggle(event: Event & { currentTarget: HTMLInputElement }): void {
-    setFormsOn(withFlags(formsOn(), [formId], event.currentTarget.checked));
+  const onFormToggle = function onFormToggle(formId: string, checked: boolean): void {
+    setFormsOn(withFlags(formsOn(), [formId], checked));
   };
 
   return (
-    <details class="sec">
-      <summary><h2>Forms <button class="link" onClick={onAllForms}>all</button> <button class="link" onClick={onNoForms}>none</button> <HintToggle help={help} title="Forms" /></h2></summary>
-      <HintText help={help}>Keeps only the ticked forms. All and none apply to the forms currently listed, so you can search first and then select the matches. The number is how many fields the form has.</HintText>
-      <input type="search" class="formsearch" placeholder="Search forms…" value={formQ()} onInput={onFormSearchInput} />
-      <div id="forms">
-        <For each={shownForms()}>
-          {(form) => (
-            <label class="chk"><input type="checkbox" checked={formsOn()[form.id] !== false} onChange={formToggleHandler(form.id)} /> {form.label} <span class="muted small">({form.fields.length})</span></label>
-          )}
-        </For>
-      </div>
-    </details>
+    <FormsSectionView
+      query={formQ()}
+      forms={shownForms()}
+      checkedById={checkedById()}
+      onQueryInput={onQueryInput}
+      onAllForms={onAllForms}
+      onNoForms={onNoForms}
+      onFormToggle={onFormToggle}
+    />
   );
 }
