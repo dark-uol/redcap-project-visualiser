@@ -1,5 +1,5 @@
 /* Hand-written SVG in the shapes Graphviz and Mermaid produce, plus small View builders. */
-import type { View, ViewNode } from '../src/lib/types';
+import type { Edge, Field, View, ViewNode } from '../src/lib/types';
 
 export const svgFrom = (inner: string, attrs = ''): SVGSVGElement => {
   const host = document.createElement('div');
@@ -21,3 +21,10 @@ export const node = (id: string, over: Partial<ViewNode> = {}): ViewNode =>
 
 export const makeView = (over: Partial<View> = {}): View =>
   ({ level: 'field', nodes: [node('a'), node('b'), node('c')], edges: [], groups: [], ...over });
+
+export const field = (over: Partial<Field> = {}): Field => ({
+  variable: 'v', oid: 'v', type: 'text', label: 'V', section: '', note: '', branching: '', calc: '', annotation: '',
+  required: false, choices: [], form: 'f', ...over,
+});
+
+export const edge = (over: Partial<Edge> = {}): Edge => ({ from: 'a', to: 'b', type: 'branching', expr: "[a] = '1'", cross: false, missing: false, ...over });

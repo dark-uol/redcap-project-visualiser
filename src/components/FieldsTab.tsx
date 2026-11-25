@@ -1,26 +1,26 @@
-import { For, createMemo } from 'solid-js';
+import { createMemo } from 'solid-js';
 import { need, model, fieldQ, setFieldQ, selection, formLabel } from '../store';
+import { fieldSearchText, matchesQuery } from '../lib/tableFilters';
+import { FieldsTabView, type FieldRow } from './FieldsTabView';
 
-const { setSelected, setTab } = selection;
+function selectField(variable: string): void {
+  selection.setSelected(variable);
+  selection.setTab('graph');
+}
 
 export default function FieldsTab() {
-  const rows = createMemo(() => {
-    const q = fieldQ().toLowerCase().trim();
-    return need(model()).parsed.fields.filter((f) => !q || [f.variable, f.form, f.type, f.label].join(' ').toLowerCase().includes(q));
+  // Rows and their search text depend only on the model, so the row objects keep their identity (and their <tr>) while the filter changes.
+  const entries = createMemo(() => {
+    const degree = need(model()).analysis.degree;
+    return need(model()).parsed.fields.map((f) => {
+      const deg = degree.get(f.variable) ?? { in: 0, out: 0 };
+      const row: FieldRow = { variable: f.variable, formLabel: formLabel(f.form), type: f.type, label: f.label, dependsOn: deg.in, usedBy: deg.out };
+      return { row, searchText: fieldSearchText(f) };
+    });
   });
-  const deg = (v: string) => need(model()).analysis.degree.get(v) ?? { in: 0, out: 0 };
-  return (
-    <div>
-      <input class="filter" placeholder="Filter fields…" value={fieldQ()} onInput={(e) => setFieldQ(e.currentTarget.value)} />
-      <table id="fieldTable"><thead><tr><th>Variable</th><th>Form</th><th>Type</th><th>Label</th><th>Depends on</th><th>Used by</th></tr></thead><tbody>
-        <For each={rows()}>
-          {(f) => (
-            <tr data-v="1" onClick={() => { setSelected(f.variable); setTab('graph'); }}>
-              <td>{f.variable}</td><td>{formLabel(f.form)}</td><td>{f.type}</td><td>{f.label.slice(0, 80)}</td><td>{deg(f.variable).in}</td><td>{deg(f.variable).out}</td>
-            </tr>
-          )}
-        </For>
-      </tbody></table>
-    </div>
-  );
+  const rows = createMemo((): FieldRow[] => {
+    const query = fieldQ();
+    return entries().filter((entry) => matchesQuery(entry.searchText, query)).map((entry) => entry.row);
+  });
+  return <FieldsTabView rows={rows()} query={fieldQ()} onQueryChange={setFieldQ} onSelectField={selectField} />;
 }
