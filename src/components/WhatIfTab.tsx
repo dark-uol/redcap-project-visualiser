@@ -190,9 +190,9 @@ function VisibilityTable(props: { title: string; emptyText: string; rows: Affect
   return (
     <div class="wi-section">
       {/* the heading folds the section away; the counts stay in view so a collapsed section still says how things stand */}
-      <button class="wi-fold" aria-expanded={collapsed() ? "false" : "true"} onClick={() => whatIf.toggleSection(props.title)}>
-        <span class="wi-fold-mark">{collapsed() ? '▸' : '▾'}</span>
+      <button class="wi-fold" aria-expanded={collapsed() ? 'false' : 'true'} onClick={() => whatIf.toggleSection(props.title)}>
         <h4>{props.title}</h4>
+        <span class={{ 'wi-fold-mark': true, collapsed: collapsed() }} aria-hidden="true" />
         <Show when={props.rows.length}><span class="small muted">{STATE_ORDER.map(([state, title]) => title + ' (' + countOf(state) + ')').join(' · ')}</span></Show>
       </button>
       <Show when={!collapsed()}>

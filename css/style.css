@@ -128,7 +128,11 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 .wi-row h4{margin:0}
 .wi-fold{display:flex;gap:8px;align-items:baseline;background:none;border:0;padding:0;margin:0 0 6px;color:var(--text);font:inherit;cursor:pointer;text-align:left}
 .wi-fold h4{margin:0}
-.wi-fold-mark{color:var(--muted);font-size:11px;width:10px}
+.wi-fold{align-items:center}
+/* a drawn chevron: points down when open, right when collapsed */
+.wi-fold-mark{width:8px;height:8px;margin:0 4px;border:solid var(--muted);border-width:0 2px 2px 0;transform:translateY(-2px) rotate(45deg);transition:transform .15s}
+.wi-fold-mark.collapsed{transform:rotate(-45deg)}
+.wi-fold:hover .wi-fold-mark{border-color:var(--text)}
 .wi-editor{margin-top:10px}
 .wi-top{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;justify-content:space-between}
 .wi-search{flex:1 1 320px;min-width:0}
