@@ -2,15 +2,16 @@
 import { Show, createSignal } from 'solid-js';
 import { TraceControl } from './FocusControls';
 import { HintHeading } from './controls';
+import { Tag } from './Tag';
 import { WhatIfBadge, editField } from './whatIfParts';
 import type { Element as SolidElement } from 'solid-js';
-import { TYPES, findNode, neighbors, isRepeatingInstance, formIsRepeating, nodeInfo } from '../lib/graph';
+import { findNode, neighbors, isRepeatingInstance, formIsRepeating, nodeInfo } from '../lib/graph';
 import { classifyDetail } from '../lib/detailKind';
 import type { DetailFacts } from '../lib/detailKind';
 import { resolveExploreTarget } from '../lib/exploreTarget';
 import type { ExploreContext } from '../lib/exploreTarget';
 import { groupIdFor, parseSelection } from '../lib/selection';
-import type { DepType, Edge, EventDef, Field, Form, FormNode, FormPair, LogicNode, Model, NeighborDir, View, ViewEdge, ViewNode } from '../lib/types';
+import type { Edge, EventDef, Field, Form, FormNode, FormPair, LogicNode, Model, NeighborDir, View, ViewEdge, ViewNode } from '../lib/types';
 import {
   need, model, view, opts, selection, setExplore, expanded,
   currentExploration, exploreVisible, instanceMode, formLabel, expandRef, collapseRef, toggleExpandForm, toggleExpandEvent, expandedEvents, jumpToField, focusing,
@@ -24,10 +25,6 @@ const TOKEN_RE = /(\[[A-Za-z][A-Za-z0-9_]*(?:\([^)\]]*\))?(?::[A-Za-z0-9_]+)?\])
 function repEvents(parsed: Model['parsed'], fm: { id: string }): string {
   const evs = (parsed.repeatingInstruments || []).filter((r) => r.form === fm.id).map((r) => r.event);
   return [...new Set(evs)].map((id) => ((parsed.events || []).find((e) => e.id === id) || { label: id }).label).join(', ');
-}
-
-export function Tag(props: { type: DepType }) {
-  return <span class="tag" style={`background:${TYPES[props.type].color}`}>{props.type}</span>;
 }
 
 /** Logic code with clickable [variable] references (red when undefined). */

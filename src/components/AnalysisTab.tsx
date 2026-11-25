@@ -1,6 +1,6 @@
 import type { Element as SolidElement } from 'solid-js';
 import { need, model, jumpToField } from '../store';
-import { Tag } from './Detail';
+import { Tag } from './Tag';
 
 const FieldLink = (props: { v: string }) => <button class="fieldlink" onClick={() => jumpToField(props.v)}>{props.v}</button>;
 

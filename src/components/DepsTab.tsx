@@ -1,7 +1,7 @@
 import { For, createMemo } from 'solid-js';
 import { nodeInfo } from '../lib/graph';
 import { need, model, opts, depQ, setDepQ, formLabel } from '../store';
-import { Tag } from './Detail';
+import { Tag } from './Tag';
 
 export default function DepsTab() {
   const rows = createMemo(() => {
