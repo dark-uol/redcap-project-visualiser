@@ -1,6 +1,7 @@
 /* Empty-state drop zone; also wires page-wide drag & drop of an XML file. */
 import { onSettled } from 'solid-js';
 import { dragOver, setDragOver, readFile } from '../store';
+import { FileDropView } from './FileDropView';
 
 /** Page-wide drag & drop listeners (mounted once, from App). */
 export function useFileDrop(): void {
@@ -25,9 +26,5 @@ export function useFileDrop(): void {
 }
 
 export default function FileDrop() {
-  return (
-    <div class={{ drop: true, over: dragOver() }}>
-      <div><strong>Drop a REDCap project XML here</strong><br /><span class="muted">Export from REDCap: Project Setup → Other Functionality → “Download metadata only (XML)”. Everything is processed locally in your browser.</span></div>
-    </div>
-  );
+  return <FileDropView over={dragOver()} />;
 }
