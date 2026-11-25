@@ -10,12 +10,17 @@ import MatrixTab from './MatrixTab';
 import AnalysisTab from './AnalysisTab';
 import DepsTab from './DepsTab';
 import FieldsTab from './FieldsTab';
+import WhatIfTab from './WhatIfTab';
 
-const TABS: [Tab, string][] = [['graph', 'Graph'], ['matrix', 'Matrix'], ['analysis', 'Analysis'], ['deps', 'Dependencies'], ['fields', 'Fields']];
+const TABS: [Tab, string][] = [['graph', 'Graph'], ['matrix', 'Matrix'], ['analysis', 'Analysis'], ['deps', 'Dependencies'], ['fields', 'Fields'], ['whatif', 'What if']];
+
+/** The tabs that read the side panel's view settings (level, filters, focus). */
+const TABS_WITH_SIDE_PANEL = new Set<Tab>(['graph', 'matrix', 'deps']);
 
 export default function Workspace() {
   return (
-    <main id="app">
+    // the view settings drive the graph, matrix and dependency list, so other tabs get the full width; hidden rather than unmounted, so open sections stay open
+    <main id="app" class={{ 'no-side': !TABS_WITH_SIDE_PANEL.has(tab()) }}>
       <Sidebar />
       <div id="content">
         <nav id="tabs">
@@ -28,6 +33,7 @@ export default function Workspace() {
         <Show when={tab() === 'analysis'}><div class="tab active" id="tab-analysis"><AnalysisTab /></div></Show>
         <Show when={tab() === 'deps'}><div class="tab active" id="tab-deps"><DepsTab /></div></Show>
         <Show when={tab() === 'fields'}><div class="tab active" id="tab-fields"><FieldsTab /></div></Show>
+        <Show when={tab() === 'whatif'}><div class="tab active" id="tab-whatif"><WhatIfTab /></div></Show>
       </div>
     </main>
   );

@@ -63,6 +63,17 @@ describe('event prefixes on dependency edges', () => {
     expect(edge?.events).toContain('evt_a');
   });
 
+  it('records an event whose unique name starts with a digit', () => {
+    const digits = buildModel({
+      ...parsed(),
+      fields: [field('x', 'form1'), field('y', 'form1'), field('z', 'form2', "[12_months_arm_1][x] = '1'")],
+      events: [event('12_months_arm_1'), event('evt_b')],
+    });
+    const edge = edgeTo(digits.edges, 'z', 'branching');
+    expect(edge?.events).toEqual(['12_months_arm_1']);
+    expect(digits.ghosts.has('12_months_arm_1')).toBe(false);
+  });
+
   it('does not attribute an event to a token it does not directly prefix', () => {
     const plain = buildModel({ ...parsed(), logicSources: [{ id: 'alert-2', kind: 'alert', label: 'A', logic: '[x] = 1', refs: ['x'] }] });
     expect(edgeTo(plain.edges, 'logic:alert-2', 'logicsrc')?.events).toBeUndefined();

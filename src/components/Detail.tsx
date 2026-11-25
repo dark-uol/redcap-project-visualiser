@@ -2,6 +2,7 @@
 import { Show, createSignal } from 'solid-js';
 import { TraceControl } from './FocusControls';
 import { HintHeading } from './controls';
+import { WhatIfBadge, editField } from './whatIfParts';
 import type { Element as SolidElement } from 'solid-js';
 import { TYPES, findNode, neighbors, isRepeatingInstance, formIsRepeating, nodeInfo } from '../lib/graph';
 import { classifyDetail } from '../lib/detailKind';
@@ -223,6 +224,11 @@ function ghostDetail(id: string, exploreId: string) {
   );
 }
 
+const openWhatIf = function openWhatIf(variable: string): void {
+  editField(variable);
+  selection.setTab('whatif');
+};
+
 function fieldDetail(f: Field, id: string, exploreId: string) {
   const A = need(model()).analysis;
   const up = (A.inn.get(id) ?? []).map((e) => ({ id: e.from, t: e.type }));
@@ -231,6 +237,7 @@ function fieldDetail(f: Field, id: string, exploreId: string) {
     <div>
       <h3>{f.variable}</h3>
       <div class="muted small">{f.type} · form <b>{formLabel(f.form)}</b>{f.required ? ' · required' : ''}</div>
+      <div class="small" style="margin:4px 0"><WhatIfBadge variable={f.variable} /> <button class="link" title="Evaluate what this field would show or hide" onClick={() => openWhatIf(f.variable)}>What if…</button></div>
       {f.label ? <p style="margin:6px 0">{f.label}</p> : ''}
       {f.media && (f.media.inlineImage || f.media.videoUrl) ? <div class="muted small" style="margin:6px 0">Media: {[f.media.inlineImage ? 'inline image ' + f.media.inlineImage : '', f.media.videoUrl ? 'video ' + f.media.videoUrl + (f.media.videoInline ? ' (inline)' : '') : ''].filter(Boolean).join(' · ')}</div> : ''}
       <ExploreRow id={exploreId} />

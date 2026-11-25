@@ -2,9 +2,16 @@
 import { createSignal } from 'solid-js';
 import { allTypesOn, clampDepth, DEFAULT_DIRECTION, DEFAULT_RENDERER } from './common';
 import type { AnchorCapture, Tab } from './common';
+import { ANY_EVENT } from '../lib/whatIf';
+import type { WhatIfValue } from '../lib/whatIf';
 import type {
   DepType, Direction, Explore, FocusDir, FormPair, GroupBy, LabelMode, Level, Model, Renderer, View,
 } from '../lib/types';
+
+/** One row of the What if values table: a field (or smart variable key) and the event its value is for (null: every event, or no events). */
+export interface WhatIfRow { variable: string; event: string | null }
+/** What-if values by event id (ANY_EVENT for every event), then by variable. */
+type WhatIfValues = Record<string, Record<string, WhatIfValue>>;
 
 export function createState() {
   let modelSeq = 0; // bumps on each file load; history entries from an older file are ignored
@@ -57,6 +64,63 @@ export function createState() {
   const focusing = { focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth, pair, setPair };
   const presentation = { dir, setDir, labelMode, setLabelMode, groupBy, setGroupBy, edgeLabels, setEdgeLabels, renderer, setRenderer };
 
+  // What-if values: picked field values, and the context they are evaluated in
+  const [whatIfValues, setWhatIfValues] = createSignal<WhatIfValues>({});
+  const [whatIfMode, setWhatIfMode] = createSignal<'survey' | 'form'>('form');
+  const [whatIfEvent, setWhatIfEvent] = createSignal<string | null>(null);
+  const [whatIfField, setWhatIfField] = createSignal<string | null>(null); // variable being edited in the What if tab
+  // `values` with one value written into the bucket of an event (ANY_EVENT when null), dropping buckets that become empty.
+  // Pure, so several changes can be chained into one write: Solid 2 batches writes, and a signal read straight after a write still returns the old value.
+  const withValue = (values: WhatIfValues, event: string | null, variable: string, value: WhatIfValue | null | undefined): WhatIfValues => {
+    const key = event ?? ANY_EVENT;
+    const next = { ...values };
+    const bucket = { ...next[key] };
+    if (value === null || value === undefined || value === '' || (Array.isArray(value) && !value.length)) delete bucket[variable];
+    else bucket[variable] = value;
+    if (Object.keys(bucket).length) next[key] = bucket;
+    else delete next[key];
+    return next;
+  };
+  const setWhatIfValueIn = function setWhatIfValueIn(event: string | null, variable: string, value: WhatIfValue | null): void {
+    setWhatIfValues(withValue(whatIfValues(), event, variable, value));
+  };
+  // Rows of the What if values table, in the order added; a row may have no value yet. Values set elsewhere (the Needs inputs) are listed after these.
+  const [whatIfRows, setWhatIfRows] = createSignal<readonly WhatIfRow[]>([]);
+  const sameRow = (row: WhatIfRow, variable: string, event: string | null): boolean => row.variable === variable && row.event === event;
+  const addWhatIfRow = function addWhatIfRow(variable: string, event: string | null): void {
+    if (!whatIfRows().some((row) => sameRow(row, variable, event))) setWhatIfRows([...whatIfRows(), { variable, event }]);
+  };
+  const removeWhatIfRow = function removeWhatIfRow(variable: string, event: string | null): void {
+    setWhatIfRows(whatIfRows().filter((row) => !sameRow(row, variable, event)));
+    setWhatIfValueIn(event, variable, null);
+  };
+  // Moves a row, and its value, to another event (the value already there, if any, is replaced)
+  const moveWhatIfRow = function moveWhatIfRow(variable: string, from: string | null, to: string | null): void {
+    if (from === to) return;
+    const value = whatIfValues()[from ?? ANY_EVENT]?.[variable];
+    const listed = whatIfRows().some((row) => sameRow(row, variable, from));
+    const kept = whatIfRows().filter((row) => !sameRow(row, variable, to));
+    setWhatIfRows(listed ? kept.map((row) => (sameRow(row, variable, from) ? { variable, event: to } : row)) : [...kept, { variable, event: to }]);
+    // one write: the value leaves `from` and (when there is one) lands in `to`
+    setWhatIfValues(withValue(withValue(whatIfValues(), from, variable, null), to, variable, value));
+  };
+  const clearWhatIfValues = function clearWhatIfValues(): void { setWhatIfValues({}); setWhatIfRows([]); };
+  const whatIfValueCount = function whatIfValueCount(): number {
+    return Object.values(whatIfValues()).reduce((total, bucket) => total + Object.keys(bucket).length, 0);
+  };
+  // What if tab sections the user collapsed, by title; kept here so they stay collapsed across fields and tab switches
+  const [whatIfCollapsed, setWhatIfCollapsed] = createSignal<Readonly<Record<string, boolean>>>({});
+  const toggleWhatIfSection = function toggleWhatIfSection(title: string): void {
+    setWhatIfCollapsed({ ...whatIfCollapsed(), [title]: !whatIfCollapsed()[title] });
+  };
+  const whatIf = {
+    collapsed: whatIfCollapsed, toggleSection: toggleWhatIfSection,
+    values: whatIfValues, valueCount: whatIfValueCount, setValueIn: setWhatIfValueIn, clearValues: clearWhatIfValues,
+    rows: whatIfRows, addRow: addWhatIfRow, removeRow: removeWhatIfRow, moveRow: moveWhatIfRow,
+    mode: whatIfMode, setMode: setWhatIfMode, event: whatIfEvent, setEvent: setWhatIfEvent,
+    field: whatIfField, setField: setWhatIfField,
+  };
+
   const [tab, setTab] = createSignal<Tab>('graph');
   const [downloadMenuOpen, setDownloadMenuOpen] = createSignal(false);
   // setSelectedKeepingEdge sets the selection without clearing selectedEdge; setSelected also clears selectedEdge.
@@ -81,7 +145,7 @@ export function createState() {
 
   return {
     model, setModel, fileBase, setFileBase, dragOver, setDragOver, loadError, setLoadError,
-    focusing, presentation, selection,
+    focusing, presentation, selection, whatIf,
     instances, setInstances: animated(setInstances), rawSetInstances: setInstances, filters, rawFilters,
     expanded, setExpanded, expandedEvents, setExpandedEvents, explore, setExplore, downloadMenuOpen, setDownloadMenuOpen,
     depQ, setDepQ, fieldQ, setFieldQ, svgEl, setSvgEl, svgView, setSvgView, busy, setBusy, renderMsg, setRenderMsg,
