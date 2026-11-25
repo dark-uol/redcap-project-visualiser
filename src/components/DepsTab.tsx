@@ -1,30 +1,27 @@
-import { For, createMemo } from 'solid-js';
+import { createMemo } from 'solid-js';
 import { nodeInfo } from '../lib/graph';
 import { need, model, opts, depQ, setDepQ, formLabel } from '../store';
-import { Tag } from './Tag';
+import { DepsTabView, MAX_DISPLAYED_ROWS, type DependencyRow } from './DepsTabView';
 
 export default function DepsTab() {
-  const rows = createMemo(() => {
+  const matching = createMemo(() => {
     const m = need(model()), o = need(opts()), q = depQ().toLowerCase().trim();
     return m.edges
       .filter((e) => o.types.has(e.type) && (o.showMissing || !e.missing))
       .filter((e) => !q || [e.from, e.to, e.type, nodeInfo(m, e.from).form, nodeInfo(m, e.to).form, e.expr].join(' ').toLowerCase().includes(q));
   });
-  return (
-    <div>
-      <input class="filter" placeholder="Filter by field, form, type or expression…" value={depQ()} onInput={(e) => setDepQ(e.currentTarget.value)} />
-      <p class="muted small">{rows().length} dependencies{rows().length > 1000 ? ' (showing first 1000)' : ''}</p>
-      <table><thead><tr><th>Source field</th><th></th><th>Dependent field</th><th>Type</th><th>Expression</th></tr></thead><tbody>
-        <For each={rows().slice(0, 1000)}>
-          {(e) => (
-            <tr>
-              <td>{e.from}<div class="muted small">{formLabel(nodeInfo(need(model()), e.from).form)}</div></td><td>→</td>
-              <td>{e.to}<div class="muted small">{formLabel(nodeInfo(need(model()), e.to).form)}</div></td>
-              <td><Tag type={e.type} />{e.cross ? <span class="tag" style="background:#6b7280">cross-event</span> : ''}</td><td class="expr">{e.expr}</td>
-            </tr>
-          )}
-        </For>
-      </tbody></table>
-    </div>
-  );
+  // Only the displayed rows are mapped, so typing in the filter stays cheap on large projects.
+  const rows = createMemo((): DependencyRow[] => {
+    const m = need(model());
+    return matching().slice(0, MAX_DISPLAYED_ROWS).map((e) => ({
+      from: e.from,
+      fromFormLabel: formLabel(nodeInfo(m, e.from).form),
+      to: e.to,
+      toFormLabel: formLabel(nodeInfo(m, e.to).form),
+      type: e.type,
+      cross: e.cross,
+      expression: e.expr,
+    }));
+  });
+  return <DepsTabView rows={rows()} totalCount={matching().length} query={depQ()} onQueryChange={setDepQ} />;
 }
