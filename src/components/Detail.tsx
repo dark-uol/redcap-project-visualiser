@@ -1,9 +1,12 @@
-/* Detail panel: logic code, explore buttons, form / instance / event / edge summaries. */
+/* Detail panel: reads the store, looks up facts about the selection and renders the matching view from DetailViews. */
 import { Show, createSignal } from 'solid-js';
 import { TraceControl } from './FocusControls';
 import { HintHeading } from './controls';
-import { Tag } from './Tag';
 import { WhatIfBadge, editField } from './whatIfParts';
+import {
+  DetailPanelView, EdgeDetailView, EventDetailView, FieldDetailView, FormDetailView, FormDisplayLogicDetailView,
+  GhostDetailView, GroupDetailView, InstanceDetailView, LogicSourceDetailView, UndefinedFieldsDetailView,
+} from './DetailViews';
 import type { Element as SolidElement } from 'solid-js';
 import { findNode, neighbors, isRepeatingInstance, formIsRepeating, nodeInfo } from '../lib/graph';
 import { classifyDetail } from '../lib/detailKind';
@@ -20,55 +23,11 @@ import {
 const { setFocus, setPair } = focusing;
 const { level, selected, selectedEdge, setSelectedEdge, setSelected, setLevel } = selection;
 
-const TOKEN_RE = /(\[[A-Za-z][A-Za-z0-9_]*(?:\([^)\]]*\))?(?::[A-Za-z0-9_]+)?\])/;
+const isDefinedVariable = (variable: string): boolean => need(model()).byVar.has(variable);
 
 function repEvents(parsed: Model['parsed'], fm: { id: string }): string {
   const evs = (parsed.repeatingInstruments || []).filter((r) => r.form === fm.id).map((r) => r.event);
   return [...new Set(evs)].map((id) => ((parsed.events || []).find((e) => e.id === id) || { label: id }).label).join(', ');
-}
-
-/** Logic code with clickable [variable] references (red when undefined). */
-function CodeBlock(props: { title: string; text: string | undefined; copyable?: boolean }) {
-  const nodes = () => (props.text ?? '').split(TOKEN_RE).map((p) => {
-    const m = /^\[([A-Za-z][A-Za-z0-9_]*)/.exec(p);
-    if (!m || p[0] !== '[') return p;
-    const ok = need(model()).byVar.has(m[1]);
-    return ok
-      ? <span class="ref" style="cursor:pointer" onClick={() => setSelected(m[1])}>{p}</span>
-      : <span class="ref bad">{p}</span>;
-  });
-  return (
-    <Show when={props.text}>
-      <div><h4>{props.title} {props.copyable ? <button class="link" onClick={(e) => {
-        navigator.clipboard?.writeText(props.text ?? '');
-        e.currentTarget.textContent = 'copied';
-      }}>copy</button> : ''}</h4><pre>{nodes()}</pre></div>
-    </Show>
-  );
-}
-
-/** A titled block: an h4 with an optional count, then the body, or 'none' when it is empty. */
-function Section(props: { title: string; count?: number; empty: boolean; children: SolidElement }) {
-  return (
-    <>
-      <h4>{props.title}{props.count === undefined ? '' : ` (${props.count})`}</h4>
-      {props.empty ? <span class="muted small">none</span> : props.children}
-    </>
-  );
-}
-
-function ChipList(props: { items: { id: string; t: string }[] }) {
-  return <div class="chips">{props.items.map((x) => <button class="chip" title={x.t} onClick={() => setSelected(x.id)}>{x.id}</button>)}</div>;
-}
-
-/** One dependency edge as `from → to`, with its type tag and expression; `detail` adds trailing text. */
-function EdgeRow(props: { edge: Edge; onOpen: (id: string) => void; detail?: SolidElement }) {
-  return (
-    <div class="small" style="margin-bottom:6px">
-      <button class="fieldlink" onClick={() => props.onOpen(props.edge.from)}>{props.edge.from}</button> → <button class="fieldlink" onClick={() => props.onOpen(props.edge.to)}>{props.edge.to}</button> <Tag type={props.edge.type} /> {props.detail}
-      <pre>{props.edge.expr}</pre>
-    </div>
-  );
 }
 
 function exploreButton(m: Model, t: string, dir: NeighborDir, label: string, tip: string) {
@@ -160,22 +119,25 @@ function ExploreRow(props: { id: string }) {
 // a form box (cluster) clicked in the field-level graph
 function groupDetail(formId: string) {
   const m = need(model()), fm = m.formsById.get(formId), o = need(opts());
-  const label = fm ? fm.label : formId;
   const linked = new Set<string>();
   m.edges.forEach((e) => { if (o.types.has(e.type) && (o.showMissing || !e.missing)) { linked.add(e.from); linked.add(e.to); } });
   const inForm = fm ? fm.fields.filter((v) => linked.has(v)) : [];
   const seeds = [groupIdFor(formId), ...(inForm.length ? inForm : fm ? fm.fields : [])];
+  const focusForm = function focusForm(): void { setPair(null); setFocus(''); setExplore({ level: 'field', seeds, exp: [] }); };
   return (
-    <div><h3>{label}</h3><div class="muted small">form <code>{formId}</code> · {fm ? fm.fields.length : 0} fields · {inForm.length} with dependencies</div>
-      <ExploreRow id={groupIdFor(formId)} />
-      <div class="focus-box"><HintHeading title="Focus" hint="Shows only this form's linked fields. Then use Add to graph to bring in what it depends on or what uses it, or select any node to add its links individually." />
-        <span class="seg"><button class="btn sm" title="Show only this form's linked fields" onClick={() => { setPair(null); setFocus(''); setExplore({ level: 'field', seeds, exp: [] }); }}>this form</button></span></div>
-</div>
+    <GroupDetailView
+      label={fm ? fm.label : formId}
+      formId={formId}
+      fieldCount={fm ? fm.fields.length : 0}
+      linkedFieldCount={inForm.length}
+      onFocusForm={focusForm}
+      explore={<ExploreRow id={groupIdFor(formId)} />}
+    />
   );
 }
 
 function undefinedFieldsDetail(id: string) {
-  return <div><h3>Undefined fields</h3><div class="muted small">fields referenced by logic but not defined in the project</div><ExploreRow id={id} /></div>;
+  return <UndefinedFieldsDetailView explore={<ExploreRow id={id} />} />;
 }
 
 // a form (not a field) clicked in the field-level graph
@@ -184,41 +146,53 @@ function formDetail(fm: Form) {
   const cross = m.edges.filter((e) => !e.missing && e.type !== 'logicsrc' && (nodeInfo(m, e.from).form === id) !== (nodeInfo(m, e.to).form === id));
   const repeatingIn = repEvents(m.parsed, fm);
   return (
-    <div><h3>{fm.label}</h3><div class="muted small">form <code>{fm.id}</code> · {fm.fields.length} fields{formIsRepeating(m.parsed, fm) ? ' · repeating' + (repeatingIn ? ' in ' + repeatingIn : '') : ''}</div>
-      <ExploreRow id={id} />
-      {instanceMode() ? '' : <div class="focus-box"><HintHeading title="Zoom" hint="Shows this form's fields inside the graph." />
-        <span class="seg"><button class="btn sm" onClick={() => toggleExpandForm(id)}>{expanded().has(id) ? 'back to form' : 'into fields'}</button></span></div>}
-      <TraceControl id={id} what="form" />
-      <Section title="Cross-form dependencies" count={cross.length} empty={!cross.length}>
-        {cross.map((e) => <EdgeRow edge={e} onOpen={(x) => setSelected(x)} />)}
-      </Section></div>
+    <FormDetailView
+      label={fm.label}
+      formId={fm.id}
+      fieldCount={fm.fields.length}
+      repeatingNote={formIsRepeating(m.parsed, fm) ? ' · repeating' + (repeatingIn ? ' in ' + repeatingIn : '') : ''}
+      canZoom={!instanceMode()}
+      zoomLabel={expanded().has(id) ? 'back to form' : 'into fields'}
+      onToggleZoom={() => toggleExpandForm(id)}
+      crossFormEdges={cross}
+      onOpen={setSelected}
+      explore={<ExploreRow id={id} />}
+      trace={<TraceControl id={id} what="form" />}
+    />
   );
 }
 
 function formDisplayLogicDetail(info: FormNode, exploreId: string) {
   return (
-    <div><h3>Form: {info.label}</h3><div class="muted small">form display logic target</div><ExploreRow id={exploreId} />{info.logic.map((l, i) => <>
-      <CodeBlock title="Display condition" text={l} copyable={true} /><div class="muted small" style="margin:-2px 0 8px">Applies in event{(info.logicEvents[i] || []).length === 1 ? '' : 's'}: {(info.logicEvents[i] || []).length ? (info.logicEvents[i]).map((ev) => <><code>{ev}</code> </>) : 'all events'}</div></>)}</div>
+    <FormDisplayLogicDetailView
+      label={info.label}
+      logic={info.logic}
+      logicEvents={info.logicEvents}
+      isDefined={isDefinedVariable}
+      onSelect={setSelected}
+      explore={<ExploreRow id={exploreId} />}
+    />
   );
 }
 
 function logicSourceDetail(info: LogicNode, id: string, exploreId: string) {
   const reads = need(model()).analysis.inn.get(id) ?? [];
   return (
-    <div><h3>{info.label}</h3><div class="muted small">logic source · <code>{info.kind}</code></div><ExploreRow id={exploreId} />
-      <CodeBlock title="Logic" text={info.logic} copyable={true} />
-      <Section title="Reads fields" count={reads.length} empty={!reads.length}>
-        <ChipList items={reads.map((e) => ({ id: e.from, t: e.type }))} />
-      </Section></div>
+    <LogicSourceDetailView
+      label={info.label}
+      kind={info.kind}
+      logic={info.logic}
+      reads={reads.map((e) => ({ id: e.from, t: e.type }))}
+      isDefined={isDefinedVariable}
+      onSelect={setSelected}
+      explore={<ExploreRow id={exploreId} />}
+    />
   );
 }
 
 function ghostDetail(id: string, exploreId: string) {
   const usedBy = (need(model()).analysis.out.get(id) ?? []).map((e) => ({ id: e.to, t: e.type }));
-  return (
-    <div><h3>{id}</h3><div class="muted small">Referenced but not defined in this project</div><ExploreRow id={exploreId} />
-      <Section title="Used by" empty={!usedBy.length}><ChipList items={usedBy} /></Section></div>
-  );
+  return <GhostDetailView id={id} usedBy={usedBy} onSelect={setSelected} explore={<ExploreRow id={exploreId} />} />;
 }
 
 const openWhatIf = function openWhatIf(variable: string): void {
@@ -231,20 +205,18 @@ function fieldDetail(f: Field, id: string, exploreId: string) {
   const up = (A.inn.get(id) ?? []).map((e) => ({ id: e.from, t: e.type }));
   const down = (A.out.get(id) ?? []).map((e) => ({ id: e.to, t: e.type }));
   return (
-    <div>
-      <h3>{f.variable}</h3>
-      <div class="muted small">{f.type} · form <b>{formLabel(f.form)}</b>{f.required ? ' · required' : ''}</div>
-      <div class="small" style="margin:4px 0"><WhatIfBadge variable={f.variable} /> <button class="link" title="Evaluate what this field would show or hide" onClick={() => openWhatIf(f.variable)}>What if…</button></div>
-      {f.label ? <p style="margin:6px 0">{f.label}</p> : ''}
-      {f.media && (f.media.inlineImage || f.media.videoUrl) ? <div class="muted small" style="margin:6px 0">Media: {[f.media.inlineImage ? 'inline image ' + f.media.inlineImage : '', f.media.videoUrl ? 'video ' + f.media.videoUrl + (f.media.videoInline ? ' (inline)' : '') : ''].filter(Boolean).join(' · ')}</div> : ''}
-      <ExploreRow id={exploreId} />
-      <TraceControl id={id} what="field" />
-      <CodeBlock title="Branching logic" text={f.branching} copyable={true} /><CodeBlock title="Calculation" text={f.calc} copyable={true} /><CodeBlock title="Action tags / annotation" text={f.annotation} copyable={true} />
-      <CodeBlock title="Section header (piping [x] or embedding {x})" text={f.section} /><CodeBlock title="Field note (piping [x] or embedding {x})" text={f.note} />
-      {!f.branching && !f.calc && !f.annotation ? <p class="muted small">No logic code on this field.</p> : ''}
-      {f.choices.length ? <div><h4>Choices</h4><pre>{f.choices.map((c) => c.code + ', ' + c.label).join('\n')}</pre></div> : ''}
-      <Section title="Depends on" count={up.length} empty={!up.length}><ChipList items={up} /></Section>
-      <Section title="Used by" count={down.length} empty={!down.length}><ChipList items={down} /></Section></div>
+    <FieldDetailView
+      field={f}
+      formLabel={formLabel(f.form)}
+      dependsOn={up}
+      usedBy={down}
+      isDefined={isDefinedVariable}
+      onSelect={setSelected}
+      onOpenWhatIf={() => openWhatIf(f.variable)}
+      whatIfBadge={<WhatIfBadge variable={f.variable} />}
+      explore={<ExploreRow id={exploreId} />}
+      trace={<TraceControl id={id} what="field" />}
+    />
   );
 }
 
@@ -264,18 +236,6 @@ function instanceNodeLabel(model: Model, nodes: ViewNode[], nodeId: string): str
   return node ? (instanceNodeFormLabel(model, node) + (node.event ? ' @ ' + eventLabel(model.parsed.events || [], node.event) : '')) : nodeId;
 }
 
-function EdgeFlags(props: { edge: ViewEdge }) {
-  return (['cross', 'mismatch', 'relative', 'crossArm'] as const)
-    .filter((k) => props.edge[k])
-    .map((k) => <><span class="tag" style="background:#6b7280">{k === 'crossArm' ? 'cross-arm' : k}</span> </>);
-}
-
-function InstanceEdgeRow(props: { edge: ViewEdge; other: string; label: string }) {
-  return (
-    <div class="small" style="margin-bottom:4px"><button class="fieldlink" onClick={() => setSelected(props.other)}>{props.label}</button> <EdgeFlags edge={props.edge} /></div>
-  );
-}
-
 /** A node of the Instances view: a form@event node, or a plain form id when the form is in one event. */
 function instanceDetail(node: ViewNode) {
   const v = need(view()), m = need(model());
@@ -287,18 +247,20 @@ function instanceDetail(node: ViewNode) {
   const inn = ie.filter((e) => e.to === id && e.from !== id);
   const out = ie.filter((e) => e.from === id && e.to !== id);
   return (
-    <div><h3>{fm ? fm.label : node.form}{node.event ? ' @ ' + eventLabel(evs, node.event) : ''}</h3>
-      <div class="muted small">form <code>{node.form}</code>{node.event ? <> · event <code>{node.event}</code></> : ''}{fm ? ' · ' + fm.fields.length + ' fields' : ''}{fm && (node.event ? isRepeatingInstance(m.parsed, fm, node.event) : fm.repeating) ? ' · repeating' : ''}</div>
-      <ExploreRow id={id} />
-      <div class="focus-box"><HintHeading title="Zoom" hint="Shows this form's fields inside the graph." />
-        <span class="seg"><button class="btn sm" onClick={() => toggleExpandForm(id)}>{expanded().has(id) ? 'back to form' : 'into fields'}</button></span></div>
-      {others.length ? <><h4>Also collected in ({others.length})</h4><div class="chips">{others.map((x) => <button class="chip" onClick={() => setSelected(x.id)}>{eventLabel(evs, x.event)}</button>)}</div></> : ''}
-      <Section title="Incoming from other instances" count={inn.length} empty={!inn.length}>
-        {inn.map((e) => <InstanceEdgeRow edge={e} other={e.from} label={instanceNodeLabel(m, nodes, e.from)} />)}
-      </Section>
-      <Section title="Outgoing to other instances" count={out.length} empty={!out.length}>
-        {out.map((e) => <InstanceEdgeRow edge={e} other={e.to} label={instanceNodeLabel(m, nodes, e.to)} />)}
-      </Section></div>
+    <InstanceDetailView
+      title={(fm ? fm.label : node.form) + (node.event ? ' @ ' + eventLabel(evs, node.event) : '')}
+      formId={node.form}
+      eventId={node.event || undefined}
+      fieldCount={fm ? fm.fields.length : null}
+      repeating={!!(fm && (node.event ? isRepeatingInstance(m.parsed, fm, node.event) : fm.repeating))}
+      zoomLabel={expanded().has(id) ? 'back to form' : 'into fields'}
+      onToggleZoom={() => toggleExpandForm(id)}
+      alsoIn={others.map((x) => ({ id: x.id, label: eventLabel(evs, x.event) }))}
+      incoming={inn.map((e) => ({ edge: e, other: e.from, label: instanceNodeLabel(m, nodes, e.from) }))}
+      outgoing={out.map((e) => ({ edge: e, other: e.to, label: instanceNodeLabel(m, nodes, e.to) }))}
+      onSelect={setSelected}
+      explore={<ExploreRow id={id} />}
+    />
   );
 }
 
@@ -309,20 +271,19 @@ function eventDetail(ev: EventDef) {
   const inn = m.edges.filter((e) =>
     m.parsed.events.some((x) => x.forms.includes(nodeInfo(m, e.to).form) && x.id === ev.id) && (e.events || []).some((x) => x !== ev.id));
   const repInstr = (m.parsed.repeatingInstruments || []).filter((r) => r.event === ev.id);
-  const eventsOf = (e: Edge) => <span class="muted">{(e.events || []).join(', ')}</span>;
   return (
-    <div><h3>{ev.label}</h3><div class="muted small">event <code>{ev.id}</code>{ev.arm ? ' · arm ' + ev.arm + (ev.armName ? ' (' + ev.armName + ')' : '') : ''}{ev.repeating ? ' · repeating' : ''}</div>
-      <p class="small" style="margin:6px 0">Forms: {ev.forms.map(formLabel).join(', ') || 'none'}</p>
-      {level() === 'event' ? <div class="focus-box"><HintHeading title="Zoom" hint="Shows this event's forms inside the graph." />
-        <span class="seg"><button class="btn sm" onClick={() => toggleExpandEvent(ev.id)}>{expandedEvents().has(ev.id) ? 'back to event' : 'into forms'}</button></span></div> : ''}
-      <TraceControl id={ev.id} what="event" />
-      {repInstr.length ? <p class="small" style="margin:6px 0">Repeating instruments: {repInstr.map((r) => r.label || formLabel(r.form)).join(', ')}</p> : ''}
-      <Section title="Read from this event" count={out.length} empty={!out.length}>
-        {out.map((e) => <EdgeRow edge={e} onOpen={(x) => jumpToField(x)} detail={eventsOf(e)} />)}
-      </Section>
-      <Section title="Reads other events" count={inn.length} empty={!inn.length}>
-        {inn.map((e) => <EdgeRow edge={e} onOpen={(x) => jumpToField(x)} detail={eventsOf(e)} />)}
-      </Section></div>
+    <EventDetailView
+      event={ev}
+      formLabels={ev.forms.map(formLabel)}
+      canZoom={level() === 'event'}
+      zoomLabel={expandedEvents().has(ev.id) ? 'back to event' : 'into forms'}
+      onToggleZoom={() => toggleExpandEvent(ev.id)}
+      repeatingInstruments={repInstr.map((r) => r.label || formLabel(r.form))}
+      readFromEvent={out}
+      readsOtherEvents={inn}
+      onOpen={jumpToField}
+      trace={<TraceControl id={ev.id} what="event" />}
+    />
   );
 }
 
@@ -337,18 +298,17 @@ function edgeDetail(ed: FormPair) {
     if (!byDep.has(e.to)) byDep.set(e.to, []);
     (byDep.get(e.to) as Edge[]).push(e);
   });
-  const srcs = new Set(es.map((e) => e.from));
+  const showFields = function showFields(): void { setLevel('field'); setFocus(''); setPair({ from: ed.from, to: ed.to }); setSelectedEdge(null); };
   return (
-    <div>
-      <h3>{fl(ed.from)} → {fl(ed.to)}</h3>
-      <div class="muted small">{srcs.size} source field{srcs.size === 1 ? '' : 's'} · {byDep.size} dependent field{byDep.size === 1 ? '' : 's'} · {es.length} dependenc{es.length === 1 ? 'y' : 'ies'}</div>
-      <p style="margin:8px 0"><button class="btn sm primary" onClick={() => { setLevel('field'); setFocus(''); setPair({ from: ed.from, to: ed.to }); setSelectedEdge(null); }}>Show these fields in the field graph</button></p>
-      {[...byDep.entries()].map(([dep, list]) => <div style="margin-bottom:10px">
-        <button class="fieldlink" style="font-weight:600" onClick={() => setSelected(dep)}>{dep}</button>
-        <span class="muted small"> depends on </span>
-        {list.map((e) => <div class="small" style="margin:3px 0"><Tag type={e.type} /> <button class="fieldlink" onClick={() => setSelected(e.from)}>{e.from}</button><pre>{e.expr}</pre></div>)}
-      </div>)}
-    </div>
+    <EdgeDetailView
+      fromLabel={fl(ed.from)}
+      toLabel={fl(ed.to)}
+      sourceCount={new Set(es.map((e) => e.from)).size}
+      dependents={[...byDep.entries()].map(([dependent, edges]) => ({ dependent, edges }))}
+      dependencyCount={es.length}
+      onShowFields={showFields}
+      onSelect={setSelected}
+    />
   );
 }
 
@@ -384,12 +344,12 @@ function detailContent(selectedId: string): SolidElement {
 }
 
 export default function Detail() {
+  const closeDetail = function closeDetail(): void { setSelected(null); setSelectedEdge(null); };
   return (
     <Show when={selected() || selectedEdge()}>
-      <aside id="detail">
-        <button class="link" style="float:right" onClick={() => { setSelected(null); setSelectedEdge(null); }}>✕ close</button>
+      <DetailPanelView onClose={closeDetail}>
         {selectedEdge() ? edgeDetail(selectedEdge() as FormPair) : selected() ? detailContent(selected() as string) : ''}
-      </aside>
+      </DetailPanelView>
     </Show>
   );
 }
