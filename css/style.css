@@ -135,7 +135,10 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 .wi-fold:hover .wi-fold-mark{border-color:var(--text)}
 .wi-editor{margin-top:10px}
 .wi-mode{display:flex;gap:6px;align-items:center;margin-left:auto}
+.wi-explorable{cursor:pointer}
+.wi-explorable:hover td{background:var(--code)}
 .wi-current td{background:var(--code)}
+.wi-current td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 .wi-need{display:flex;flex-wrap:wrap;gap:4px;align-items:baseline;margin:2px 0}
 .wi-compact{width:110px}
 .wi-value{display:inline-flex;flex-wrap:wrap;gap:4px;align-items:baseline}

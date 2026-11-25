@@ -111,6 +111,12 @@ function ValuesTable() {
   };
   const onClearAll = function onClearAll(): void {
     whatIf.clearValues();
+    whatIf.setField(null);
+  };
+  // a click anywhere on a field's row explores it, except on its inputs and buttons, which do their own thing
+  const onRowClick = function onRowClick(row: TableRow, event: MouseEvent): void {
+    if ((event.target as HTMLElement).closest('input, select, button, label') || !fieldFor(row.variable)) return;
+    editField(row.variable, row.event);
   };
   const changeEvent = function changeEvent(row: TableRow, value: string): void {
     const explored = isExploredRow(row);
@@ -119,9 +125,17 @@ function ValuesTable() {
     if (explored) whatIf.setEvent(next);
   };
   const removeTableRow = function removeTableRow(row: TableRow): void {
+    // worked out before the removal: a signal read straight after a write still returns the old value in Solid 2
+    const next = isExploredRow(row)
+      ? displayRowsOf().find((other) => rowKeyOf(other) !== rowKeyOf(row) && fieldFor(other.variable) !== undefined)
+      : undefined;
     const explored = isExploredRow(row);
     whatIf.removeRow(row.variable, row.event);
-    if (explored) whatIf.setField(null);
+    // the explored row is gone: explore the next field still listed, so the sections below never go blank while rows remain
+    if (explored) {
+      if (next) editField(next.variable, next.event);
+      else whatIf.setField(null);
+    }
   };
   const columnCount = (): number => (loadedEvents().length ? 6 : 5);
   return (
@@ -144,7 +158,7 @@ function ValuesTable() {
               const isSmart = () => isSmartKey(row().variable);
               const eventIds = (): string[] => (isSmart() ? loadedEvents().map((event) => event.id) : eventsForField(need(model()), row().variable));
               return (
-                <tr class={{ 'wi-current': isExploredRow(row()) }}>
+                <tr class={{ 'wi-current': isExploredRow(row()), 'wi-explorable': field() !== undefined }} onClick={(clicked) => onRowClick(row(), clicked)}>
                   <td>
                     <Show when={field()} fallback={<code>{row().variable}</code>}>
                       <button class="link" title="Explore this field" onClick={() => editField(row().variable, row().event)}>{row().variable}</button>
