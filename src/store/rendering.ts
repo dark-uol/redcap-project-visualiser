@@ -22,6 +22,7 @@ export function setupRendering(state: State, derived: Derived): void {
   async function renderGraph(input: RenderInput): Promise<void> {
     const { source, rendererName, tooBig: big, status, view: v } = input;
     if (source == null) return;
+    if (rendererName === 'swimlane') { token++; setBusy(false); setSvg(null); setSvgView(null); setRenderMsg(''); return; } // drawn by SwimlaneGraph, not an SVG renderer
     const renderToken = ++token;
     const clear = (msg: string): void => { setBusy(false); setSvg(null); setSvgView(null); setRenderMsg(msg); };
     if (status) { clear(status); return; }

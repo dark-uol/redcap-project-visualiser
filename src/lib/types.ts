@@ -6,7 +6,7 @@ export type Direction = 'LR' | 'TD';
 export type LabelMode = 'var' | 'label';
 export type GroupBy = 'none' | 'form' | 'event' | 'arm';
 export type FocusDir = 'both' | 'up' | 'down';
-export type Renderer = 'graphviz' | 'mermaid';
+export type Renderer = 'graphviz' | 'mermaid' | 'swimlane';
 /** 'up' / 'down' = field-level or instance references; 'fup' / 'fdown' = whole-form references. */
 export type NeighborDir = 'up' | 'down' | 'fup' | 'fdown';
 export type NodeKind = 'field' | 'calc' | 'form' | 'missing' | 'status' | 'logic';
@@ -60,6 +60,10 @@ export interface EventDef {
   arm: string;
   armName: string;
   repeating: boolean;
+  /** Scheduled day of the event (redcap:DayOffset) and its visit window (days before / after), when the project defines them. */
+  dayOffset?: number;
+  offsetMin?: number;
+  offsetMax?: number;
   forms: string[];
 }
 

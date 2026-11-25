@@ -99,7 +99,7 @@ export function createDerived(state: State) {
   const mermaidSrc = lazySrc(toMermaid);
   const dotSrc = lazySrc(toDot);
   // string memo: downstream only re-runs when the text sent to the renderer actually changes
-  const graphSrc = createMemo<string | null>(() => (view() ? (renderer() === 'graphviz' ? dotSrc() : mermaidSrc()) : null));
+  const graphSrc = createMemo<string | null>(() => (view() ? (renderer() === 'graphviz' ? dotSrc() : renderer() === 'swimlane' ? '' : mermaidSrc()) : null));
   const graphStatus = createMemo<string>(() => {
     const v = view();
     if (!v) return '';

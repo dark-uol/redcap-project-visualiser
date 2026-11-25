@@ -7,6 +7,12 @@ type XmlRoot = Document | Element;
 
 const lname = (n: Element): string => n.localName || n.nodeName.split(':').pop() || '';
 
+/** A finite number from an attribute string, or undefined when it is empty or not numeric. */
+function numberOrUndefined(text: string): number | undefined {
+  const value = text.trim() === '' ? NaN : Number(text);
+  return Number.isFinite(value) ? value : undefined;
+}
+
 function attr(el: Element, name: string): string {
   const l = name.toLowerCase();
   for (const a of el.attributes) if ((a.localName || a.name).toLowerCase() === l) return a.value;
@@ -336,6 +342,9 @@ export function parseODM(text: string): ParsedODM {
       arm: attr(se, 'ArmNum'),
       armName: attr(se, 'ArmName'),
       repeating: /^y/i.test(attr(se, 'Repeating')),
+      dayOffset: numberOrUndefined(attr(se, 'DayOffset')),
+      offsetMin: numberOrUndefined(attr(se, 'OffsetMin')),
+      offsetMax: numberOrUndefined(attr(se, 'OffsetMax')),
       forms: all(se, 'FormRef')
         .map((r) => formByOid[attr(r, 'FormOID')])
         .filter((x): x is string => Boolean(x)),
