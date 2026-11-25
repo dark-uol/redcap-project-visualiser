@@ -843,7 +843,7 @@ export function focusKind(model: Model, focus: string): FocusKind | null {
   return null;
 }
 
-/** The fields a focus starts from: the field itself, or, for a form or event, those of its fields that take part in an edge. */
+/** The fields a focus starts from: the field itself, or, for a form or event, those of its fields (and its display-logic node) that take part in an edge. */
 export function focusStarts(model: Model, edges: Edge[], focus: string): string[] {
   const kind = focusKind(model, focus);
   if (kind === null) return [];
@@ -851,7 +851,8 @@ export function focusStarts(model: Model, edges: Edge[], focus: string): string[
   const formIds = kind === 'form' ? [focus] : (model.parsed.events || []).find((event) => event.id === focus)?.forms ?? [];
   const linked = new Set<string>();
   edges.forEach((e) => { linked.add(e.from); linked.add(e.to); });
-  const fields = formIds.flatMap((formId) => model.formsById.get(formId)?.fields ?? []);
+  // a form's display logic hangs off its own 'form:<id>' node, which is not among its fields
+  const fields = formIds.flatMap((formId) => [...(model.formsById.get(formId)?.fields ?? []), 'form:' + formId]);
   return [...new Set(fields)].filter((variable) => linked.has(variable));
 }
 

@@ -77,3 +77,27 @@ describe('focus on a form', () => {
     expect(view.nodes).toHaveLength(0);
   });
 });
+
+describe('focus on a form that has form display logic', () => {
+  const withDisplayLogic: ParsedODM = {
+    projectName: 't', redcapVersion: '0',
+    forms: [
+      { id: 'enrolment', label: 'Enrolment', repeating: false, fields: ['enrol_id'] },
+      { id: 'enrolment_child', label: 'Enrolment Child', repeating: false, fields: ['child_ready'] },
+      { id: 'survey', label: 'Survey', repeating: false, fields: ['survey_link'] },
+    ],
+    fields: [
+      field('enrol_id', 'enrolment'), field('child_ready', 'enrolment_child'),
+      { ...field('survey_link', 'survey'), annotation: "@DEFAULT='[enrol_id]'" },
+    ],
+    formLogic: [{ forms: ['survey'], logic: "[child_ready] = '1'", formEvents: [] }],
+    logicSources: [], events: [], arms: [], repeatingInstruments: [],
+  };
+  const displayModel = buildModel(withDisplayLogic);
+
+  it('includes the forms feeding its display logic in the chain, as at field level', () => {
+    const view = (level: 'form' | 'field') => buildView(displayModel, options({ level, focus: 'survey', focusDir: 'both' }));
+    expect(view('form').edges.map((edge) => edge.from).sort()).toEqual(['enrolment', 'enrolment_child']);
+    expect(view('field').nodes.map((node) => node.id)).toEqual(expect.arrayContaining(['child_ready', 'enrol_id']));
+  });
+});
