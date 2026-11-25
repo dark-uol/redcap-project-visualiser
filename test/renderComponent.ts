@@ -19,3 +19,18 @@ afterEach(function disposeMounted() {
     container.remove();
   }
 });
+
+/** Solid 2 applies a signal write at the next microtask: await this after an interaction before asserting. */
+export const tick = (): Promise<void> => Promise.resolve();
+
+/** Dispatches a bubbling `change` event, as a user finishing an edit of an input or select would. */
+export function fireChange(element: Element): void {
+  element.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/** The button inside `container` whose text is exactly `label`. */
+export function buttonLabelled(container: HTMLElement, label: string): HTMLButtonElement {
+  const button = [...container.querySelectorAll('button')].find((candidate) => candidate.textContent === label);
+  if (!button) throw new Error('No button labelled ' + JSON.stringify(label));
+  return button;
+}

@@ -35,11 +35,8 @@ export function DepthControls() {
 
 /** Sidebar form: direction as a select, then the depth controls. */
 export default function FocusControls() {
-  const onDirectionChange = function onDirectionChange(direction: FocusDir): void {
-    setFocusDir(direction);
-  };
   return (
-    <FocusControlsView direction={focusDir()} onDirectionChange={onDirectionChange}>
+    <FocusControlsView direction={focusDir()} onDirectionChange={setFocusDir}>
       <DepthControls />
     </FocusControlsView>
   );

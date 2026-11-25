@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { FieldEditorView, ValuesTableView, VisibilityTableView } from '../src/components/WhatIfTabViews';
 import type { ChooserMatch, ValuesRow, ValuesTableViewProps, VisibilityRow, VisibilityTableViewProps } from '../src/components/WhatIfTabViews';
-import { renderComponent } from './renderComponent';
+import { fireChange, renderComponent, tick } from './renderComponent';
 
 const valuesRow = (over: Partial<ValuesRow> = {}): ValuesRow => ({
   key: 'age|', variable: 'age', event: null, explored: false, explorable: true, isSmart: false, showEventSelect: false,
-  eventOptions: [], eventText: '', labelKind: 'label', label: 'Age in years', ...over,
+  eventOptionIds: [], eventText: '', labelKind: 'label', label: 'Age in years', ...over,
 });
 
 function valuesProps(over: Partial<ValuesTableViewProps> = {}): ValuesTableViewProps {
   return {
-    rows: [valuesRow()], showEventColumn: false, clearCount: null, mode: 'form', query: '', matches: [], listOpen: true,
+    rows: [valuesRow()], showEventColumn: false, eventLabelOf: (id) => ({ ev1: 'Baseline', ev2: 'Week 1' } as Record<string, string>)[id] ?? id, clearCount: null, mode: 'form', query: '', matches: [], listOpen: true,
     onModeChange: vi.fn(), onClearAll: vi.fn(), onExploreRow: vi.fn(), onChangeEvent: vi.fn(), onRemoveRow: vi.fn(),
     onQueryChange: vi.fn(), onChooseMatch: vi.fn(),
     renderValue: (row) => <span class="value-slot">{row().variable}</span>,
@@ -18,9 +18,7 @@ function valuesProps(over: Partial<ValuesTableViewProps> = {}): ValuesTableViewP
     ...over,
   };
 }
-const change = (element: Element): void => { element.dispatchEvent(new Event('change', { bubbles: true })); };
-// Solid 2 applies a signal write at the next microtask
-const tick = (): Promise<void> => Promise.resolve();
+
 
 describe('ValuesTableView', () => {
   it('shows a row with its label and the connected value and state cells', () => {
@@ -65,7 +63,7 @@ describe('ValuesTableView', () => {
   it('shows the event column as text or as a choice of events', () => {
     const rows = [
       valuesRow({ eventText: 'Baseline', event: 'ev1' }),
-      valuesRow({ key: 'sex|ev1', variable: 'sex', event: 'ev1', showEventSelect: true, eventOptions: [{ id: 'ev1', label: 'Baseline' }, { id: 'ev2', label: 'Week 1' }] }),
+      valuesRow({ key: 'sex|ev1', variable: 'sex', event: 'ev1', showEventSelect: true, eventOptionIds: ['ev1', 'ev2'] }),
     ];
     const props = valuesProps({ rows, showEventColumn: true });
     const container = renderComponent(() => <ValuesTableView {...props} />);
@@ -73,13 +71,13 @@ describe('ValuesTableView', () => {
     const select = container.querySelector('select[title="Event the value is entered in"]') as HTMLSelectElement;
     expect([...select.options].map((option) => option.value)).toEqual(['ev1', 'ev2']);
     select.value = 'ev2';
-    change(select);
+    fireChange(select);
     expect(props.onChangeEvent).toHaveBeenCalledWith(rows[1], 'ev2');
     expect(renderComponent(() => <ValuesTableView {...valuesProps()} />).querySelector('thead')!.textContent).not.toContain('Event');
   });
 
   it('offers "all events" for a smart variable', () => {
-    const rows = [valuesRow({ variable: '[x]', isSmart: true, showEventSelect: true, eventOptions: [{ id: 'ev1', label: 'Baseline' }] })];
+    const rows = [valuesRow({ variable: '[x]', isSmart: true, showEventSelect: true, eventOptionIds: ['ev1'] })];
     const select = renderComponent(() => <ValuesTableView {...valuesProps({ rows, showEventColumn: true })} />).querySelector('select[title="Event the value is entered in"]') as HTMLSelectElement;
     expect([...select.options].map((option) => option.textContent)).toEqual(['all events', 'Baseline']);
   });
@@ -97,7 +95,7 @@ describe('ValuesTableView', () => {
     const props = valuesProps();
     const select = renderComponent(() => <ValuesTableView {...props} />).querySelector('.wi-mode select') as HTMLSelectElement;
     select.value = 'survey';
-    change(select);
+    fireChange(select);
     expect(props.onModeChange).toHaveBeenCalledWith('survey');
   });
 
@@ -243,7 +241,7 @@ describe('VisibilityTableView', () => {
       const container = renderComponent(() => <VisibilityTableView {...visibilityProps({ rows, showEventColumn: true })} />);
       const state = select(container, 'Show rows in this state');
       state.value = 'hidden';
-      change(state);
+      fireChange(state);
       await tick();
       expect(rowIds(container)).toEqual(['b']);
       expect(container.textContent).toContain('1 of 2');
@@ -254,7 +252,7 @@ describe('VisibilityTableView', () => {
       const events = select(container, 'Show rows in this event');
       expect([...events.options].map((option) => option.textContent)).toEqual(['all events', 'Baseline', 'Week 1']);
       events.value = 'e1';
-      change(events);
+      fireChange(events);
       await tick();
       expect(rowIds(container)).toEqual(['a']);
       const forms = select(container, 'Show rows in this form');

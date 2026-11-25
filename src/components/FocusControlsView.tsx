@@ -31,9 +31,6 @@ export function DepthControlsView(props: DepthControlsViewProps) {
   const onDepthInput = function onDepthInput(event: Event & { currentTarget: HTMLInputElement }): void {
     event.currentTarget.value = String(props.onDepthChange(event.currentTarget.value));
   };
-  const onShowFullChain = function onShowFullChain(): void {
-    props.onShowFullChain();
-  };
   return (
     <>
       <Labeled label="Max depth" hint="How many steps along the dependency links to follow from the field. Raise it to reach further along the chain.">
@@ -41,7 +38,7 @@ export function DepthControlsView(props: DepthControlsViewProps) {
           <input type="number" inputmode="numeric" min="1" max={props.maxDepth} step="1" value={props.depth} onChange={onDepthInput} />
           <button class="btn sm" onClick={onDepthUp}>+</button></span></Labeled>
       <Show when={props.hiddenCount > 0}>
-        <p class="small focus-note">Depth {props.depth} hides {props.hiddenCount} more {props.noun}{props.hiddenCount === 1 ? '' : 's'}. <button class="link" onClick={onShowFullChain}>Show full chain</button></p>
+        <p class="small focus-note">Depth {props.depth} hides {props.hiddenCount} more {props.noun}{props.hiddenCount === 1 ? '' : 's'}. <button class="link" onClick={props.onShowFullChain}>Show full chain</button></p>
       </Show>
     </>
   );
@@ -56,12 +53,9 @@ export type FocusControlsViewProps = {
 
 /** Presentational: sidebar form with direction as a select, then the depth controls slot. */
 export function FocusControlsView(props: FocusControlsViewProps) {
-  const onDirectionChange = function onDirectionChange(direction: FocusDir): void {
-    props.onDirectionChange(direction);
-  };
   return (
     <>
-      <Labeled label="Show" hint="Which way to follow the links: what the field depends on, what depends on it, or both."><Select<FocusDir> value={props.direction} onChange={onDirectionChange} options={[['both', 'Upstream + downstream'], ['up', 'Upstream (what it depends on)'], ['down', 'Downstream (what depends on it)']]} /></Labeled>
+      <Labeled label="Show" hint="Which way to follow the links: what the field depends on, what depends on it, or both."><Select<FocusDir> value={props.direction} onChange={props.onDirectionChange} options={[['both', 'Upstream + downstream'], ['up', 'Upstream (what it depends on)'], ['down', 'Downstream (what depends on it)']]} /></Labeled>
       {props.children}
     </>
   );

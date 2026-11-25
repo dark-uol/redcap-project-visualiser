@@ -21,7 +21,8 @@ export type ValuesRow = {
   isSmart: boolean;
   /** Whether the event cell is a choice of events (else it is plain text). */
   showEventSelect: boolean;
-  eventOptions: { id: string; label: string }[];
+  /** The ids of the events to choose from (labels come from `eventLabelOf`, so the ids keep their identity between updates). */
+  eventOptionIds: string[];
   eventText: string;
   /** The label cell: a field's label, or why there is none. */
   labelKind: 'label' | 'smart' | 'undefined';
@@ -34,6 +35,7 @@ export type ChooserMatch = { variable: string; smart: boolean; text: string };
 export type ValuesTableViewProps = {
   rows: ValuesRow[];
   showEventColumn: boolean;
+  eventLabelOf: (eventId: string) => string;
   /** The row count shown on the "Clear all" button, or null when there is nothing to clear. */
   clearCount: number | null;
   mode: 'form' | 'survey';
@@ -109,7 +111,7 @@ export function ValuesTableView(props: ValuesTableViewProps) {
                     <Show when={row().showEventSelect} fallback={<span>{row().eventText}</span>}>
                       <select title="Event the value is entered in" onChange={(changed) => props.onChangeEvent(row(), changed.currentTarget.value)}>
                         <Show when={row().isSmart}><option value="" selected={row().event === null}>all events</option></Show>
-                        <For each={row().eventOptions}>{(option) => <option value={option.id} selected={row().event === option.id}>{option.label}</option>}</For>
+                        <For each={row().eventOptionIds}>{(id) => <option value={id} selected={row().event === id}>{props.eventLabelOf(id)}</option>}</For>
                       </select>
                     </Show>
                   </td>
@@ -219,8 +221,10 @@ export function VisibilityTableView(props: VisibilityTableViewProps) {
   const [formFilter, setFormFilter] = createSignal('');
   const eventOptions = createMemo(() => distinctOf<string>(props.rows.map((row) => row.event)));
   const formOptions = createMemo(() => distinctOf<string>(props.rows.map((row) => row.formId)));
-  const eventLabelOf = (id: string): string => props.rows.find((row) => row.event === id)?.eventLabel ?? id;
-  const formLabelOf = (id: string): string => props.rows.find((row) => row.formId === id)?.formLabel ?? id;
+  const eventLabels = createMemo(() => new Map(props.rows.map((row) => [row.event, row.eventLabel])));
+  const formLabels = createMemo(() => new Map(props.rows.map((row) => [row.formId, row.formLabel])));
+  const eventLabelOf = (id: string): string => eventLabels().get(id) ?? id;
+  const formLabelOf = (id: string): string => formLabels().get(id) ?? id;
   // a filter whose value has left the options (the rows changed with the event) no longer applies
   const activeEvent = () => (eventOptions().includes(eventFilter()) ? eventFilter() : '');
   const activeForm = () => (formOptions().includes(formFilter()) ? formFilter() : '');

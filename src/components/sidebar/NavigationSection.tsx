@@ -57,8 +57,6 @@ export default function NavigationSection() {
     [...expanded()].forEach(toggleExpandForm);
     [...expandedEvents()].forEach(toggleExpandEvent);
   };
-  const onCollapseForm = function onCollapseForm(formId: string): void { toggleExpandForm(formId); };
-  const onCollapseEvent = function onCollapseEvent(eventId: string): void { toggleExpandEvent(eventId); };
 
   return (
     <NavigationSectionView
@@ -76,8 +74,8 @@ export default function NavigationSection() {
       onExitExploring={onExitExploring}
       onClearPair={onClearPair}
       onResetAll={onResetAll}
-      onCollapseForm={onCollapseForm}
-      onCollapseEvent={onCollapseEvent}
+      onCollapseForm={toggleExpandForm}
+      onCollapseEvent={toggleExpandEvent}
     >
       <FocusControls />
     </NavigationSectionView>

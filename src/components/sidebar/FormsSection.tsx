@@ -25,9 +25,6 @@ export default function FormsSection() {
   };
   const onAllForms = function onAllForms(): void { setForms(true); };
   const onNoForms = function onNoForms(): void { setForms(false); };
-  const onQueryInput = function onQueryInput(value: string): void {
-    setFormQ(value);
-  };
   const onFormToggle = function onFormToggle(formId: string, checked: boolean): void {
     setFormsOn(withFlags(formsOn(), [formId], checked));
   };
@@ -37,7 +34,7 @@ export default function FormsSection() {
       query={formQ()}
       forms={shownForms()}
       checkedById={checkedById()}
-      onQueryInput={onQueryInput}
+      onQueryInput={setFormQ}
       onAllForms={onAllForms}
       onNoForms={onNoForms}
       onFormToggle={onFormToggle}

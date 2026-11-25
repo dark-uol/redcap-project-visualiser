@@ -3,7 +3,7 @@ import { Show, createMemo, createSignal } from 'solid-js';
 import type { Accessor } from 'solid-js';
 import { ANY_EVENT, controllersOf, dependentsOf, eventForField, eventsForField, eventsToEvaluate, isSmartKey, smartKey } from '../lib/whatIf';
 import type { MissingInput, Visibility, VisibilityInfo } from '../lib/whatIf';
-import type { Field } from '../lib/types';
+import type { Field, Model } from '../lib/types';
 import { need, model, selection, whatIf, visibilityIn, formLabel } from '../store';
 import { LogicText, SmartValueInput, StateBadge, ValueInput, editField, eventLabel, missingText } from './whatIfParts';
 import { FieldEditorView, ValuesTableView, VisibilityTableView } from './WhatIfTabViews';
@@ -17,8 +17,7 @@ const loadedEvents = () => need(model()).parsed.events || [];
 const fieldFor = (variable: string | null): Field | undefined => (variable === null ? undefined : need(model()).byVar.get(variable));
 
 /** The logic that decides whether a field or form is shown, in the event it is judged in: branching logic and the action tags that can hide a field, the display rules of a form. */
-function visibilityLogic(id: string, event: string | null): { main: string[]; note: string } {
-  const loadedModel = need(model());
+function computeVisibilityLogic(loadedModel: Model, id: string, event: string | null): { main: string[]; note: string } {
   const node = loadedModel.formNodes.get(id);
   if (node) {
     const rules = node.logic.filter((_rule, index) => {
@@ -30,6 +29,18 @@ function visibilityLogic(id: string, event: string | null): { main: string[]; no
   const field = loadedModel.byVar.get(id);
   const annotation = field?.annotation || '';
   return { main: field?.branching.trim() ? [field.branching.trim()] : [], note: /@(HIDDEN|IF)\b/i.test(annotation) ? annotation.trim() : '' };
+}
+
+/** The logic depends only on the model, so it is worked out once per row and event and reused while values change. */
+const visibilityLogicCache = new WeakMap<Model, Map<string, { main: string[]; note: string }>>();
+function visibilityLogic(id: string, event: string | null): { main: string[]; note: string } {
+  const loadedModel = need(model());
+  let cache = visibilityLogicCache.get(loadedModel);
+  if (!cache) visibilityLogicCache.set(loadedModel, cache = new Map());
+  const key = id + '|' + (event ?? '');
+  let logic = cache.get(key);
+  if (!logic) cache.set(key, logic = computeVisibilityLogic(loadedModel, id, event));
+  return logic;
 }
 
 /** One row of the values table: a field or smart variable key, and the event its value is for (null: every event, or no events). */
@@ -126,7 +137,7 @@ function ValuesTable() {
       explorable: field !== undefined,
       isSmart,
       showEventSelect: isSmart || eventIds.length > 1,
-      eventOptions: eventIds.map((id) => ({ id, label: eventLabel(id) })),
+      eventOptionIds: eventIds,
       eventText: row.event === null ? '' : eventLabel(row.event),
       labelKind: isSmart ? 'smart' : field ? 'label' : 'undefined',
       label: field?.label ?? '',
@@ -144,6 +155,7 @@ function ValuesTable() {
     <ValuesTableView
       rows={rows()}
       showEventColumn={loadedEvents().length > 0}
+      eventLabelOf={eventLabel}
       clearCount={whatIf.valueCount() || whatIf.rows().length ? displayRowsOf().length : null}
       mode={whatIf.mode()}
       query={query()}

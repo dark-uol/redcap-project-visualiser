@@ -45,10 +45,6 @@ export function NavigationSectionView(props: NavigationSectionViewProps) {
     const input = event.currentTarget;
     if (!props.onFocusPick(input.value)) input.value = props.focus;
   };
-  const onClearFocus = function onClearFocus(): void { props.onClearFocus(); };
-  const onExitExploring = function onExitExploring(): void { props.onExitExploring(); };
-  const onClearPair = function onClearPair(): void { props.onClearPair(); };
-  const onResetAll = function onResetAll(): void { props.onResetAll(); };
   const collapseFormHandler = (id: string) => function onCollapseForm(): void { props.onCollapseForm(id); };
   const collapseEventHandler = (id: string) => function onCollapseEvent(): void { props.onCollapseEvent(id); };
 
@@ -60,23 +56,23 @@ export function NavigationSectionView(props: NavigationSectionViewProps) {
       <Show when={anyActive()}>
         <ul class="navstate">
           <Show when={props.focus !== ''}>
-            <li><span>Chain of <b>{props.focusLabel}</b></span><button class="link" onClick={onClearFocus}>✕ clear</button></li>
+            <li><span>Chain of <b>{props.focusLabel}</b></span><button class="link" onClick={props.onClearFocus}>✕ clear</button></li>
           </Show>
           <Show when={props.exploring !== null}>
-            <li><span>Exploring: {props.exploring} nodes</span><button class="link" onClick={onExitExploring}>✕ exit</button></li>
+            <li><span>Exploring: {props.exploring} nodes</span><button class="link" onClick={props.onExitExploring}>✕ exit</button></li>
           </Show>
           <Show when={props.pair !== null}>
-            <li><span>Links <b>{props.pair?.fromLabel}</b> → <b>{props.pair?.toLabel}</b></span><button class="link" onClick={onClearPair}>✕ clear</button></li>
+            <li><span>Links <b>{props.pair?.fromLabel}</b> → <b>{props.pair?.toLabel}</b></span><button class="link" onClick={props.onClearPair}>✕ clear</button></li>
           </Show>
           <For each={props.zoomedForms}>{(row) => <li><span>Zoomed into <b>{row.label}</b></span><button class="link" onClick={collapseFormHandler(row.id)}>✕ back to form</button></li>}</For>
           <For each={props.zoomedEvents}>{(row) => <li><span>Zoomed into <b>{row.label}</b></span><button class="link" onClick={collapseEventHandler(row.id)}>✕ back to event</button></li>}</For>
         </ul>
-        <p style="margin:0 0 8px"><button class="btn sm" onClick={onResetAll}>Reset to full graph</button></p>
+        <p style="margin:0 0 8px"><button class="btn sm" onClick={props.onResetAll}>Reset to full graph</button></p>
       </Show>
 
       <Labeled label="Focus on" hint="Type a field, form or event and press Enter. The graph then shows only the chain of dependencies running through it (for a form or event, through any of its fields), at the level you are on.">
         <span class="row2"><input type="search" list="fieldlist" placeholder="Field, form or event…" autocomplete="off" value={props.focus} onChange={onFieldChange} />
-          <button class="btn sm" title="Clear focus" onClick={onClearFocus}>✕</button></span>
+          <button class="btn sm" title="Clear focus" onClick={props.onClearFocus}>✕</button></span>
         <datalist id="fieldlist"><For each={props.fields}>{(field) => <option value={field.variable}>{field.label.slice(0, 70)}</option>}</For>
           <For each={props.forms}>{(form) => <option value={form.id}>Form: {form.label}</option>}</For>
           <For each={props.events}>{(event) => <option value={event.id}>Event: {event.label}</option>}</For></datalist>

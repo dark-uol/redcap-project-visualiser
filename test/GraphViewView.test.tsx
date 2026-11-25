@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from '@solidjs/web';
 import { GraphViewView, type GraphViewViewProps } from '../src/components/GraphViewView';
 import { graphvizSvg, makeView } from './fixtures';
-import { renderComponent } from './renderComponent';
+import { renderComponent, tick } from './renderComponent';
 
 function baseProps(over: Partial<GraphViewViewProps> = {}): GraphViewViewProps {
   return {
@@ -23,8 +23,6 @@ function baseProps(over: Partial<GraphViewViewProps> = {}): GraphViewViewProps {
     ...over,
   };
 }
-
-const tick = (): Promise<void> => Promise.resolve();
 
 describe('GraphViewView', () => {
   it('shows node and edge counts for the view and renders the children slot', () => {

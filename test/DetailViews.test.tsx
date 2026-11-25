@@ -4,17 +4,12 @@ import {
   InstanceDetailView, LogicSourceDetailView,
 } from '../src/components/DetailViews';
 import type { Edge, EventDef, Field, ViewEdge } from '../src/lib/types';
-import { renderComponent } from './renderComponent';
+import { edge, field as baseField } from './fixtures';
+import { buttonLabelled, renderComponent } from './renderComponent';
 
-const field = (over: Partial<Field> = {}): Field => ({
-  variable: 'age', oid: 'age', type: 'text', label: 'Age in years', section: '', note: '', branching: '', calc: '',
-  annotation: '', required: false, choices: [], form: 'demographics', ...over,
-});
-const edge = (over: Partial<Edge> = {}): Edge => ({ from: 'a', to: 'b', type: 'branching', expr: "[a] = '1'", cross: false, missing: false, ...over });
 const viewEdge = (over: Partial<ViewEdge> = {}): ViewEdge => ({ from: 'x', to: 'y', types: ['branching'], count: 1, byType: {}, ...over });
+const ageField = (over: Partial<Field> = {}): Field => baseField({ variable: 'age', oid: 'age', label: 'Age in years', form: 'demographics', ...over });
 const slot = (name: string) => <span class={'slot-' + name}>{name}</span>;
-const buttonLabelled = (container: HTMLElement, label: string): HTMLButtonElement =>
-  [...container.querySelectorAll('button')].find((b) => b.textContent === label) as HTMLButtonElement;
 
 describe('CodeBlock', () => {
   const props = { title: 'Logic', isDefined: (v: string) => v === 'known', onSelect: vi.fn() };
@@ -48,7 +43,7 @@ describe('CodeBlock', () => {
 
 describe('FieldDetailView', () => {
   const baseProps = () => ({
-    field: field({ branching: "[other] = '1'" }),
+    field: ageField({ branching: "[other] = '1'" }),
     formLabel: 'Demographics',
     dependsOn: [{ id: 'other', t: 'branching' }],
     usedBy: [],
@@ -72,7 +67,7 @@ describe('FieldDetailView', () => {
   });
 
   it('says so when the field has no logic code, and lists choices', () => {
-    const container = renderComponent(() => <FieldDetailView {...baseProps()} field={field({ choices: [{ code: '1', label: 'Yes' }] })} />);
+    const container = renderComponent(() => <FieldDetailView {...baseProps()} field={ageField({ choices: [{ code: '1', label: 'Yes' }] })} />);
     expect(container.textContent).toContain('No logic code on this field.');
     expect(container.querySelector('pre')!.textContent).toBe('1, Yes');
   });

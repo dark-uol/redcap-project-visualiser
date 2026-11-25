@@ -1,14 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { LogicTextView, SmartValueInputView, StateBadgeView, ValueInputView, choicesFor } from '../src/components/whatIfViews';
-import type { Field } from '../src/lib/types';
-import { renderComponent } from './renderComponent';
+import { field } from './fixtures';
+import { fireChange, renderComponent } from './renderComponent';
 
-const field = (over: Partial<Field> = {}): Field => ({
-  variable: 'v', oid: 'v', type: 'text', label: 'V', section: '', note: '', branching: '', calc: '', annotation: '',
-  required: false, choices: [], form: 'f', ...over,
-});
 const choices = [{ code: '1', label: 'One' }, { code: '2', label: 'Two' }];
-const change = (element: Element): void => { element.dispatchEvent(new Event('change', { bubbles: true })); };
 
 describe('choicesFor', () => {
   it('uses the field choices, else the implicit yes/no and true/false ones, else none', () => {
@@ -50,10 +45,10 @@ describe('SmartValueInputView', () => {
     const input = renderComponent(() => <SmartValueInputView value="x" onChange={onChange} />).querySelector('input')!;
     expect(input.value).toBe('x');
     input.value = '  admin ';
-    change(input);
+    fireChange(input);
     expect(onChange).toHaveBeenLastCalledWith('admin');
     input.value = '   ';
-    change(input);
+    fireChange(input);
     expect(onChange).toHaveBeenLastCalledWith(null);
   });
 });
@@ -64,7 +59,7 @@ describe('ValueInputView', () => {
     const input = renderComponent(() => <ValueInputView field={field()} value="5" formUnused={false} onChange={onChange} />).querySelector('input[type=text]') as HTMLInputElement;
     expect(input.value).toBe('5');
     input.value = ' 7 ';
-    change(input);
+    fireChange(input);
     expect(onChange).toHaveBeenCalledWith('7');
   });
 
@@ -74,7 +69,7 @@ describe('ValueInputView', () => {
     expect([...select.options].map((option) => option.value)).toEqual(['', '1', '2']);
     expect(select.options[2].selected).toBe(true);
     select.value = '1';
-    change(select);
+    fireChange(select);
     expect(onChange).toHaveBeenCalledWith('1');
   });
 
@@ -84,10 +79,10 @@ describe('ValueInputView', () => {
     const boxes = [...container.querySelectorAll('input[type=checkbox]')] as HTMLInputElement[];
     expect(boxes.map((box) => box.checked)).toEqual([true, false]);
     boxes[1].checked = true;
-    change(boxes[1]);
+    fireChange(boxes[1]);
     expect(onChange).toHaveBeenCalledWith(['1', '2']);
     boxes[0].checked = false;
-    change(boxes[0]);
+    fireChange(boxes[0]);
     expect(onChange).toHaveBeenLastCalledWith([]);
   });
 
