@@ -16,7 +16,8 @@ const TABS: [Tab, string][] = [['graph', 'Graph'], ['matrix', 'Matrix'], ['analy
 
 export default function Workspace() {
   return (
-    <main id="app">
+    // the view settings belong to the graph, so other tabs get the full width; hidden rather than unmounted, so open sections stay open
+    <main id="app" class={{ 'no-side': tab() !== 'graph' }}>
       <Sidebar />
       <div id="content">
         <nav id="tabs">

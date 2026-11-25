@@ -19,6 +19,7 @@ main[hidden],.drop[hidden]{display:none}
 #side{width:270px;flex:none;background:var(--panel);border-right:1px solid var(--line);padding:12px 14px;overflow:auto;max-height:calc(100vh - 53px);position:sticky;top:0}
 #side .sec{border-bottom:1px solid var(--line);padding:7px 0}#side .sec>summary{cursor:pointer;list-style:none;display:flex;align-items:center}#side .sec>summary::-webkit-details-marker{display:none}#side .sec>summary h2{margin:0;flex:1}#side .sec>summary::after{content:"▸";color:var(--muted);font-size:11px}#side .sec[open]>summary::after{content:"▾"}#side .sec[open]>summary{margin-bottom:8px}#side{padding:8px 14px}
 #side label{display:block;margin-bottom:8px;font-size:13px}
+#app.no-side #side{display:none}
 #side label.chk,#side .row{display:flex;gap:6px;align-items:center}
 #side select,#side input[type=number]{width:100%;margin-top:3px;padding:4px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:4px;font:inherit}
 .typerow{display:flex;gap:6px;align-items:center;margin-bottom:6px}
