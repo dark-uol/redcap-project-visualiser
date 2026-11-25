@@ -68,8 +68,8 @@ describe('ViewSectionView selects', () => {
   });
 
   it('selects the option matching each current value', () => {
-    const { selectIn } = renderView({ level: 'form', groupBy: 'arm' });
-    expect(selectIn('Level').value).toBe('form');
+    const { selectIn } = renderView({ level: 'field', groupBy: 'arm' });
+    expect(selectIn('Level').value).toBe('field');
     expect(selectIn('Group fields by').value).toBe('arm');
   });
 });
@@ -107,5 +107,50 @@ describe('ViewSectionView checkboxes', () => {
     const { checkboxIn } = renderView({ edgeLabels: true, showMissing: false });
     expect(checkboxIn('Edge labels').checked).toBe(true);
     expect(checkboxIn('Show undefined references').checked).toBe(false);
+  });
+});
+
+describe('ViewSectionView options that do not apply', () => {
+  it('hides Direction, Edge labels and Instances for the swimlane renderer, but keeps Node text', () => {
+    const text = renderView({ renderer: 'swimlane', level: 'form', hasEvents: true }).container.textContent;
+    expect(text).not.toContain('Direction');
+    expect(text).not.toContain('Edge labels');
+    expect(text).not.toContain('Instances (one node per form per event)');
+    expect(text).toContain('Node text');
+  });
+
+  it('keeps Direction, Edge labels and Instances for the other renderers', () => {
+    const graphviz = renderView({ renderer: 'graphviz', level: 'form', hasEvents: true }).container.textContent;
+    expect(graphviz).toContain('Direction');
+    expect(graphviz).toContain('Edge labels');
+    expect(graphviz).toContain('Instances (one node per form per event)');
+    const mermaid = renderView({ renderer: 'mermaid', level: 'form', hasEvents: true }).container.textContent;
+    expect(mermaid).toContain('Direction');
+    expect(mermaid).toContain('Edge labels');
+  });
+
+  it('offers Group fields by only at field level', () => {
+    expect(renderView({ level: 'field' }).container.textContent).toContain('Group fields by');
+    expect(renderView({ level: 'form' }).container.textContent).not.toContain('Group fields by');
+    expect(renderView({ level: 'event' }).container.textContent).not.toContain('Group fields by');
+  });
+
+  it('offers the swimlane renderer only with events at form or event level', () => {
+    const swimlaneOffered = (overrides: Partial<ViewSectionViewProps>) => {
+      const { selectIn } = renderView(overrides);
+      return Array.from(selectIn('Renderer').options).some((option) => option.value === 'swimlane');
+    };
+    expect(swimlaneOffered({ level: 'form', hasEvents: true })).toBe(true);
+    expect(swimlaneOffered({ level: 'event', hasEvents: true })).toBe(true);
+    expect(swimlaneOffered({ level: 'field', hasEvents: true })).toBe(false);
+    expect(swimlaneOffered({ level: 'form', hasEvents: false })).toBe(false);
+    expect(swimlaneOffered({ level: 'field', hasEvents: false })).toBe(false);
+  });
+
+  it('keeps the swimlane renderer listed when it is current, even where it is not offered', () => {
+    const { selectIn } = renderView({ level: 'field', hasEvents: false, renderer: 'swimlane' });
+    const select = selectIn('Renderer');
+    expect(Array.from(select.options).map((option) => option.value)).toContain('swimlane');
+    expect(select.value).toBe('swimlane');
   });
 });

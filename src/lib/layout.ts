@@ -20,6 +20,8 @@ export interface LayoutRegion {
   id: string;
   kind: 'lane' | 'column';
   label: string;
+  /** `label` wrapped to fit the region, at most a few lines; the last ends in an ellipsis if the label was cut. */
+  labelLines?: string[];
   /** Second line, e.g. "day 30 (±7)". */
   sublabel?: string;
   x: number; y: number; width: number; height: number;

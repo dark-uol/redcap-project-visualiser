@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { layoutSwimlane } from '../src/lib/layoutSwimlane';
+import { layoutSwimlane, wrapLabel } from '../src/lib/layoutSwimlane';
 import type { EventDef, ViewEdge } from '../src/lib/types';
 import { makeView, node } from './fixtures';
 
@@ -84,7 +84,7 @@ describe('layoutSwimlane', () => {
     const view = makeView({ nodes: [node('x', { event: 'e1', form: 'f1' }), node('y', { event: 'e1', form: 'f2' })] });
     const layout = layoutSwimlane(view, events);
     const lane = layout.regions.find((region) => region.kind === 'lane')!;
-    expect(findNode(layout, 'y').y).toBe(lane.y + 40);
+    expect(findNode(layout, 'y').y).toBe(lane.y + 26);
     expect(findNode(layout, 'x').y).toBe(findNode(layout, 'y').y + 28 + 18);
     expect(layout.height).toBeGreaterThanOrEqual(lane.y + lane.height + 20);
     expect(layout.width).toBeGreaterThanOrEqual(findNode(layout, 'x').x + 120 + 20);
@@ -199,5 +199,34 @@ describe('layoutSwimlane', () => {
     const [forward, back] = layout.edges;
     expect(forward.curve[0].x).not.toBe(back.curve[3].x);
     expect(forward.curve[0].x).toBeLessThan(back.curve[3].x);
+  });
+
+  it('wraps a long event name in the column header and grows the header to fit', () => {
+    const longName = 'Long-term outcome assessment, twelve months after delivery';
+    const events = [eventDef('e1', { label: longName, dayOffset: 365 })];
+    const layout = layoutSwimlane(makeView({ nodes: [node('x', { event: 'e1' })] }), events);
+    const column = layout.regions.find((region) => region.kind === 'column')!;
+    expect(column.label).toBe(longName);
+    expect(column.labelLines!.length).toBeGreaterThan(1);
+    expect(column.labelLines!.length).toBeLessThanOrEqual(3);
+    const lane = layout.regions.find((region) => region.kind === 'lane')!;
+    expect(findNode(layout, 'x').y).toBeGreaterThanOrEqual(lane.y + 12 + 14 * column.labelLines!.length + 14);
+  });
+
+  it('places event-level nodes, whose ids are event ids, in their event columns', () => {
+    const events = [eventDef('e1', { dayOffset: 0 }), eventDef('e2', { dayOffset: 30 })];
+    const view = makeView({ level: 'event', nodes: [node('e1'), node('e2')], edges: [link('e1', 'e2')] });
+    const layout = layoutSwimlane(view, events);
+    expect(layout.regions.filter((region) => region.kind === 'column')).toHaveLength(2);
+    expect(centerOf(layout, 'e2') - centerOf(layout, 'e1')).toBe(300);
+  });
+});
+
+describe('wrapLabel', () => {
+  it('wraps on words, splits long words and ends in an ellipsis when cut', () => {
+    expect(wrapLabel('one two three', 7)).toEqual(['one two', 'three']);
+    expect(wrapLabel('abcdefghij', 4)).toEqual(['abcd', 'efgh', 'ij']);
+    expect(wrapLabel('aaa bbb ccc ddd', 3, 2)).toEqual(['aaa', 'bb…']);
+    expect(wrapLabel('', 5)).toEqual(['']);
   });
 });

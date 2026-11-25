@@ -9,9 +9,15 @@ const NODE_GAP = 18;
 const COLUMN_GAP = 40;
 const COLUMN_PITCH = NODE_WIDTH + COLUMN_GAP;
 const PIXELS_PER_DAY = 10;
+/** Longest day span drawn at full scale; longer studies are compressed so the graph stays a sensible width. */
+const MAX_DAY_SPAN_PIXELS = 900;
 const MARGIN = 20;
 const LANE_LABEL_WIDTH = 120;
-const LANE_HEADER = 40;
+const HEADER_PADDING = 12;
+const HEADER_LINE_HEIGHT = 14;
+const COLUMN_LABEL_CHARACTERS = 22;
+const LANE_LABEL_CHARACTERS = 16;
+const MAX_LABEL_LINES = 3;
 const LANE_FOOTER = 30;
 const LANE_GAP = 20;
 const BACKWARD_BOW = 40;
@@ -50,6 +56,29 @@ const formatSublabel = (event: EventDef): string | undefined => {
   return parts.length ? parts.join(' ') : undefined;
 };
 
+/** Greedy word wrap to `maxCharacters` per line; long words are split, and what does not fit in `maxLines` ends in an ellipsis. */
+export const wrapLabel = (text: string, maxCharacters: number, maxLines: number = MAX_LABEL_LINES): string[] => {
+  const lines: string[] = [];
+  let current = '';
+  text.split(/\s+/).filter(Boolean).forEach((word) => {
+    let rest = word;
+    while (rest.length > maxCharacters) {
+      if (current) { lines.push(current); current = ''; }
+      lines.push(rest.slice(0, maxCharacters));
+      rest = rest.slice(maxCharacters);
+    }
+    if (!current) current = rest;
+    else if (current.length + 1 + rest.length <= maxCharacters) current += ' ' + rest;
+    else { lines.push(current); current = rest; }
+  });
+  if (current) lines.push(current);
+  if (lines.length <= maxLines) return lines.length ? lines : [''];
+  const kept = lines.slice(0, maxLines);
+  const last = kept[maxLines - 1];
+  kept[maxLines - 1] = (last.length >= maxCharacters ? last.slice(0, maxCharacters - 1) : last) + '…';
+  return kept;
+};
+
 const stackHeight = (count: number): number => (count === 0 ? 0 : count * NODE_HEIGHT + (count - 1) * NODE_GAP);
 
 /** Assigns each drawn event column a centre x: scaled by day when every event has one, else by order; then enforces the pitch. */
@@ -61,11 +90,13 @@ const placeColumns = (columns: ColumnPlan[]): void => {
   }
   const firstCenter = FIRST_CENTER;
   const firstDay = timed ? (columns[0].event!.dayOffset as number) : 0;
+  const lastDay = timed ? (columns[columns.length - 1].event!.dayOffset as number) : 0;
+  const pixelsPerDay = lastDay > firstDay ? Math.min(PIXELS_PER_DAY, MAX_DAY_SPAN_PIXELS / (lastDay - firstDay)) : PIXELS_PER_DAY;
   let previous: ColumnPlan | undefined;
   let sharedArms = new Set<string>();
   columns.forEach((column, index) => {
     const desired = timed
-      ? firstCenter + ((column.event!.dayOffset as number) - firstDay) * PIXELS_PER_DAY
+      ? firstCenter + ((column.event!.dayOffset as number) - firstDay) * pixelsPerDay
       : firstCenter + index * COLUMN_PITCH;
     const arm = column.event!.arm;
     const sameDay = timed && previous !== undefined && previous.event!.dayOffset === column.event!.dayOffset;
@@ -93,7 +124,7 @@ const initialOrder = (column: ColumnPlan, viewOrder: Map<string, number>): ViewN
 };
 
 /** One barycentre sweep left to right: order by the mean y of already-placed neighbours in earlier columns of the lane. */
-const orderLane = (lane: LanePlan, neighbours: Map<string, string[]>, viewOrder: Map<string, number>): void => {
+const orderLane = (lane: LanePlan, neighbours: Map<string, string[]>, viewOrder: Map<string, number>, headerHeight: number): void => {
   const placedTop = new Map<string, number>();
   lane.columns.forEach((column) => {
     const initial = initialOrder(column, viewOrder);
@@ -104,7 +135,7 @@ const orderLane = (lane: LanePlan, neighbours: Map<string, string[]>, viewOrder:
     });
     keyed.sort((first, second) => first.barycentre - second.barycentre || first.slot - second.slot);
     keyed.forEach(({ node }, position) => {
-      const top = LANE_HEADER + position * (NODE_HEIGHT + NODE_GAP);
+      const top = headerHeight + position * (NODE_HEIGHT + NODE_GAP);
       column.topById.set(node.id, top);
       placedTop.set(node.id, top);
     });
@@ -149,7 +180,8 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   const nodesByEvent = new Map<string, ViewNode[]>();
   const unplaced: ViewNode[] = [];
   view.nodes.forEach((node) => {
-    const event = node.event ? eventById.get(node.event) : undefined;
+    // at event level a collapsed event is itself a node, whose id is the event's
+    const event = eventById.get(node.event ?? (view.level === 'event' ? node.id : ''));
     if (!event) { unplaced.push(node); return; }
     const bucket = nodesByEvent.get(event.id);
     if (bucket) bucket.push(node); else nodesByEvent.set(event.id, [node]);
@@ -190,13 +222,22 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   };
   view.edges.forEach((edge) => { link(edge.from, edge.to); link(edge.to, edge.from); });
 
+  // Header: tall enough for the longest wrapped event name, plus the day line when any column has one.
+  const columnLines = new Map<string, string[]>();
+  lanes.forEach((lane) => lane.columns.forEach((column) => {
+    columnLines.set(column.id, wrapLabel(column.event ? column.event.label : NO_EVENT_ARM, COLUMN_LABEL_CHARACTERS));
+  }));
+  const tallestLabel = Math.max(1, ...[...columnLines.values()].map((lines) => lines.length));
+  const hasSublabel = lanes.some((lane) => lane.columns.some((column) => column.event && formatSublabel(column.event)));
+  const headerHeight = HEADER_PADDING + tallestLabel * HEADER_LINE_HEIGHT + (hasSublabel ? HEADER_LINE_HEIGHT : 0);
+
   // Vertical placement.
   let cursorY = MARGIN;
   lanes.forEach((lane) => {
-    orderLane(lane, neighbours, viewOrder);
+    orderLane(lane, neighbours, viewOrder, headerHeight);
     const tallest = Math.max(...lane.columns.map((column) => stackHeight(column.nodes.length)));
     lane.y = cursorY;
-    lane.height = LANE_HEADER + tallest + LANE_FOOTER;
+    lane.height = headerHeight + tallest + LANE_FOOTER;
     cursorY += lane.height + LANE_GAP;
   });
 
@@ -209,11 +250,11 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   const height = Math.max(cursorY - LANE_GAP, MARGIN) + MARGIN;
   const regions: LayoutRegion[] = [];
   lanes.forEach((lane) => {
-    regions.push({ id: lane.id, kind: 'lane', label: lane.label, x: 0, y: lane.y, width, height: lane.height });
+    regions.push({ id: lane.id, kind: 'lane', label: lane.label, labelLines: wrapLabel(lane.label, LANE_LABEL_CHARACTERS, 4), x: 0, y: lane.y, width, height: lane.height });
     lane.columns.forEach((column) => {
       const event = column.event;
       const region: LayoutRegion = {
-        id: column.id, kind: 'column', label: event ? event.label : NO_EVENT_ARM,
+        id: column.id, kind: 'column', label: event ? event.label : NO_EVENT_ARM, labelLines: columnLines.get(column.id),
         x: column.centerX - COLUMN_PITCH / 2, y: lane.y, width: COLUMN_PITCH, height: lane.height,
       };
       const sublabel = event ? formatSublabel(event) : undefined;

@@ -66,9 +66,15 @@ function curveData(edge: LayoutEdge): string {
   return `M${start.x} ${start.y} C ${controlA.x} ${controlA.y} ${controlB.x} ${controlB.y} ${end.x} ${end.y}`;
 }
 
-/** A column's label, with a repeat mark when the event repeats. */
-function columnTitle(region: LayoutRegion): string {
-  return region.repeating ? `${region.label} ↻` : region.label;
+/** The region's label as wrapped lines (a single line when the layout did not wrap it). */
+function regionLines(region: LayoutRegion): string[] {
+  return region.labelLines ?? [truncateLabel(region.label, LANE_LABEL_WIDTH)];
+}
+
+/** A column's wrapped label, with a repeat mark on the last line when the event repeats. */
+function columnLines(region: LayoutRegion): string[] {
+  const lines = region.labelLines ?? [region.label];
+  return region.repeating ? [...lines.slice(0, -1), `${lines[lines.length - 1]} ↻`] : lines;
 }
 
 /** Presentational: draws a positioned layout (regions, edges, nodes) as one SVG and highlights the selection. */
@@ -98,13 +104,19 @@ export function LayoutSvgView(props: LayoutSvgViewProps) {
           region.kind === 'lane' ? (
             <g class="region lane" data-region-id={region.id}>
               <rect x={region.x} y={region.y} width={region.width} height={region.height} fill={REGION_FILL} />
-              <text x={region.x + 8} y={region.y + 16} font-size="12" font-weight="600" fill={MUTED_COLOUR}>{truncateLabel(region.label, LANE_LABEL_WIDTH)}</text>
+              <text x={region.x + 8} y={region.y + 16} font-size="12" font-weight="600" fill={MUTED_COLOUR}>
+                <title>{region.label}</title>
+                <For each={regionLines(region)}>{(line, index) => <tspan x={region.x + 8} dy={index() === 0 ? 0 : 14}>{line}</tspan>}</For>
+              </text>
             </g>
           ) : (
             <g class="region column" data-region-id={region.id}>
               <rect x={region.x} y={region.y} width={region.width} height={region.height} fill="none" stroke={REGION_LINE} stroke-dasharray={region.repeating ? '4 3' : undefined} />
-              <text x={region.x + region.width / 2} y={region.y + 16} text-anchor="middle" font-size="12" font-weight="600" fill={TEXT_COLOUR}>{columnTitle(region)}</text>
-              <text x={region.x + region.width / 2} y={region.y + 30} text-anchor="middle" font-size="11" fill={MUTED_COLOUR}>{region.sublabel ?? ''}</text>
+              <text x={region.x + region.width / 2} y={region.y + 16} text-anchor="middle" font-size="12" font-weight="600" fill={TEXT_COLOUR}>
+                <title>{region.label}</title>
+                <For each={columnLines(region)}>{(line, index) => <tspan x={region.x + region.width / 2} dy={index() === 0 ? 0 : 14}>{line}</tspan>}</For>
+              </text>
+              <text x={region.x + region.width / 2} y={region.y + 16 + columnLines(region).length * 14} text-anchor="middle" font-size="11" fill={MUTED_COLOUR}>{region.sublabel ?? ''}</text>
             </g>
           )
         }

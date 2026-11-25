@@ -30,19 +30,31 @@ export type ViewSectionViewProps = {
 /** Presentational: the view options (level, renderer, layout, labels, grouping and which nodes are included). Owns only the hint's open/closed state. */
 export function ViewSectionView(props: ViewSectionViewProps) {
   const help = createHint();
+  /** The swimlane spike needs events and a form or event level. It stays listed when it is already the current renderer, so the select never shows blank. */
+  const rendererOptions = (): [Renderer, string][] => {
+    const options: [Renderer, string][] = [['graphviz', 'Graphviz'], ['mermaid', 'Mermaid']];
+    if ((props.hasEvents && props.level !== 'field') || props.renderer === 'swimlane') options.push(['swimlane', 'Swimlane (spike)']);
+    return options;
+  };
   return (
     <details class="sec" open>
       <summary><h2>View <HintToggle help={help} title="View" /></h2></summary>
       <HintText help={help}>How the graph is drawn and which nodes it includes.</HintText>
       <Labeled label="Level" hint="Fields: one node per field. Forms: fields rolled up into forms, with links between forms. Events: only references that name another event, such as [event][field]."><Select<Level> value={props.level} onChange={props.onLevelChange} options={[['field', 'Fields'], ['form', 'Forms (aggregated)'], ['event', 'Events (cross-event links)']]} /></Labeled>
-      <Labeled label="Renderer" hint="Which library draws the graph. Both show the same data; Graphviz is the default."><Select<Renderer> value={props.renderer} onChange={props.onRendererChange} options={[['graphviz', 'Graphviz'], ['mermaid', 'Mermaid'], ['swimlane', 'Swimlane (spike)']]} /></Labeled>
-      <Labeled label="Direction" hint="Which way the graph flows: left to right, or top to bottom."><Select<Direction> value={props.direction} onChange={props.onDirectionChange} options={[['LR', 'Left → right'], ['TD', 'Top → down']]} /></Labeled>
+      <Labeled label="Renderer" hint="Which library draws the graph. Both show the same data; Graphviz is the default."><Select<Renderer> value={props.renderer} onChange={props.onRendererChange} options={rendererOptions()} /></Labeled>
+      <Show when={props.renderer !== 'swimlane'}>
+        <Labeled label="Direction" hint="Which way the graph flows: left to right, or top to bottom."><Select<Direction> value={props.direction} onChange={props.onDirectionChange} options={[['LR', 'Left → right'], ['TD', 'Top → down']]} /></Labeled>
+      </Show>
       <Labeled label="Node text" hint="What each node says: just the variable name, or the name with the field's label."><Select<LabelMode> value={props.labelMode} onChange={props.onLabelModeChange} options={[['var', 'Variable name'], ['label', 'Name + field label']]} /></Labeled>
-      <Labeled label="Group fields by" hint="At field level, draws a box around the fields that share a form, event or arm. Has no effect at form or event level."><Select<GroupBy> value={props.groupBy} onChange={props.onGroupByChange} options={[['form', 'Form'], ['event', 'Event (longitudinal)'], ['arm', 'Arm (longitudinal)'], ['none', 'No grouping']]} /></Labeled>
-      <Show when={props.level === 'form' && props.hasEvents}>
+      <Show when={props.level === 'field'}>
+        <Labeled label="Group fields by" hint="Draws a box around the fields that share a form, event or arm."><Select<GroupBy> value={props.groupBy} onChange={props.onGroupByChange} options={[['form', 'Form'], ['event', 'Event (longitudinal)'], ['arm', 'Arm (longitudinal)'], ['none', 'No grouping']]} /></Labeled>
+      </Show>
+      <Show when={props.level === 'form' && props.hasEvents && props.renderer !== 'swimlane'}>
         <Check checked={props.instances} onChange={props.onInstancesChange} label="Instances (one node per form per event)" hint="A form collected in several events gets one node per event, banded by event (or by arm via Group by). Select a node to add its links or zoom into its fields." />
       </Show>
-      <Check checked={props.edgeLabels} onChange={props.onEdgeLabelsChange} label="Edge labels" hint="Writes the dependency type (branching, calc and so on) on each edge." />
+      <Show when={props.renderer !== 'swimlane'}>
+        <Check checked={props.edgeLabels} onChange={props.onEdgeLabelsChange} label="Edge labels" hint="Writes the dependency type (branching, calc and so on) on each edge." />
+      </Show>
       <Show when={props.level !== 'field'}>
         <Check checked={props.hideIsolatedNodes} onChange={props.onHideIsolatedNodesChange} label={(props.level === 'event' ? 'Hide events' : 'Hide forms') + ' with no dependencies'} hint="Leaves out nodes that have no links to anything else." />
       </Show>

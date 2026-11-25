@@ -13,7 +13,7 @@ export default function SwimlaneGraph() {
   const nodesById = createMemo(() => new Map<string, ViewNode>((view()?.nodes ?? []).map((node) => [node.id, node])));
   const layout = createMemo(() => {
     const currentView = view(), currentModel = model();
-    return currentView && currentModel && currentView.instances ? layoutSwimlane(currentView, currentModel.parsed.events) : null;
+    return currentView && currentModel && (currentView.instances || currentView.level === 'event') ? layoutSwimlane(currentView, currentModel.parsed.events) : null;
   });
   const selectNode = function selectNode(id: string): void { setSelected(id); };
   const selectEdge = function selectEdge(from: string, to: string): void { setSelectedKeepingEdge(null); setSelectedEdge({ from, to }); };
@@ -21,7 +21,7 @@ export default function SwimlaneGraph() {
   return (
     <div>
       <div id="graphwrap">
-        <Show when={layout()} fallback={<div id="stage"><div id="msg"><div>Swimlanes show form instances: set Level to Forms (longitudinal projects only).</div></div></div>}>
+        <Show when={layout()} fallback={<div id="stage"><div id="msg"><div>Swimlanes need a longitudinal project: set Level to Forms or Events.</div></div></div>}>
           {(currentLayout) => (
             <PanZoomStageView contentWidth={currentLayout().width} contentHeight={currentLayout().height}>
               <LayoutSvgView
