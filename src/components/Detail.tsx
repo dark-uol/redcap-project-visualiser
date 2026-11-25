@@ -8,7 +8,8 @@ import {
   GhostDetailView, GroupDetailView, InstanceDetailView, LogicSourceDetailView, UndefinedFieldsDetailView,
 } from './DetailViews';
 import type { Element as SolidElement } from 'solid-js';
-import { findNode, neighbors, isRepeatingInstance, formIsRepeating, nodeInfo } from '../lib/graph';
+import { findNode, neighbors, isRepeatingInstance } from '../lib/graph';
+import { crossFormEdges, eventEdges, formLink, linkedFieldsOf, repeatingNote } from '../lib/detail';
 import { classifyDetail } from '../lib/detailKind';
 import type { DetailFacts } from '../lib/detailKind';
 import { resolveExploreTarget } from '../lib/exploreTarget';
@@ -24,11 +25,6 @@ const { setFocus, setPair } = focusing;
 const { level, selected, selectedEdge, setSelectedEdge, setSelected, setLevel } = selection;
 
 const isDefinedVariable = (variable: string): boolean => need(model()).byVar.has(variable);
-
-function repEvents(parsed: Model['parsed'], fm: { id: string }): string {
-  const evs = (parsed.repeatingInstruments || []).filter((r) => r.form === fm.id).map((r) => r.event);
-  return [...new Set(evs)].map((id) => ((parsed.events || []).find((e) => e.id === id) || { label: id }).label).join(', ');
-}
 
 function exploreButton(m: Model, t: string, dir: NeighborDir, label: string, tip: string) {
   const ex = currentExploration();
@@ -118,10 +114,8 @@ function ExploreRow(props: { id: string }) {
 
 // a form box (cluster) clicked in the field-level graph
 function groupDetail(formId: string) {
-  const m = need(model()), fm = m.formsById.get(formId), o = need(opts());
-  const linked = new Set<string>();
-  m.edges.forEach((e) => { if (o.types.has(e.type) && (o.showMissing || !e.missing)) { linked.add(e.from); linked.add(e.to); } });
-  const inForm = fm ? fm.fields.filter((v) => linked.has(v)) : [];
+  const m = need(model()), fm = m.formsById.get(formId);
+  const inForm = linkedFieldsOf(m, need(opts()), formId);
   const seeds = [groupIdFor(formId), ...(inForm.length ? inForm : fm ? fm.fields : [])];
   const focusForm = function focusForm(): void { setPair(null); setFocus(''); setExplore({ level: 'field', seeds, exp: [] }); };
   return (
@@ -143,18 +137,16 @@ function undefinedFieldsDetail(id: string) {
 // a form (not a field) clicked in the field-level graph
 function formDetail(fm: Form) {
   const m = need(model()), id = fm.id;
-  const cross = m.edges.filter((e) => !e.missing && e.type !== 'logicsrc' && (nodeInfo(m, e.from).form === id) !== (nodeInfo(m, e.to).form === id));
-  const repeatingIn = repEvents(m.parsed, fm);
   return (
     <FormDetailView
       label={fm.label}
       formId={fm.id}
       fieldCount={fm.fields.length}
-      repeatingNote={formIsRepeating(m.parsed, fm) ? ' · repeating' + (repeatingIn ? ' in ' + repeatingIn : '') : ''}
+      repeatingNote={repeatingNote(m.parsed, fm)}
       canZoom={!instanceMode()}
       zoomLabel={expanded().has(id) ? 'back to form' : 'into fields'}
       onToggleZoom={() => toggleExpandForm(id)}
-      crossFormEdges={cross}
+      crossFormEdges={crossFormEdges(m, id)}
       onOpen={setSelected}
       explore={<ExploreRow id={id} />}
       trace={<TraceControl id={id} what="form" />}
@@ -267,9 +259,7 @@ function instanceDetail(node: ViewNode) {
 // an event box clicked in the event-level graph
 function eventDetail(ev: EventDef) {
   const m = need(model());
-  const out = m.edges.filter((e) => (e.events || []).includes(ev.id));
-  const inn = m.edges.filter((e) =>
-    m.parsed.events.some((x) => x.forms.includes(nodeInfo(m, e.to).form) && x.id === ev.id) && (e.events || []).some((x) => x !== ev.id));
+  const { readFromEvent, readsOtherEvents } = eventEdges(m, ev.id);
   const repInstr = (m.parsed.repeatingInstruments || []).filter((r) => r.event === ev.id);
   return (
     <EventDetailView
@@ -279,8 +269,8 @@ function eventDetail(ev: EventDef) {
       zoomLabel={expandedEvents().has(ev.id) ? 'back to event' : 'into forms'}
       onToggleZoom={() => toggleExpandEvent(ev.id)}
       repeatingInstruments={repInstr.map((r) => r.label || formLabel(r.form))}
-      readFromEvent={out}
-      readsOtherEvents={inn}
+      readFromEvent={readFromEvent}
+      readsOtherEvents={readsOtherEvents}
       onOpen={jumpToField}
       trace={<TraceControl id={ev.id} what="event" />}
     />
@@ -289,23 +279,16 @@ function eventDetail(ev: EventDef) {
 
 // form-level edge: the fields that make up the link
 function edgeDetail(ed: FormPair) {
-  const m = need(model()), o = need(opts());
+  const link = formLink(need(model()), need(opts()), ed.from, ed.to);
   const fl = (id: string): string => (id === '(unknown)' ? 'Undefined fields' : formLabel(id));
-  const es = m.edges.filter((e) =>
-    o.types.has(e.type) && (o.showMissing || !e.missing) && nodeInfo(m, e.from).form === ed.from && nodeInfo(m, e.to).form === ed.to);
-  const byDep = new Map<string, Edge[]>();
-  es.forEach((e) => {
-    if (!byDep.has(e.to)) byDep.set(e.to, []);
-    (byDep.get(e.to) as Edge[]).push(e);
-  });
   const showFields = function showFields(): void { setLevel('field'); setFocus(''); setPair({ from: ed.from, to: ed.to }); setSelectedEdge(null); };
   return (
     <EdgeDetailView
       fromLabel={fl(ed.from)}
       toLabel={fl(ed.to)}
-      sourceCount={new Set(es.map((e) => e.from)).size}
-      dependents={[...byDep.entries()].map(([dependent, edges]) => ({ dependent, edges }))}
-      dependencyCount={es.length}
+      sourceCount={link.sourceCount}
+      dependents={link.dependents}
+      dependencyCount={link.dependencyCount}
       onShowFields={showFields}
       onSelect={setSelected}
     />
