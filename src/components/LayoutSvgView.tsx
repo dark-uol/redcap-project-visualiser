@@ -15,8 +15,16 @@ export interface LayoutSvgViewProps {
 
 const ARROW_ID = 'layout-arrow';
 const ARROW_BACKWARD_ID = 'layout-arrow-backward';
+/* The graph stage is white in both themes (like the Graphviz output), so the palette is fixed rather than themed. */
 const BACKWARD_COLOUR = '#c0392b';
-const LINE_COLOUR = 'var(--line, #999)';
+const LINE_COLOUR = '#64748b';
+const REGION_FILL = '#f1f5f9';
+const REGION_LINE = '#cbd5e1';
+const TEXT_COLOUR = '#1f2937';
+const MUTED_COLOUR = '#64748b';
+const NODE_FILL = '#ffffff';
+const ACCENT_COLOUR = '#2563eb';
+const LANE_LABEL_WIDTH = 110;
 const DIMMED_OPACITY = 0.25;
 const NODE_TEXT_PADDING = 12;
 /** Rough average glyph width at the node label's font size; used only to truncate. */
@@ -86,14 +94,14 @@ export function LayoutSvgView(props: LayoutSvgViewProps) {
         {(region) =>
           region.kind === 'lane' ? (
             <g class="region lane" data-region-id={region.id}>
-              <rect x={region.x} y={region.y} width={region.width} height={region.height} fill="var(--line, #999)" fill-opacity="0.08" />
-              <text x={region.x + 8} y={region.y + 16} font-size="12" font-weight="600" fill="var(--muted, #666)">{region.label}</text>
+              <rect x={region.x} y={region.y} width={region.width} height={region.height} fill={REGION_FILL} />
+              <text x={region.x + 8} y={region.y + 16} font-size="12" font-weight="600" fill={MUTED_COLOUR}>{truncateLabel(region.label, LANE_LABEL_WIDTH)}</text>
             </g>
           ) : (
             <g class="region column" data-region-id={region.id}>
-              <rect x={region.x} y={region.y} width={region.width} height={region.height} fill="none" stroke={LINE_COLOUR} stroke-dasharray={region.repeating ? '4 3' : undefined} />
-              <text x={region.x + region.width / 2} y={region.y + 16} text-anchor="middle" font-size="12" font-weight="600" fill="var(--text, #222)">{columnTitle(region)}</text>
-              <text x={region.x + region.width / 2} y={region.y + 30} text-anchor="middle" font-size="11" fill="var(--muted, #666)">{region.sublabel ?? ''}</text>
+              <rect x={region.x} y={region.y} width={region.width} height={region.height} fill="none" stroke={REGION_LINE} stroke-dasharray={region.repeating ? '4 3' : undefined} />
+              <text x={region.x + region.width / 2} y={region.y + 16} text-anchor="middle" font-size="12" font-weight="600" fill={TEXT_COLOUR}>{columnTitle(region)}</text>
+              <text x={region.x + region.width / 2} y={region.y + 30} text-anchor="middle" font-size="11" fill={MUTED_COLOUR}>{region.sublabel ?? ''}</text>
             </g>
           )
         }
@@ -148,20 +156,20 @@ export function LayoutSvgView(props: LayoutSvgViewProps) {
                 width={node.width}
                 height={node.height}
                 rx="4"
-                fill="var(--panel, #fff)"
-                stroke={state() === 'on' ? 'var(--accent, #2563eb)' : LINE_COLOUR}
+                fill={NODE_FILL}
+                stroke={state() === 'on' ? ACCENT_COLOUR : LINE_COLOUR}
                 stroke-width={state() === 'on' ? 2 : 1}
               />
               <text
                 x={node.x + 8}
                 y={node.y + node.height / 2 + (sublabel() ? -2 : 4)}
                 font-size="12"
-                fill="var(--text, #222)"
+                fill={TEXT_COLOUR}
               >
                 {truncateLabel(props.nodeLabel(node.id), node.width)}
               </text>
               {sublabel() ? (
-                <text x={node.x + 8} y={node.y + node.height / 2 + 11} font-size="10" fill="var(--muted, #666)">
+                <text x={node.x + 8} y={node.y + node.height / 2 + 11} font-size="10" fill={MUTED_COLOUR}>
                   {truncateLabel(sublabel() ?? '', node.width)}
                 </text>
               ) : null}

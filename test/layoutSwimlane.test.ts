@@ -155,4 +155,41 @@ describe('layoutSwimlane', () => {
     expect(findNode(layout, 'd').y).toBeLessThan(findNode(layout, 'c').y);
     expect(layoutSwimlane(view, events)).toEqual(layout);
   });
+
+  it('bows a same-column edge sideways so it does not cross the nodes between its ends', () => {
+    const events = [eventDef('e1', { forms: ['f1', 'f2', 'f3'] })];
+    const view = makeView({
+      nodes: [node('a', { event: 'e1', form: 'f1' }), node('b', { event: 'e1', form: 'f2' }), node('c', { event: 'e1', form: 'f3' })],
+      edges: [link('c', 'a')],
+    });
+    const layout = layoutSwimlane(view, events);
+    const middle = findNode(layout, 'b');
+    const curve = layout.edges[0].curve;
+    for (let step = 1; step < 40; step++) {
+      const t = step / 40, u = 1 - t;
+      const x = u * u * u * curve[0].x + 3 * u * u * t * curve[1].x + 3 * u * t * t * curve[2].x + t * t * t * curve[3].x;
+      const y = u * u * u * curve[0].y + 3 * u * u * t * curve[1].y + 3 * u * t * t * curve[2].y + t * t * t * curve[3].y;
+      const inside = x > middle.x && x < middle.x + middle.width && y > middle.y && y < middle.y + middle.height;
+      expect(inside).toBe(false);
+    }
+  });
+
+  it('routes an edge between lanes that share a column x around every node in the way', () => {
+    const events = [eventDef('e1', { dayOffset: 0, forms: ['f1', 'f2'] }), eventDef('e2', { arm: '2', dayOffset: 0, forms: ['f1'] })];
+    const view = makeView({
+      nodes: [node('a', { event: 'e1', form: 'f1' }), node('b', { event: 'e1', form: 'f2' }), node('c', { event: 'e2', form: 'f1' }), node('u', { event: null })],
+      edges: [link('u', 'a')],
+    });
+    const layout = layoutSwimlane(view, events);
+    const curve = layout.edges[0].curve;
+    ['b', 'c'].forEach((id) => {
+      const blocker = findNode(layout, id);
+      for (let step = 1; step < 40; step++) {
+        const t = step / 40, u = 1 - t;
+        const x = u * u * u * curve[0].x + 3 * u * u * t * curve[1].x + 3 * u * t * t * curve[2].x + t * t * t * curve[3].x;
+        const y = u * u * u * curve[0].y + 3 * u * u * t * curve[1].y + 3 * u * t * t * curve[2].y + t * t * t * curve[3].y;
+        expect(x > blocker.x && x < blocker.x + blocker.width && y > blocker.y && y < blocker.y + blocker.height).toBe(false);
+      }
+    });
+  });
 });

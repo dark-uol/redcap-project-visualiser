@@ -10,10 +10,12 @@ const COLUMN_GAP = 40;
 const COLUMN_PITCH = NODE_WIDTH + COLUMN_GAP;
 const PIXELS_PER_DAY = 10;
 const MARGIN = 20;
+const LANE_LABEL_WIDTH = 120;
 const LANE_HEADER = 40;
 const LANE_FOOTER = 30;
 const LANE_GAP = 20;
 const BACKWARD_BOW = 40;
+const FIRST_CENTER = MARGIN + LANE_LABEL_WIDTH + COLUMN_PITCH / 2;
 const NO_EVENT_ARM = '(no event)';
 
 interface ColumnPlan {
@@ -38,9 +40,13 @@ const formatSublabel = (event: EventDef): string | undefined => {
   const parts: string[] = [];
   if (event.dayOffset !== undefined) parts.push(`day ${event.dayOffset}`);
   const { offsetMin: minimum, offsetMax: maximum } = event;
-  if (minimum !== undefined && maximum !== undefined) parts.push(minimum === maximum ? `(±${minimum})` : `(-${minimum}/+${maximum})`);
-  else if (minimum !== undefined) parts.push(`(-${minimum})`);
-  else if (maximum !== undefined) parts.push(`(+${maximum})`);
+  const window: string[] = [];
+  if (minimum !== undefined && maximum !== undefined && minimum === maximum && minimum > 0) window.push(`±${minimum}`);
+  else {
+    if (minimum !== undefined && minimum > 0) window.push(`-${minimum}`);
+    if (maximum !== undefined && maximum > 0) window.push(`+${maximum}`);
+  }
+  if (window.length) parts.push(`(${window.join('/')})`);
   return parts.length ? parts.join(' ') : undefined;
 };
 
@@ -53,7 +59,7 @@ const placeColumns = (columns: ColumnPlan[]): void => {
     // Stable sort: events with equal days keep their order in `events`.
     columns.sort((first, second) => (first.event!.dayOffset as number) - (second.event!.dayOffset as number));
   }
-  const firstCenter = MARGIN + COLUMN_PITCH / 2;
+  const firstCenter = FIRST_CENTER;
   const firstDay = timed ? (columns[0].event!.dayOffset as number) : 0;
   let previous: ColumnPlan | undefined;
   let sharedArms = new Set<string>();
@@ -105,6 +111,35 @@ const orderLane = (lane: LanePlan, neighbours: Map<string, string[]>, viewOrder:
   });
 };
 
+type Curve = [Point, Point, Point, Point];
+/** Vertical shifts tried, in order, for a left-to-right or backward edge until one clears every other node. */
+const ROUTE_OFFSETS = [0, -40, 40, -80, 80, -120, 120];
+/** Horizontal bows tried, in order, for a same-column edge that cannot run straight. */
+const SIDE_BOWS = [70, -70, 110, -110, 160, -160];
+const NODE_CLEARANCE = 4;
+
+const curvePoint = (curve: Curve, t: number): Point => {
+  const u = 1 - t;
+  const weights = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t];
+  return {
+    x: curve.reduce((sum, point, index) => sum + point.x * weights[index], 0),
+    y: curve.reduce((sum, point, index) => sum + point.y * weights[index], 0),
+  };
+};
+
+/** Whether the curve passes through any node other than the ignored ones (its own endpoints). */
+const curveHitsNode = (curve: Curve, nodes: LayoutNode[], ignored: Set<string>): boolean => {
+  const steps = 32;
+  for (let step = 1; step < steps; step++) {
+    const point = curvePoint(curve, step / steps);
+    const hit = nodes.some((node) => !ignored.has(node.id)
+      && point.x > node.x - NODE_CLEARANCE && point.x < node.x + node.width + NODE_CLEARANCE
+      && point.y > node.y - NODE_CLEARANCE && point.y < node.y + node.height + NODE_CLEARANCE);
+    if (hit) return true;
+  }
+  return false;
+};
+
 export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   const eventById = new Map(events.map((event) => [event.id, event]));
   const viewOrder = new Map(view.nodes.map((node, index) => [node.id, index]));
@@ -142,7 +177,7 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
     lane.columns.push(column);
   });
   if (unplaced.length) {
-    const column: ColumnPlan = { id: `column:${NO_EVENT_ARM}`, nodes: unplaced, centerX: MARGIN + COLUMN_PITCH / 2, topById: new Map() };
+    const column: ColumnPlan = { id: `column:${NO_EVENT_ARM}`, nodes: unplaced, centerX: FIRST_CENTER, topById: new Map() };
     lanes.push({ id: `lane:${NO_EVENT_ARM}`, label: NO_EVENT_ARM, columns: [column], y: 0, height: 0 });
   }
 
@@ -168,7 +203,7 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   const nodes: LayoutNode[] = [];
   const nodeColumn = new Map<string, ColumnPlan>();
   const nodeById = new Map<string, LayoutNode>();
-  const maxCenterX = Math.max(MARGIN + COLUMN_PITCH / 2, ...lanes.flatMap((lane) => lane.columns.map((column) => column.centerX)));
+  const maxCenterX = Math.max(FIRST_CENTER, ...lanes.flatMap((lane) => lane.columns.map((column) => column.centerX)));
   const width = maxCenterX + COLUMN_PITCH / 2 + MARGIN;
   const height = Math.max(cursorY - LANE_GAP, MARGIN) + MARGIN;
   const regions: LayoutRegion[] = [];
@@ -208,26 +243,38 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
     const targetX = nodeColumn.get(edge.to)!.centerX;
     const backward = targetX < sourceX;
     const middleY = (node: LayoutNode): number => node.y + node.height / 2;
-    let curve: [Point, Point, Point, Point];
+    const ignored = new Set([edge.from, edge.to]);
+    const candidates: Curve[] = [];
     if (backward) {
       const start = { x: source.x, y: middleY(source) };
       const end = { x: target.x + target.width, y: middleY(target) };
-      const bowY = Math.max(start.y, end.y) + BACKWARD_BOW;
       const reach = Math.abs(start.x - end.x) / 2;
-      curve = [start, { x: start.x - reach, y: bowY }, { x: end.x + reach, y: bowY }, end];
+      ROUTE_OFFSETS.forEach((offset) => {
+        const bowY = Math.max(start.y, end.y) + BACKWARD_BOW + Math.abs(offset);
+        candidates.push([start, { x: start.x - reach, y: bowY }, { x: end.x + reach, y: bowY }, end]);
+      });
     } else if (targetX > sourceX) {
       const start = { x: source.x + source.width, y: middleY(source) };
       const end = { x: target.x, y: middleY(target) };
       const reach = (end.x - start.x) / 2;
-      curve = [start, { x: start.x + reach, y: start.y }, { x: end.x - reach, y: end.y }, end];
+      ROUTE_OFFSETS.forEach((offset) => {
+        candidates.push([start, { x: start.x + reach, y: start.y + offset }, { x: end.x - reach, y: end.y + offset }, end]);
+      });
     } else {
-      // Same x (same column, or equal-day columns of different lanes): connect top and bottom edges.
+      // Same x (same column, or equal-day columns of different lanes): straight between top and bottom edges when nothing is in
+      // the way, otherwise attached to the side edges and bowed out, so it never has to cross the gap between stacked nodes.
       const downward = target.y >= source.y;
       const start = { x: source.x + source.width / 2, y: downward ? source.y + source.height : source.y };
       const end = { x: target.x + target.width / 2, y: downward ? target.y : target.y + target.height };
       const reach = (end.y - start.y) / 2;
-      curve = [start, { x: start.x, y: start.y + reach }, { x: end.x, y: end.y - reach }, end];
+      candidates.push([start, { x: start.x, y: start.y + reach }, { x: end.x, y: end.y - reach }, end]);
+      SIDE_BOWS.forEach((bow) => {
+        const sideStart = { x: bow > 0 ? source.x + source.width : source.x, y: middleY(source) };
+        const sideEnd = { x: bow > 0 ? target.x + target.width : target.x, y: middleY(target) };
+        candidates.push([sideStart, { x: sideStart.x + bow, y: sideStart.y }, { x: sideEnd.x + bow, y: sideEnd.y }, sideEnd]);
+      });
     }
+    const curve = candidates.find((candidate) => !curveHitsNode(candidate, nodes, ignored)) ?? candidates[0];
     edges.push({ from: edge.from, to: edge.to, curve, backward });
   });
 
