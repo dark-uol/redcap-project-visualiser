@@ -13,8 +13,7 @@ export interface LayoutSvgViewProps {
   onClear: () => void;
 }
 
-const ARROW_ID = 'layout-arrow';
-const ARROW_BACKWARD_ID = 'layout-arrow-backward';
+let instanceCounter = 0;
 /* The graph stage is white in both themes (like the Graphviz output), so the palette is fixed rather than themed. */
 const BACKWARD_COLOUR = '#c0392b';
 const LINE_COLOUR = '#64748b';
@@ -74,6 +73,10 @@ function columnTitle(region: LayoutRegion): string {
 
 /** Presentational: draws a positioned layout (regions, edges, nodes) as one SVG and highlights the selection. */
 export function LayoutSvgView(props: LayoutSvgViewProps) {
+  // Marker ids are document-global, so each instance gets its own pair.
+  instanceCounter += 1;
+  const ARROW_ID = `layout-arrow-${instanceCounter}`;
+  const ARROW_BACKWARD_ID = `layout-arrow-backward-${instanceCounter}`;
   return (
     <svg
       viewBox={`0 0 ${props.layout.width} ${props.layout.height}`}

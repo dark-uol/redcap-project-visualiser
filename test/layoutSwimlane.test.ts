@@ -192,4 +192,12 @@ describe('layoutSwimlane', () => {
       }
     });
   });
+
+  it('keeps the two edges of a reciprocal same-column pair apart', () => {
+    const view = makeView({ nodes: [node('a', { event: 'e1' }), node('b', { event: 'e1' })], edges: [link('a', 'b'), link('b', 'a')] });
+    const layout = layoutSwimlane(view, [eventDef('e1')]);
+    const [forward, back] = layout.edges;
+    expect(forward.curve[0].x).not.toBe(back.curve[3].x);
+    expect(forward.curve[0].x).toBeLessThan(back.curve[3].x);
+  });
 });

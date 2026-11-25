@@ -18,7 +18,7 @@ export default function ViewSection() {
       labelMode={labelMode()}
       groupBy={groupBy()}
       hasEvents={hasEvents()}
-      instances={instances()}
+      instances={instances() || renderer() === 'swimlane'}
       edgeLabels={edgeLabels()}
       hideIsolatedNodes={hideIsoNodes()}
       hideIsolatedFields={hideIso()}

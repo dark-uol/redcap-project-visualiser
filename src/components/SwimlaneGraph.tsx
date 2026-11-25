@@ -5,6 +5,7 @@ import { layoutSwimlane } from '../lib/layoutSwimlane';
 import type { ViewNode } from '../lib/types';
 import Detail from './Detail';
 import { LayoutSvgView } from './LayoutSvgView';
+import { PanZoomStageView } from './PanZoomStageView';
 
 const { selected, setSelected, selectedEdge, setSelectedEdge, setSelectedKeepingEdge } = selection;
 
@@ -19,11 +20,10 @@ export default function SwimlaneGraph() {
   const clearSelection = function clearSelection(): void { setSelected(null); setSelectedEdge(null); };
   return (
     <div>
-      <div class="graphbar"><span class="muted">Swimlane layout (spike)</span></div>
       <div id="graphwrap">
-        <div id="stage" style="overflow:auto">
-          <Show when={layout()} fallback={<div id="msg"><div>Swimlanes need form instances: set Level to Forms and tick “Instances” (longitudinal projects only).</div></div>}>
-            {(currentLayout) => (
+        <Show when={layout()} fallback={<div id="stage"><div id="msg"><div>Swimlanes show form instances: set Level to Forms (longitudinal projects only).</div></div></div>}>
+          {(currentLayout) => (
+            <PanZoomStageView contentWidth={currentLayout().width} contentHeight={currentLayout().height}>
               <LayoutSvgView
                 layout={currentLayout()}
                 nodeLabel={(id) => nodesById().get(id)?.label ?? id}
@@ -34,9 +34,9 @@ export default function SwimlaneGraph() {
                 onSelectEdge={selectEdge}
                 onClear={clearSelection}
               />
-            )}
-          </Show>
-        </div>
+            </PanZoomStageView>
+          )}
+        </Show>
         <Detail />
       </div>
     </div>

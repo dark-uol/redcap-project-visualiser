@@ -24,7 +24,8 @@ export function createDerived(state: State) {
   });
   const instanceMode = (): boolean => {
     const loadedModel = model();
-    return instances() && level() === 'form' && !!loadedModel && (loadedModel.parsed.events || []).length > 0;
+    // the swimlane layout is always of form instances, so it needs no separate toggle
+    return (instances() || renderer() === 'swimlane') && level() === 'form' && !!loadedModel && (loadedModel.parsed.events || []).length > 0;
   };
   const exploreVisible = (exploration: Pick<Explore, 'seeds' | 'exp'>): Set<string> =>
     new Set([...exploration.seeds, ...exploration.exp.flatMap((x) => x.added)]);

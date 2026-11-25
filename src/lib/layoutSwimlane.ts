@@ -117,6 +117,7 @@ const ROUTE_OFFSETS = [0, -40, 40, -80, 80, -120, 120];
 /** Horizontal bows tried, in order, for a same-column edge that cannot run straight. */
 const SIDE_BOWS = [70, -70, 110, -110, 160, -160];
 const NODE_CLEARANCE = 4;
+const RECIPROCAL_NUDGE = 8;
 
 const curvePoint = (curve: Curve, t: number): Point => {
   const u = 1 - t;
@@ -235,6 +236,7 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   });
 
   const edges: LayoutEdge[] = [];
+  const edgeKeys = new Set(view.edges.map((edge) => `${edge.from}\u0000${edge.to}`));
   view.edges.forEach((edge: ViewEdge) => {
     const source = nodeById.get(edge.from);
     const target = nodeById.get(edge.to);
@@ -264,8 +266,11 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
       // Same x (same column, or equal-day columns of different lanes): straight between top and bottom edges when nothing is in
       // the way, otherwise attached to the side edges and bowed out, so it never has to cross the gap between stacked nodes.
       const downward = target.y >= source.y;
-      const start = { x: source.x + source.width / 2, y: downward ? source.y + source.height : source.y };
-      const end = { x: target.x + target.width / 2, y: downward ? target.y : target.y + target.height };
+      // A reciprocal pair would otherwise overlap exactly, so each direction is nudged to its own side of the centre line.
+      const reciprocal = edgeKeys.has(`${edge.to}\u0000${edge.from}`);
+      const nudge = reciprocal ? (edge.from < edge.to ? -RECIPROCAL_NUDGE : RECIPROCAL_NUDGE) : 0;
+      const start = { x: source.x + source.width / 2 + nudge, y: downward ? source.y + source.height : source.y };
+      const end = { x: target.x + target.width / 2 + nudge, y: downward ? target.y : target.y + target.height };
       const reach = (end.y - start.y) / 2;
       candidates.push([start, { x: start.x, y: start.y + reach }, { x: end.x, y: end.y - reach }, end]);
       SIDE_BOWS.forEach((bow) => {
