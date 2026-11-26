@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { buildModel } from '../src/lib/graph';
 import { pipedTextExpression } from '../src/lib/logic';
 import type { EventDef, Field, ParsedODM } from '../src/lib/types';
-import { ANY_EVENT, calculationChainOf, controllersOf, derivedValue, derivedValues, evaluateVisibility, isDerivable, topLevelDefault } from '../src/lib/whatIf';
+import { ANY_EVENT, calculationChainOf, controllersOf, dependentsOf, derivedValue, derivedValues, evaluateVisibility, isDerivable, topLevelDefault } from '../src/lib/whatIf';
 import type { WhatIfContext, WhatIfValue } from '../src/lib/whatIf';
 
 const field = (variable: string, form: string, over: Partial<Field> = {}): Field => ({
@@ -171,6 +171,38 @@ describe('controllersOf following calculations', () => {
 
   it('does not follow the explored field\'s own calculation, which says nothing about whether it is shown', () => {
     expect(controllersOf(model, 'nhs_valid', true).map((item) => item.variable)).not.toContain('nhs_check');
+  });
+});
+
+describe('dependentsOf following calculations', () => {
+  it('stops at the direct dependents by default, as it always did', () => {
+    // nhs_copy's default names it, and so does the condition of conditional_default's @IF
+    expect(dependentsOf(model, 'nhs_entered')).toEqual(['nhs_copy', 'conditional_default']);
+  });
+
+  it('adds the fields that depend on the field through a chain of calculations and defaults', () => {
+    // nhs_entered feeds the default of nhs_copy, which feeds the calculations behind nhs_valid, which decide nhs_warning
+    expect(dependentsOf(model, 'nhs_entered', true)).toEqual(['nhs_copy', 'conditional_default', 'nhs_warning']);
+  });
+
+  it('counts a calculation hop as no step: a field in the middle of the chain reaches the same dependents', () => {
+    expect(dependentsOf(model, 'nhs_copy')).toEqual(['nhs_warning']);
+    expect(dependentsOf(model, 'nhs_copy', true)).toEqual(['nhs_warning']);
+    expect(dependentsOf(model, 'nhs_sum', true)).toEqual(['nhs_warning']);
+  });
+
+  it('does not list the intermediate calculated fields, only what their values decide', () => {
+    expect(dependentsOf(model, 'nhs_entered', true)).not.toContain('nhs_sum');
+  });
+
+  it('reaches across events: the calculation reads in its own event, and what it decides is in another', () => {
+    expect(dependentsOf(model, 'score')).toEqual([]);
+    expect(dependentsOf(model, 'score', true)).toEqual(['reads_doubled']); // score feeds doubled, which reads_doubled depends on
+  });
+
+  it('is unchanged for a field nothing is calculated from, and does not list a field as depending on itself through a loop', () => {
+    expect(dependentsOf(model, 'nhs_warning', true)).toEqual(dependentsOf(model, 'nhs_warning'));
+    expect(dependentsOf(model, 'loop_a', true)).toEqual(['loop_gate']);
   });
 });
 

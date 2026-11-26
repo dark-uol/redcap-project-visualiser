@@ -268,7 +268,8 @@ function AffectedTable(props: { field: Field }) {
   const rows = createMemo<AffectedRow[]>(() => {
     const loadedModel = need(model());
     const order = new Map<string, number>([...loadedModel.byVar.keys(), ...loadedModel.formNodes.keys()].map((id, index) => [id, index]));
-    const ids = [...dependentsOf(loadedModel, props.field.variable)].sort((left, right) => (order.get(left) ?? 0) - (order.get(right) ?? 0));
+    // with Calculate on, a field that depends on this one through a chain of calculations and defaults counts as affected
+    const ids = [...dependentsOf(loadedModel, props.field.variable, whatIf.derive())].sort((left, right) => (order.get(left) ?? 0) - (order.get(right) ?? 0));
     return rowsFor(ids);
   });
   return <VisibilityTable title="Affects" emptyText="No field or form depends on this field." rows={rows()} excludedInput={props.field} />;

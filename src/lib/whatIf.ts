@@ -472,15 +472,49 @@ export function eventsToEvaluate(model: ModelBase, nodeId: string, selectedEvent
   return events.length ? events : [selectedEvent];
 }
 
-/** The fields and form nodes whose visibility depends (directly, via branching / actiontag / formlogic edges) on `variable`. */
-export function dependentsOf(model: ModelBase, variable: string): string[] {
-  const targets = model.edges
-    .filter((edge) => edge.from === variable && (edge.type === 'branching' || edge.type === 'actiontag' || edge.type === 'formlogic'))
-    .map((edge) => edge.to);
-  return unique(targets);
+const VISIBILITY_EDGES = new Set(['branching', 'actiontag', 'formlogic']);
+
+/** What `variable` directly decides the visibility of: the fields and form nodes with branching, action-tag or form display logic that names it. */
+function visibilityTargetsOf(model: ModelBase, variable: string): string[] {
+  return unique(model.edges.filter((edge) => edge.from === variable && VISIBILITY_EDGES.has(edge.type)).map((edge) => edge.to));
 }
 
-const VISIBILITY_EDGES = new Set(['branching', 'actiontag', 'formlogic']);
+/** The derivable fields whose value is worked out from `variable`: those whose calculation, or top-level `@DEFAULT` text, names it. */
+function derivedFrom(model: ModelBase, variable: string): string[] {
+  return unique(
+    model.edges
+      .filter((edge) => edge.from === variable && (edge.type === 'calc' || edge.type === 'actiontag'))
+      .map((edge) => edge.to)
+      .filter((target) => {
+        const field = model.byVar.get(target);
+        return field !== undefined && isDerivable(field) && derivationInputsOf(model, field).includes(variable);
+      }),
+  );
+}
+
+/**
+ * The fields and form nodes whose visibility depends on `variable`: directly, via branching / actiontag / formlogic edges.
+ * With `calculations` (a value is worked out from its inputs), also those that depend on it through a chain of calculations
+ * and defaults, which are only a way of computing a value and so cost no step: with `a` feeding a calculated `b` feeding `c`,
+ * and a field shown only when `c` has some value, that field depends on `a`. A cycle of calculations is followed once.
+ */
+export function dependentsOf(model: ModelBase, variable: string, calculations = false): string[] {
+  const direct = visibilityTargetsOf(model, variable);
+  if (!calculations) return direct;
+  const viaCalculations: string[] = [];
+  const reached = new Set([variable]);
+  const queue = [variable];
+  while (queue.length) {
+    derivedFrom(model, queue.shift()!).forEach((derived) => {
+      if (reached.has(derived)) return;
+      reached.add(derived);
+      queue.push(derived);
+      viaCalculations.push(...visibilityTargetsOf(model, derived));
+    });
+  }
+  // a chain that loops back to the field does not make it depend on itself
+  return unique([...direct, ...viaCalculations.filter((target) => target !== variable)]);
+}
 const VISIBILITY_AND_CALCULATION_EDGES = new Set([...VISIBILITY_EDGES, 'calc']);
 
 /**
