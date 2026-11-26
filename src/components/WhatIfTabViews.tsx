@@ -4,6 +4,7 @@
  */
 import { For, Show, createMemo, createSignal } from 'solid-js';
 import type { Accessor, Element as SolidElement } from 'solid-js';
+import type { WhatIfEngine } from '../lib/types';
 import type { MissingInput, Visibility, VisibilityInfo } from '../lib/whatIf';
 import { countByState, distinctOf, filterVisibilityRows } from '../lib/whatIfRows';
 import type { ChooserMatch } from '../lib/whatIfRows';
@@ -40,10 +41,14 @@ export type ValuesTableViewProps = {
   /** The row count shown on the "Clear all" button, or null when there is nothing to clear. */
   clearCount: number | null;
   mode: 'form' | 'survey';
+  /** Which engine evaluates the states, and a one-line status for the Python one ('' when there is nothing to say). */
+  engine: WhatIfEngine;
+  engineStatus: string;
   query: string;
   matches: ChooserMatch[];
   listOpen: boolean;
   onModeChange: (mode: 'form' | 'survey') => void;
+  onEngineChange: (engine: WhatIfEngine) => void;
   onClearAll: () => void;
   onExploreRow: (row: ValuesRow) => void;
   onChangeEvent: (row: ValuesRow, eventId: string) => void;
@@ -62,6 +67,9 @@ export type ValuesTableViewProps = {
 export function ValuesTableView(props: ValuesTableViewProps) {
   const onModeSelectChange = function onModeSelectChange(event: Event & { currentTarget: HTMLSelectElement }): void {
     props.onModeChange(event.currentTarget.value === 'survey' ? 'survey' : 'form');
+  };
+  const onEngineSelectChange = function onEngineSelectChange(event: Event & { currentTarget: HTMLSelectElement }): void {
+    props.onEngineChange(event.currentTarget.value === 'python' ? 'python' : 'typescript');
   };
   const onInput = function onInput(event: Event & { currentTarget: HTMLInputElement }): void {
     props.onQueryChange(event.currentTarget.value);
@@ -93,6 +101,16 @@ export function ValuesTableView(props: ValuesTableViewProps) {
             <option value="survey" selected={props.mode === 'survey'}>survey</option>
           </select>
         </label>
+        <label class="wi-mode small">
+          <span class="muted">Engine</span>
+          <select class="wi-engine" onChange={onEngineSelectChange}>
+            <option value="typescript" selected={props.engine === 'typescript'}>TypeScript</option>
+            <option value="python" selected={props.engine === 'python'}>Python (Pyodide)</option>
+          </select>
+        </label>
+        <Show when={props.engineStatus}>
+          <span class="wi-engine-status muted small">{props.engineStatus}</span>
+        </Show>
       </div>
       <table class="wi-table">
         <thead><tr>

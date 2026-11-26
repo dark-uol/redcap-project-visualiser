@@ -7,6 +7,13 @@ export type LabelMode = 'var' | 'label';
 export type GroupBy = 'none' | 'form' | 'event' | 'arm';
 export type FocusDir = 'both' | 'up' | 'down';
 export type Renderer = 'graphviz' | 'mermaid' | 'swimlane' | 'elk';
+/** Which implementation evaluates What if visibility: the TypeScript engine, or the Python core run by Pyodide. */
+export type WhatIfEngine = 'typescript' | 'python';
+export type PythonStatus =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'ready'; version: string }
+  | { kind: 'error'; message: string };
 /** 'up' / 'down' = field-level or instance references; 'fup' / 'fdown' = whole-form references. */
 export type NeighborDir = 'up' | 'down' | 'fup' | 'fdown';
 export type NodeKind = 'field' | 'calc' | 'form' | 'missing' | 'status' | 'logic';

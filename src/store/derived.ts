@@ -1,13 +1,14 @@
 /* Memos derived from the state: the filtered view, presentation options, graph sources and status messages. */
-import { createMemo } from 'solid-js';
+import { createMemo, createSignal } from 'solid-js';
 import { MAX_AUTO_EDGES, TYPE_KEYS, need } from './common';
 import type { State } from './state';
 import { buildView } from '../lib/graph';
 import { toMermaid, toDot } from '../lib/exporters';
 import { activeEventIds, enabledFormIds } from '../lib/filterSelection';
 import { evaluateVisibility } from '../lib/whatIf';
-import type { VisibilityInfo } from '../lib/whatIf';
-import type { Renderer, Explore, ExploreFilter, View, ViewFilter, ViewOptions, ViewPresentation } from '../lib/types';
+import type { VisibilityInfo, WhatIfContext } from '../lib/whatIf';
+import type { PythonVisibilityEngine } from '../lib/pythonEngine';
+import type { Model, Renderer, Explore, ExploreFilter, View, ViewFilter, ViewOptions, ViewPresentation } from '../lib/types';
 
 export function createDerived(state: State) {
   const {
@@ -121,24 +122,61 @@ export function createDerived(state: State) {
     return '';
   });
   const tooBig = createMemo<boolean>(() => !!view() && (view()?.edges.length ?? 0) > MAX_AUTO_EDGES && forcedFor() !== dotSrc());
-  // Results per event for the current model, values and mode; a fresh cache whenever any of them changes
-  const visibilityCache = createMemo<Map<string, Map<string, VisibilityInfo>>>(() => {
-    model(); state.whatIf.values(); state.whatIf.mode();
-    return new Map();
+  // Results per event for the current model, values, mode and engine; a fresh cache whenever any of them changes
+  interface VisibilityCache { results: Map<string, Map<string, VisibilityInfo>>; requested: Set<string> }
+  const visibilityCache = createMemo<VisibilityCache>(() => {
+    model(); state.whatIf.values(); state.whatIf.mode(); state.whatIf.engine();
+    return { results: new Map(), requested: new Set() };
   });
+  // The Python engine for the loaded model, created on first use. Python loads asynchronously, so its results arrive later
+  // and `pythonArrivals` tells readers to look again.
+  const [pythonArrivals, setPythonArrivals] = createSignal(0);
+  let pythonEngine: { parsed: unknown; ready: Promise<PythonVisibilityEngine> } | null = null;
+  const pythonEngineFor = (loadedModel: Model): Promise<PythonVisibilityEngine> => {
+    if (pythonEngine?.parsed === loadedModel.parsed) return pythonEngine.ready;
+    pythonEngine?.ready.then((previous) => previous.destroy(), () => undefined);
+    state.whatIf.setPythonStatus({ kind: 'loading' });
+    const ready = import('../lib/pythonEngine')
+      .then((module) => module.createPythonVisibility(loadedModel.parsed, { indexURL: import.meta.env.BASE_URL + 'pyodide/' }))
+      .then((engine) => { state.whatIf.setPythonStatus({ kind: 'ready', version: engine.pythonVersion }); return engine; });
+    ready.catch((error: unknown) => {
+      pythonEngine = null;
+      state.whatIf.setPythonStatus({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
+    });
+    pythonEngine = { parsed: loadedModel.parsed, ready };
+    return ready;
+  };
+  const evaluateInPython = (cache: VisibilityCache, loadedModel: Model, key: string, context: WhatIfContext): void => {
+    if (cache.requested.has(key)) return;
+    cache.requested.add(key);
+    // Called while a view reads visibility, where writing a signal (the engine status) is not allowed: start from a microtask.
+    queueMicrotask(function startPythonEvaluation() {
+      pythonEngineFor(loadedModel)
+        .then((engine) => { cache.results.set(key, engine.evaluate(context)); setPythonArrivals((count) => count + 1); })
+        .catch(() => undefined); // reported through pythonStatus
+    });
+  };
   /**
    * Visibility as seen in `event` (null = no event), evaluated on first use. Null when nothing is set, so normal use costs nothing,
    * unless `evenWithoutValues`: the What if tab evaluates from nothing to list what a field needs (working backwards).
+   * With the Python engine selected the answer is null until Python has loaded and evaluated it.
    */
   const visibilityIn = (event: string | null, evenWithoutValues = false): Map<string, VisibilityInfo> | null => {
     const loadedModel = model();
     if (!loadedModel || (state.whatIf.valueCount() === 0 && !evenWithoutValues)) return null;
     const cache = visibilityCache();
     const key = event ?? '';
-    let result = cache.get(key);
+    const context: WhatIfContext = { values: state.whatIf.values(), mode: state.whatIf.mode(), event };
+    if (state.whatIf.engine() === 'python') {
+      pythonArrivals(); // look again when a result arrives
+      const arrived = cache.results.get(key);
+      if (!arrived) evaluateInPython(cache, loadedModel, key, context);
+      return arrived ?? null;
+    }
+    let result = cache.results.get(key);
     if (!result) {
-      result = evaluateVisibility(loadedModel, { values: state.whatIf.values(), mode: state.whatIf.mode(), event });
-      cache.set(key, result);
+      result = evaluateVisibility(loadedModel, context);
+      cache.results.set(key, result);
     }
     return result;
   };

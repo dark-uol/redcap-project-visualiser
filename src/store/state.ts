@@ -5,7 +5,7 @@ import type { AnchorCapture, Tab } from './common';
 import { ANY_EVENT } from '../lib/whatIf';
 import type { WhatIfValue } from '../lib/whatIf';
 import type {
-  DepType, Direction, Explore, FocusDir, FormPair, GroupBy, LabelMode, Level, Model, Renderer, View,
+  DepType, Direction, Explore, FocusDir, FormPair, GroupBy, LabelMode, Level, Model, PythonStatus, Renderer, View, WhatIfEngine,
 } from '../lib/types';
 
 /** One row of the What if values table: a field (or smart variable key) and the event its value is for (null: every event, or no events). */
@@ -69,6 +69,8 @@ export function createState() {
   const [whatIfValues, setWhatIfValues] = createSignal<WhatIfValues>({});
   const [whatIfMode, setWhatIfMode] = createSignal<'survey' | 'form'>('form');
   const [whatIfEvent, setWhatIfEvent] = createSignal<string | null>(null);
+  const [whatIfEngine, setWhatIfEngine] = createSignal<WhatIfEngine>('typescript');
+  const [pythonStatus, setPythonStatus] = createSignal<PythonStatus>({ kind: 'idle' });
   const [whatIfField, setWhatIfField] = createSignal<string | null>(null); // variable being edited in the What if tab
   // `values` with one value written into the bucket of an event (ANY_EVENT when null), dropping buckets that become empty.
   // Pure, so several changes can be chained into one write: Solid 2 batches writes, and a signal read straight after a write still returns the old value.
@@ -119,6 +121,7 @@ export function createState() {
     values: whatIfValues, valueCount: whatIfValueCount, setValueIn: setWhatIfValueIn, clearValues: clearWhatIfValues,
     rows: whatIfRows, addRow: addWhatIfRow, removeRow: removeWhatIfRow, moveRow: moveWhatIfRow,
     mode: whatIfMode, setMode: setWhatIfMode, event: whatIfEvent, setEvent: setWhatIfEvent,
+    engine: whatIfEngine, setEngine: setWhatIfEngine, pythonStatus, setPythonStatus,
     field: whatIfField, setField: setWhatIfField,
   };
 

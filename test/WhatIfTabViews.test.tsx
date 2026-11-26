@@ -10,8 +10,8 @@ const valuesRow = (over: Partial<ValuesRow> = {}): ValuesRow => ({
 
 function valuesProps(over: Partial<ValuesTableViewProps> = {}): ValuesTableViewProps {
   return {
-    rows: [valuesRow()], showEventColumn: false, eventLabelOf: (id) => ({ ev1: 'Baseline', ev2: 'Week 1' } as Record<string, string>)[id] ?? id, clearCount: null, mode: 'form', query: '', matches: [], listOpen: true,
-    onModeChange: vi.fn(), onClearAll: vi.fn(), onExploreRow: vi.fn(), onChangeEvent: vi.fn(), onRemoveRow: vi.fn(),
+    rows: [valuesRow()], showEventColumn: false, eventLabelOf: (id) => ({ ev1: 'Baseline', ev2: 'Week 1' } as Record<string, string>)[id] ?? id, clearCount: null, mode: 'form', engine: 'typescript', engineStatus: '', query: '', matches: [], listOpen: true,
+    onModeChange: vi.fn(), onEngineChange: vi.fn(), onClearAll: vi.fn(), onExploreRow: vi.fn(), onChangeEvent: vi.fn(), onRemoveRow: vi.fn(),
     onQueryChange: vi.fn(), onChooseMatch: vi.fn(),
     renderValue: (row) => <span class="value-slot">{row().variable}</span>,
     renderState: () => <span class="state-slot">state</span>,
@@ -97,6 +97,19 @@ describe('ValuesTableView', () => {
     select.value = 'survey';
     fireChange(select);
     expect(props.onModeChange).toHaveBeenCalledWith('survey');
+  });
+
+  it('reports an engine change and shows the engine status only when there is one', () => {
+    const props = valuesProps();
+    const container = renderComponent(() => <ValuesTableView {...props} />);
+    expect(container.querySelector('.wi-engine-status')).toBeNull();
+    const select = container.querySelector('select.wi-engine') as HTMLSelectElement;
+    select.value = 'python';
+    fireChange(select);
+    expect(props.onEngineChange).toHaveBeenCalledWith('python');
+    const withStatus = renderComponent(() => <ValuesTableView {...valuesProps({ engine: 'python', engineStatus: 'Python 3.14.2' })} />);
+    expect(withStatus.querySelector('.wi-engine-status')?.textContent).toBe('Python 3.14.2');
+    expect((withStatus.querySelector('select.wi-engine') as HTMLSelectElement).value).toBe('python');
   });
 
   describe('chooser', () => {

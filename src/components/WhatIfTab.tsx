@@ -3,7 +3,7 @@ import { Show, createMemo, createSignal } from 'solid-js';
 import type { Accessor } from 'solid-js';
 import { controllersOf, dependentsOf, eventForField, eventsForField, eventsToEvaluate, isSmartKey } from '../lib/whatIf';
 import type { MissingInput, Visibility, VisibilityInfo } from '../lib/whatIf';
-import type { Field, Model } from '../lib/types';
+import type { Field, Model, WhatIfEngine } from '../lib/types';
 import { computeVisibilityLogic, chooserMatches, displayRows, nextExploredRow, rowKeyOf, smartVariableNames } from '../lib/whatIfRows';
 import type { ChooserMatch, TableRow } from '../lib/whatIfRows';
 import { need, model, selection, whatIf, visibilityIn, formLabel } from '../store';
@@ -85,6 +85,15 @@ function ValuesTable() {
     }
   };
   const setMode = function setMode(mode: 'form' | 'survey'): void { whatIf.setMode(mode); };
+  const setEngine = function setEngine(engine: WhatIfEngine): void { whatIf.setEngine(engine); };
+  const engineStatus = function engineStatus(): string {
+    if (whatIf.engine() !== 'python') return '';
+    const status = whatIf.pythonStatus();
+    if (status.kind === 'loading') return 'Loading Python…';
+    if (status.kind === 'ready') return 'Python ' + status.version;
+    if (status.kind === 'error') return 'Python failed to load: ' + status.message;
+    return '';
+  };
   const rows = (): ValuesRow[] => displayRowsOf().map((row): ValuesRow => {
     const field = fieldFor(row.variable);
     const isSmart = isSmartKey(row.variable);
@@ -118,10 +127,13 @@ function ValuesTable() {
       eventLabelOf={eventLabel}
       clearCount={whatIf.valueCount() || whatIf.rows().length ? displayRowsOf().length : null}
       mode={whatIf.mode()}
+      engine={whatIf.engine()}
+      engineStatus={engineStatus()}
       query={query()}
       matches={matches()}
       listOpen={listOpen()}
       onModeChange={setMode}
+      onEngineChange={setEngine}
       onClearAll={onClearAll}
       onExploreRow={exploreRow}
       onChangeEvent={changeEvent}

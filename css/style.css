@@ -143,6 +143,7 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 .wi-fold:hover .wi-fold-mark{border-color:var(--text)}
 .wi-editor{margin-top:10px}
 .wi-mode{display:flex;gap:6px;align-items:center;margin-left:auto}
+.wi-mode + .wi-mode{margin-left:0}
 .wi-explorable{cursor:pointer}
 .wi-explorable:hover td{background:var(--code)}
 .wi-current td{background:var(--code)}
