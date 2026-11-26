@@ -1,5 +1,5 @@
 /* Graph renderers: Graphviz (@viz-js/viz) and Mermaid, both loaded lazily on first use. */
-import type { EventDef, View, ViewOptions } from './types';
+import type { EventDef, Renderer, View, ViewOptions } from './types';
 
 const loadViz = () => import('@viz-js/viz').then((m) => m.instance());
 
@@ -43,4 +43,21 @@ export async function renderLayout(engine: 'swimlane' | 'elk', view: View, optio
   const { layoutToSvg } = await import('./layoutToSvg');
   const document = new DOMParser().parseFromString(layoutToSvg(layout, view, options), 'image/svg+xml');
   return document.documentElement as unknown as SVGSVGElement;
+}
+
+/** What an engine needs to draw: the DOT or Mermaid source for the external engines, the view, options and events for our own. */
+export interface EngineInput {
+  source: string;
+  view: View | null;
+  options: ViewOptions | null;
+  events: EventDef[];
+  /** Unique id for each Mermaid render. */
+  mermaidId: string;
+}
+
+/** Draw with the named engine; null when there is nothing to draw (Mermaid found no svg, or a layout engine has no view). */
+export async function renderEngine(name: Renderer, input: EngineInput): Promise<SVGSVGElement | null> {
+  if (name === 'graphviz') return renderDot(input.source);
+  if (name === 'mermaid') return renderMermaid(input.mermaidId, input.source);
+  return input.view && input.options ? renderLayout(name, input.view, input.options, input.events) : null;
 }

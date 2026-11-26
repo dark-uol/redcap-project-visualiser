@@ -4,7 +4,7 @@ import { errorMessage } from './common';
 import type { RenderInput } from './common';
 import type { Derived } from './derived';
 import type { State } from './state';
-import { renderDot, renderLayout, renderMermaid } from '../lib/renderers';
+import { renderEngine } from '../lib/renderers';
 
 export function setupRendering(state: State, derived: Derived): void {
   const { setSvgEl, setSvgView, setBusy, setRenderMsg } = state;
@@ -29,9 +29,7 @@ export function setupRendering(state: State, derived: Derived): void {
     setRenderMsg(svgNow ? '' : 'Rendering…');
     setBusy(true); // keep the previous SVG on screen (dimmed) until the new one is ready
     try {
-      const svg = rendererName === 'graphviz' ? await renderDot(source)
-        : rendererName === 'mermaid' ? await renderMermaid('mmd' + renderToken, source)
-          : v && options ? await renderLayout(rendererName, v, options, events) : null;
+      const svg = await renderEngine(rendererName, { source, view: v, options, events, mermaidId: 'mmd' + renderToken });
       if (!svg) { clear(''); return; }
       if (renderToken !== token) return;
       setRenderMsg(''); setBusy(false); setSvgView(v); setSvg(svg);
