@@ -58,6 +58,9 @@ main[hidden],.drop[hidden]{display:none}
 table{border-collapse:collapse;width:100%;font-size:13px;background:var(--panel)}
 th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 th{position:sticky;top:0;background:var(--panel);font-size:12px;color:var(--muted)}
+th .sortbutton{all:unset;cursor:pointer;font:inherit;color:inherit;white-space:nowrap}
+th .sortbutton:hover,th .sortbutton:focus-visible{color:var(--accent)}
+th[aria-sort="ascending"],th[aria-sort="descending"]{color:var(--text)}
 td.expr{font-family:ui-monospace,Menlo,monospace;font-size:12px;max-width:480px;word-break:break-word}
 .filter{width:100%;max-width:420px;padding:6px 8px;margin-bottom:8px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;font:inherit}
 #tab-deps,#tab-fields,#tab-analysis{overflow:auto;max-height:calc(100vh - 140px)}
@@ -147,3 +150,5 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 .wi-match{text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:4px 8px;color:var(--text);cursor:pointer;font:inherit;font-size:12px}
 .wi-match:last-child{border-bottom:0}
 .wi-match:hover{background:var(--code)}
+.chain{margin:0 0 8px;padding-left:24px}
+.chain li{padding:2px 0}

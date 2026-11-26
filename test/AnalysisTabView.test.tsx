@@ -74,4 +74,26 @@ describe('AnalysisTabView', () => {
       delete (Element.prototype as Partial<Element>).scrollIntoView;
     }
   });
+
+  it('lists the longest chain as one step per item, matching the card count', () => {
+    const { container } = renderView(sampleModel);
+    const steps = container.querySelectorAll('#an-chain + ol li');
+    expect(steps.length).toBe(sampleModel.analysis.maxChain + 1);
+    expect(sampleModel.analysis.longestChain.length).toBe(sampleModel.analysis.maxChain + 1);
+  });
+
+  it('shows a circular group within the chain as one step and jumps on click', () => {
+    const model: Model = { ...sampleModel, analysis: { ...sampleModel.analysis, maxChain: 1, longestChain: [['a'], ['b', 'c']] } };
+    const { container, onJumpToField } = renderView(model);
+    const steps = Array.from(container.querySelectorAll('#an-chain + ol li')).map((item) => item.textContent);
+    expect(steps).toEqual(['a', 'b ⇄ c']);
+    container.querySelectorAll<HTMLElement>('#an-chain + ol .fieldlink')[2].click();
+    expect(onJumpToField).toHaveBeenCalledWith('c');
+  });
+
+  it('says so when there is no chain', () => {
+    const model: Model = { ...sampleModel, analysis: { ...sampleModel.analysis, maxChain: 0, longestChain: [] } };
+    const { container } = renderView(model);
+    expect(container.querySelector('#an-chain + p')?.textContent).toContain('No chains');
+  });
 });

@@ -234,19 +234,32 @@ function analyse(model: ModelBase): Analysis {
 
   // longest dependency chain (over logic edges, condensed)
   const memo = new Map<number, number>();
+  const nextComponent = new Map<number, number>();
   function depth(c: number): number {
     if (memo.has(c)) return memo.get(c) as number;
     memo.set(c, 0);
     let best = 0;
     sccs[c].forEach((v) => (adj.get(v) ?? []).forEach((w) => {
       const cw = compOf.get(w);
-      if (cw !== undefined && cw !== c) best = Math.max(best, 1 + depth(cw));
+      if (cw !== undefined && cw !== c && 1 + depth(cw) > best) {
+        best = 1 + depth(cw);
+        nextComponent.set(c, cw);
+      }
     }));
     memo.set(c, best);
     return best;
   }
   let maxChain = 0;
-  sccs.forEach((_, c) => { maxChain = Math.max(maxChain, depth(c)); });
+  let chainStart = -1;
+  sccs.forEach((_, c) => { if (depth(c) > maxChain) { maxChain = depth(c); chainStart = c; } });
+  // longest chain of logic dependants starting at each field (fields in a circular group share one value)
+  const chainLength = new Map<string, number>();
+  compOf.forEach((c, v) => chainLength.set(v, memo.get(c) ?? 0));
+  // each step is one field, or the members of a circular group that the chain passes through
+  const longestChain: string[][] = [];
+  for (let c: number | undefined = chainStart; c !== undefined && c >= 0; c = nextComponent.get(c)) {
+    longestChain.push(sccs[c].length > 1 ? [...sccs[c]].reverse() : sccs[c]);
+  }
 
   const degree = new Map<string, { in: number; out: number }>();
   vars.forEach((v) => degree.set(v, {
@@ -274,7 +287,7 @@ function analyse(model: ModelBase): Analysis {
     const a = order.get(e.from), b = order.get(e.to);
     return a !== undefined && b !== undefined && a > b;
   });
-  return { degree, isolated, hubs, heavy, cycles, maxChain, missing, crossForm, forward, out, inn };
+  return { degree, isolated, hubs, heavy, cycles, maxChain, longestChain, chainLength, missing, crossForm, forward, out, inn };
 }
 
 /** Model edges that pass the type / missing / cross-event / instance-logic filters. */

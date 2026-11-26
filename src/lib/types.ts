@@ -173,6 +173,10 @@ export interface Analysis {
   heavy: [string, number][];
   cycles: string[][];
   maxChain: number;
+  /** The longest logic chain, first dependency to last dependant; a step with several fields is a circular group. */
+  longestChain: string[][];
+  /** Per field: how many steps the longest chain of logic dependants starting at it has. */
+  chainLength: Map<string, number>;
   missing: Edge[];
   crossForm: Edge[];
   forward: Edge[];
