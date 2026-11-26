@@ -171,6 +171,15 @@ All levels (field × 4 groupings, form, Instances, event, event into forms, inst
 - Extract `renderEngine` in `renderers.ts` (now in scope, M1).
 - CI is GitHub Actions deploying to GitHub Pages (`.github/workflows/deploy-pages.yml` exists: type-check, `npm test`, build, deploy on push to `main`).
 
+## Known engine differences
+
+Listed in `KNOWN_DIFFERENCES` (`test/engines/harness.ts`); the contract test fails on an unlisted difference and on a stale entry.
+
+- **Event and arm groups have no `g.cluster` in the Swimlane engine** (`contract: missing cluster`: field level grouped by event or arm, form level with Instances, form instance into fields). Swimlane draws an event as a column and an arm as a lane (`g.region`), where Graphviz, Mermaid and ELK draw a cluster box.
+  Acceptable because these groups are `noSelect`: nothing clicks or highlights them, so no behaviour (click resolution, `highlightCluster`, anchor/zoom to a cluster) is lost, and the column or lane is the visible grouping.
+  Stops being acceptable if such a group becomes selectable, highlightable or an anchor/zoom target (its `noSelect` removed), or if code starts to look up its `g.cluster`. Then it needs a keyed element (an expanded event's column already is a keyed `g.cluster`) and the entry must go.
+- Fixed, no longer a difference: a form whose fields sit in several event columns is one `g.cluster` (first box) plus `g.cluster-part` boxes, so there is one `g.cluster` per group; `highlightCluster` and `resolveClick` treat all parts as the group.
+
 ## Cross-browser testing (user request)
 Playwright projects: **chromium, firefox, webkit** (WebKit approximates Safari; no real Safari on Linux runners). Mermaid and the graph geometry (`getBBox`, pointer events, wheel, downloads) differ across engines, so layer C runs in all three. Chromium lands first (M4); the other two follow in M4b.
 

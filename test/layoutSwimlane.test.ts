@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MAX_COLUMN_ROWS, NODE_CLEARANCE, buildNodeGrid, curveHitsNode, curvePoint, layoutSwimlane, wrapLabel } from '../src/lib/layoutSwimlane';
 import { layoutToSvg } from '../src/lib/layoutToSvg';
 import { resolveClick } from '../src/components/hitTest';
+import { highlightCluster } from '../src/components/svgDom';
 import type { EventDef, View, ViewEdge, ViewOptions } from '../src/lib/types';
 import { makeView, node } from './fixtures';
 
@@ -337,6 +338,25 @@ describe('layoutSwimlane at field level', () => {
     const document = new DOMParser().parseFromString(layoutToSvg(layout, view, options), 'image/svg+xml');
     const cluster = document.querySelector('g.cluster')!;
     expect(resolveClick(cluster, view, (id) => id === 'f2')).toEqual({ type: 'select', id: '@form:f2' });
+  });
+
+  it('draws one g.cluster for a form in several columns; its extra boxes click and highlight as the same group', () => {
+    const groups = [{ id: 'mixed', label: 'Mixed', nodes: ['a', 'd'] }];
+    const view = fieldView(groups);
+    const options: ViewOptions = {
+      level: 'field', eventSet: null, types: new Set(), forms: null, formsNone: false, crossOnly: false, instOnly: false,
+      instances: false, expanded: null, expandedEvents: null, explore: null, pair: null, focus: '', focusDir: 'both',
+      focusDepth: 0, showMissing: false, hideIsolated: false, hideIsolatedNodes: false,
+      dir: 'LR', labelMode: 'var', group: true, groupBy: 'form', edgeLabels: false,
+    };
+    const document = new DOMParser().parseFromString(layoutToSvg(layoutSwimlane(view, events), view, options), 'image/svg+xml');
+    expect(document.querySelectorAll('g.cluster')).toHaveLength(1);
+    const part = document.querySelector('g.cluster-part')!;
+    expect(part).not.toBeNull();
+    expect(resolveClick(part, view, () => true)).toEqual({ type: 'select', id: '@form:mixed' });
+    highlightCluster(document.documentElement as unknown as SVGSVGElement, view.groups, '@form:mixed');
+    expect(document.querySelector('g.cluster')!.classList.contains('on')).toBe(true);
+    expect(part.classList.contains('on')).toBe(true);
   });
 });
 

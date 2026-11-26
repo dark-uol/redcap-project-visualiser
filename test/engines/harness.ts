@@ -148,13 +148,9 @@ export interface KnownDifference {
 
 /** Filled from real gaps found by the contract and click tests. Mermaid entries are checked in layer C only. */
 export const KNOWN_DIFFERENCES: KnownDifference[] = [
-  ...['field, group by form', 'field, edge labels and label text', 'field, top-down'].map((config): KnownDifference => ({
-    engine: 'swimlane', config, behaviour: 'contract: duplicate keyed element',
-    reason: 'a form whose fields sit in several events is drawn as one box per event column, each carrying the same cluster key',
-  })),
   ...['field, group by event', 'field, group by arm', 'form, Instances', 'form instance, into fields'].map((config): KnownDifference => ({
     engine: 'swimlane', config, behaviour: 'contract: missing cluster',
-    reason: 'event and arm groups are the swimlane columns and lanes (region elements, not g.cluster); those groups are noSelect, so nothing clicks or highlights them',
+    reason: 'the swimlane engine draws an event group as a column and an arm group as a lane (g.region elements, not g.cluster), so there is no g.cluster per such group; those groups are noSelect (nothing clicks or highlights them) and the columns and lanes are the grouping; see "Known engine differences" in docs/engine-parity-tests-plan.md',
   })),
 ];
 

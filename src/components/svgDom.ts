@@ -27,7 +27,11 @@ export const edgeKey = (g: Element): [string, string] | null => {
   return m ? [m[1], m[2]] : null;
 };
 
-/** Index of the group a `g.cluster` element draws. */
+/** Selector matching every box drawn for a group: the `g.cluster`, plus the `g.cluster-part` extras the swimlane engine
+ * draws when a form's fields sit in several event columns. */
+export const CLUSTER_SEL = 'g.cluster, g.cluster-part';
+
+/** Index of the group a `g.cluster` or `g.cluster-part` element draws. */
 export const clusterIndex = (g: Element): number | null => {
   const t = g.querySelector('title');
   const m = /^cluster_(\d+)$/.exec(g.getAttribute('data-key') ?? '') || (t && /^cluster_(\d+)$/.exec(t.textContent ?? '')) || /(?:^|[-_])g(\d+)$/.exec(g.id || '');
@@ -116,7 +120,7 @@ export const centreInStage = (element: Element, stageRect: DOMRect): { x: number
 /** Mark the form or event box the selection stands for (an expanded node is drawn as a box, not a node) with class `on`. */
 export const highlightCluster = (s: SVGSVGElement, groups: ViewGroup[], selection: string | null): void => {
   const groupIndex = selection === null ? -1 : groups.findIndex((group) => group.id === selection || groupIdFor(group.id) === selection);
-  s.querySelectorAll('g.cluster').forEach((element) => {
+  s.querySelectorAll(CLUSTER_SEL).forEach((element) => {
     element.classList.toggle('on', groupIndex >= 0 && clusterIndex(element) === groupIndex);
   });
 };

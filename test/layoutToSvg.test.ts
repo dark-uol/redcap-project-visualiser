@@ -89,6 +89,18 @@ describe('layoutToSvg', () => {
     expect(doc.querySelector('g.region.column')!.textContent).toContain('day 30');
   });
 
+  it('draws a group split over several boxes as one g.cluster plus g.cluster-part extras, all keyed alike', () => {
+    const regions: LayoutRegion[] = [
+      { id: 'cluster:f1:e1', kind: 'cluster', label: 'Form one', x: 130, y: 20, width: 100, height: 50, groupIndex: 1 },
+      { id: 'cluster:f1:e2', kind: 'cluster', label: 'Form one', x: 330, y: 20, width: 100, height: 50, groupIndex: 1 },
+    ];
+    const doc = parse(layoutToSvg(layoutOf({ regions }), makeView(), options));
+    expect(doc.querySelectorAll('g.cluster')).toHaveLength(1);
+    expect(doc.querySelectorAll('g.cluster-part')).toHaveLength(1);
+    expect(doc.querySelectorAll('[data-key="cluster_1"]')).toHaveLength(2);
+    expect(doc.querySelector('g.cluster-part rect')).not.toBeNull();
+  });
+
   it('marks repeating columns with a dashed outline and a repeat mark on the last label line', () => {
     const regions: LayoutRegion[] = [
       { id: 'col:e2', kind: 'column', label: 'Visit', labelLines: ['Visit', 'two'], repeating: true, x: 0, y: 0, width: 120, height: 80 },

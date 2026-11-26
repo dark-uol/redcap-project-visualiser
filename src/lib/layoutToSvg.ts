@@ -65,11 +65,13 @@ function regionMarkup(region: LayoutRegion): string {
   return `<g class="${classes}"${key} data-region-id="${escapeXml(region.id)}">${rect}${label}</g>`;
 }
 
-function clusterMarkup(region: LayoutRegion): string {
+/** The primary box of a group is the one `g.cluster`; further boxes of the same group (a form whose fields sit in several
+ * event columns) are drawn identically as `g.cluster-part`, so the SVG has exactly one `g.cluster` per group. */
+function clusterMarkup(region: LayoutRegion, isPrimary: boolean): string {
   const key = region.groupIndex === undefined ? '' : ` data-key="cluster_${region.groupIndex}"`;
   const rect = `<rect x="${formatNumber(region.x)}" y="${formatNumber(region.y)}" width="${formatNumber(region.width)}" height="${formatNumber(region.height)}" rx="6" fill="none" stroke="${CLUSTER_STROKE}"/>`;
   const label = textLines(region.labelLines ?? [region.label], region.x + 6, region.y + 13, 'start', LABEL_FONT_SIZE, CLUSTER_TEXT);
-  return `<g class="cluster"${key}>${rect}${label}</g>`;
+  return `<g class="${isPrimary ? 'cluster' : 'cluster-part'}"${key}>${rect}${label}</g>`;
 }
 
 function nodeMarkup(placed: LayoutNode, viewNode: ViewNode, index: number, options: ViewOptions): string {
@@ -183,7 +185,14 @@ export function layoutToSvg(layout: Layout, view: View, options: ViewOptions): s
   });
 
   const regionParts = layout.regions.filter((region) => region.kind !== 'cluster').map(regionMarkup);
-  const clusterParts = layout.regions.filter((region) => region.kind === 'cluster').map(clusterMarkup);
+  // a boxed column (an expanded event) already draws its group as the g.cluster
+  const drawnGroups = new Set(layout.regions.filter((region) => region.kind === 'column' && region.groupIndex !== undefined).map((region) => region.groupIndex));
+  const drawClusterBox = (region: LayoutRegion): string => {
+    const isPrimary = region.groupIndex === undefined || !drawnGroups.has(region.groupIndex);
+    if (region.groupIndex !== undefined) drawnGroups.add(region.groupIndex);
+    return clusterMarkup(region, isPrimary);
+  };
+  const clusterParts = layout.regions.filter((region) => region.kind === 'cluster').map(drawClusterBox);
   const markers = arrowColors.map((color, index) =>
     `<marker id="arrow-${index}" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="${MARKER_SIZE}" markerHeight="${MARKER_SIZE}" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${color}"/></marker>`);
 

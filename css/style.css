@@ -78,7 +78,7 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 
 /* highlight: dim everything except the hovered/selected node and its direct links */
 #canvas svg.hl g.node:not(.on),#canvas svg.hl g.edge:not(.on),#canvas svg.hl path.flowchart-link:not(.on){opacity:.1}
-#canvas g.cluster.on>:is(rect,polygon,path){stroke:#2563eb;stroke-width:2.5px}
+#canvas :is(g.cluster,g.cluster-part).on>:is(rect,polygon,path){stroke:#2563eb;stroke-width:2.5px}
 #canvas svg.hl g.edge.on path,#canvas svg.hl path.flowchart-link.on{stroke-width:2.5px}
 .mxwrap{display:flex;gap:10px;height:calc(100vh - 150px)}
 .mxscroll{flex:1;min-width:0;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:8px}
@@ -93,9 +93,9 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 .dlpop button:hover{background:var(--code)}
 .exrow{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
 .exrow button:disabled{opacity:.45;cursor:default}
-#canvas g.cluster{cursor:pointer}
+#canvas :is(g.cluster,g.cluster-part){cursor:pointer}
 #canvas g.cluster path{pointer-events:all}
-#canvas g.cluster:hover path{stroke:#2563eb}
+#canvas :is(g.cluster,g.cluster-part):hover :is(path,rect){stroke:#2563eb}
 #side input[type=search]{width:100%;margin-top:3px;padding:4px 6px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:4px;font:inherit}
 #side .formsearch{margin:0 0 6px}
 .row2{display:flex;gap:4px;align-items:center}.row2 input{flex:1}
