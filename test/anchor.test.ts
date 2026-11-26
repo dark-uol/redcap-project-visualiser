@@ -109,6 +109,15 @@ describe('anchor controller', () => {
     expect(harness.currentPan().scale).toBe(1.5);
   });
 
+  it('restores the last capture: an animation-only capture made after the node capture drops the node', () => {
+    const harness = makeHarness();
+    harness.setPanState({ x: 30, y: 40, scale: 1.5 });
+    harness.controller.capture('a');
+    harness.controller.capture(''); // e.g. a filter setter snapshotting the graph afterwards
+    harness.controller.restoreOrFit();
+    expect(harness.fitToStage).toHaveBeenCalledTimes(1); // fitOnly: the node's place is not kept
+  });
+
   it('fits when there is no pending anchor', () => {
     const harness = makeHarness();
     harness.controller.restoreOrFit();

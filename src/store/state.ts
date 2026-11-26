@@ -1,6 +1,6 @@
 /* Signals and setters for the application state, plus the anchor-capture hook and the file sequence number. */
 import { createSignal } from 'solid-js';
-import { allTypesOn, clampDepth, DEFAULT_DIRECTION, DEFAULT_RENDERER } from './common';
+import { allTypesOn, clampDepth, DEFAULT_DIRECTION, DEFAULT_INSTANCES, DEFAULT_LINE_WIDTHS, DEFAULT_RENDERER } from './common';
 import type { AnchorCapture, Tab } from './common';
 import { ANY_EVENT } from '../lib/whatIf';
 import type { WhatIfValue } from '../lib/whatIf';
@@ -28,6 +28,7 @@ export function createState() {
   const [labelMode, setLabelMode] = createSignal<LabelMode>('var');
   const [groupBy, setGroupBy] = createSignal<GroupBy>('form'); // field level clusters: none | form | event | arm
   const [edgeLabels, setEdgeLabels] = createSignal(false);
+  const [lineWidths, setLineWidths] = createSignal(DEFAULT_LINE_WIDTHS);
   const [hideIso, setHideIso] = createSignal(true); // fields (field level; fields listed inside expanded forms)
   const [hideIsoNodes, setHideIsoNodes] = createSignal(true); // forms (form level) / events (event level)
   const [showMissing, setShowMissing] = createSignal(true);
@@ -39,7 +40,7 @@ export function createState() {
   const setFocusDepth = (v: unknown) => setFocusDepthRaw(clampDepth(v));
   const [eventsOn, setEventsOn] = createSignal<Record<string, boolean>>({}); // event id -> bool (absent = on)
   const [instanceOnly, setInstanceOnly] = createSignal(false); // only logic using [current/first/last/previous/next-instance]
-  const [instances, setInstances] = createSignal(false); // form level, longitudinal: one node per form per event
+  const [instances, setInstances] = createSignal(DEFAULT_INSTANCES); // form level, longitudinal: one node per form per event
   const [crossOnly, setCrossOnly] = createSignal(false); // only references that name another event ([event][var])
   const [formQ, setFormQ] = createSignal('');
   const [pair, setPair] = createSignal<FormPair | null>(null); // only the field links of one form->form edge
@@ -62,7 +63,7 @@ export function createState() {
 
   // Focus and presentation signals, grouped the same way as filters
   const focusing = { focus, setFocus, focusDir, setFocusDir, focusDepth, setFocusDepth, pair, setPair };
-  const presentation = { dir, setDir, labelMode, setLabelMode, groupBy, setGroupBy, edgeLabels, setEdgeLabels, renderer, setRenderer };
+  const presentation = { dir, setDir, labelMode, setLabelMode, groupBy, setGroupBy, edgeLabels, setEdgeLabels, lineWidths, setLineWidths, renderer, setRenderer };
 
   // What-if values: picked field values, and the context they are evaluated in
   const [whatIfValues, setWhatIfValues] = createSignal<WhatIfValues>({});

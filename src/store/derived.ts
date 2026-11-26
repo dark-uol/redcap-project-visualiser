@@ -7,7 +7,7 @@ import { toMermaid, toDot } from '../lib/exporters';
 import { activeEventIds, enabledFormIds } from '../lib/filterSelection';
 import { evaluateVisibility } from '../lib/whatIf';
 import type { VisibilityInfo } from '../lib/whatIf';
-import type { Explore, ExploreFilter, View, ViewFilter, ViewOptions, ViewPresentation } from '../lib/types';
+import type { Renderer, Explore, ExploreFilter, View, ViewFilter, ViewOptions, ViewPresentation } from '../lib/types';
 
 export function createDerived(state: State) {
   const {
@@ -15,13 +15,23 @@ export function createDerived(state: State) {
   } = state;
   const { level } = state.selection;
   const { focus, focusDir, focusDepth, pair } = state.focusing;
-  const { dir, labelMode, groupBy, edgeLabels, renderer } = state.presentation;
+  const { dir, labelMode, groupBy, edgeLabels, lineWidths, renderer } = state.presentation;
   const { formsOn, eventsOn, typesOn, crossOnly, instanceOnly, hideIso, hideIsoNodes, showMissing } = state.filters;
 
   const formIds = createMemo<string[]>(() => {
     const loadedModel = model();
     return loadedModel ? loadedModel.parsed.forms.map((f) => f.id) : [];
   });
+  /**
+   * The renderer actually used. Swimlane needs a longitudinal project: it shows events, form instances, or forms and fields
+   * in the column of their form's first event, at every level. Without events ELK stands in. Switching renderer never
+   * changes the view itself, only how it is laid out.
+   */
+  const effectiveRenderer = (): Renderer => {
+    const loadedModel = model();
+    const swimlaneApplies = !!loadedModel && (loadedModel.parsed.events || []).length > 0;
+    return renderer() === 'swimlane' && !swimlaneApplies ? 'elk' : renderer();
+  };
   const instanceMode = (): boolean => {
     const loadedModel = model();
     return instances() && level() === 'form' && !!loadedModel && (loadedModel.parsed.events || []).length > 0;
@@ -71,6 +81,7 @@ export function createDerived(state: State) {
       group: groupBy() !== 'none' && level() === 'field',
       groupBy: groupBy(),
       edgeLabels: edgeLabels(),
+      lineWidths: lineWidths(),
     };
   });
   const opts = createMemo<ViewOptions | null>(() => {
@@ -99,7 +110,7 @@ export function createDerived(state: State) {
   const mermaidSrc = lazySrc(toMermaid);
   const dotSrc = lazySrc(toDot);
   // string memo: downstream only re-runs when the text sent to the renderer actually changes
-  const graphSrc = createMemo<string | null>(() => (view() ? (renderer() === 'graphviz' ? dotSrc() : mermaidSrc()) : null));
+  const graphSrc = createMemo<string | null>(() => (view() ? (effectiveRenderer() === 'graphviz' ? dotSrc() : effectiveRenderer() === 'mermaid' ? mermaidSrc() : '') : null));
   const graphStatus = createMemo<string>(() => {
     const v = view();
     if (!v) return '';
@@ -138,7 +149,7 @@ export function createDerived(state: State) {
   };
 
   return {
-    formIds, instanceMode, exploreVisible, currentExploration, filter, presentationOptions, opts, view,
+    formIds, effectiveRenderer, instanceMode, exploreVisible, currentExploration, filter, presentationOptions, opts, view,
     mermaidSrc, dotSrc, graphSrc, graphStatus, tooBig, formLabel, visibility, visibilityIn,
   };
 }

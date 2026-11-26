@@ -12,7 +12,7 @@ const options = (over: Partial<ViewOptions> = {}): ViewOptions => ({
   level: 'event', eventSet: null, types: new Set(ALL_TYPES), forms: null, formsNone: false, crossOnly: false, instOnly: false,
   instances: false, expanded: null, expandedEvents: null, explore: null, pair: null, focus: '', focusDir: 'both', focusDepth: 1,
   showMissing: true, hideIsolated: true, hideIsolatedNodes: true,
-  dir: 'LR', labelMode: 'label', group: false, groupBy: 'none', edgeLabels: false, ...over,
+  dir: 'LR', labelMode: 'label', group: false, groupBy: 'none', edgeLabels: false, lineWidths: true, ...over,
 });
 
 // sample: `baseline` is collected in two events, so its nodes are `baseline@<event>`; `screening` is in one, so it keeps its plain id.
@@ -186,7 +186,7 @@ describe('focus on an event at event level', () => {
     buildView(model, options({ focus, focusDir, focusDepth: 1 })).edges.map((e) => e.from + '>' + e.to).sort();
 
   it('up shows the events it reads from, down the events that read from it', () => {
-    expect(edgesFor('down', 'baseline_arm_1')).toEqual(['baseline_arm_1>followup_arm_1', 'baseline_arm_1>followup_arm_2']);
+    expect(edgesFor('down', 'baseline_arm_1')).toEqual(['baseline_arm_1>followup_arm_1', 'baseline_arm_1>followup_arm_2', 'baseline_arm_1>longterm_arm_1']);
     expect(edgesFor('up', 'baseline_arm_1')).toEqual([]);
     expect(edgesFor('up', 'followup_arm_1')).toEqual(['baseline_arm_1>followup_arm_1', 'enrol_arm_2>followup_arm_1']);
     expect(edgesFor('down', 'followup_arm_1')).toEqual([]);

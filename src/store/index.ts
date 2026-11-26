@@ -29,6 +29,6 @@ export const {
   instances, setInstances, filters,
   expanded, expandedEvents, explore, setExplore, depQ, setDepQ, fieldQ, setFieldQ,
   svgEl, svgView, busy, renderMsg, forcedFor, setForcedFor, mxCell, setMxCell, captureAnchor, setAnchorCapture,
-  opts, view, dotSrc, mermaidSrc, tooBig, instanceMode, exploreVisible, currentExploration, formLabel,
+  opts, view, effectiveRenderer, dotSrc, mermaidSrc, tooBig, instanceMode, exploreVisible, currentExploration, formLabel,
   expandRef, collapseRef, toggleExpandForm, toggleExpandEvent, loadText, loadSample, readFile, downloadMermaid, downloadDot, downloadCsv, downloadSvg, jumpToField, pickNode,
 } = app;

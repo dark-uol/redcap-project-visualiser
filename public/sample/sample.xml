@@ -10,8 +10,9 @@
 	<Protocol>
 		<StudyEventRef StudyEventOID="Event.baseline_arm_1" OrderNumber="1" Mandatory="No"/>
 		<StudyEventRef StudyEventOID="Event.followup_arm_1" OrderNumber="2" Mandatory="No"/>
-		<StudyEventRef StudyEventOID="Event.enrol_arm_2" OrderNumber="3" Mandatory="No"/>
-		<StudyEventRef StudyEventOID="Event.followup_arm_2" OrderNumber="4" Mandatory="No"/>
+		<StudyEventRef StudyEventOID="Event.longterm_arm_1" OrderNumber="3" Mandatory="No"/>
+		<StudyEventRef StudyEventOID="Event.enrol_arm_2" OrderNumber="4" Mandatory="No"/>
+		<StudyEventRef StudyEventOID="Event.followup_arm_2" OrderNumber="5" Mandatory="No"/>
 	</Protocol>
 	<StudyEventDef OID="Event.baseline_arm_1" Name="Baseline" Type="Common" Repeating="No" redcap:EventName="Baseline" redcap:UniqueEventName="baseline_arm_1" redcap:ArmNum="1" redcap:ArmName="Mother" redcap:DayOffset="0" redcap:CustomEventLabel="Baseline of [first_name]" redcap:OffsetMin="0" redcap:OffsetMax="3">
 		<FormRef FormOID="Form.demographics" OrderNumber="1" Mandatory="No" redcap:FormName="demographics"/>
@@ -20,6 +21,10 @@
 	</StudyEventDef>
 	<StudyEventDef OID="Event.followup_arm_1" Name="Follow-up" Type="Common" Repeating="Yes" redcap:EventName="Follow-up" redcap:UniqueEventName="followup_arm_1" redcap:ArmNum="1" redcap:ArmName="Mother" redcap:DayOffset="30" redcap:OffsetMin="7" redcap:OffsetMax="7">
 		<FormRef FormOID="Form.followup" OrderNumber="1" Mandatory="No" redcap:FormName="followup"/>
+	</StudyEventDef>
+	<StudyEventDef OID="Event.longterm_arm_1" Name="Long-term outcome assessment, twelve months after delivery" Type="Common" Repeating="No" redcap:EventName="Long-term outcome assessment, twelve months after delivery" redcap:UniqueEventName="longterm_arm_1" redcap:ArmNum="1" redcap:ArmName="Mother" redcap:DayOffset="365" redcap:OffsetMin="30" redcap:OffsetMax="60">
+		<FormRef FormOID="Form.baseline" OrderNumber="1" Mandatory="No" redcap:FormName="baseline"/>
+		<FormRef FormOID="Form.followup" OrderNumber="2" Mandatory="No" redcap:FormName="followup"/>
 	</StudyEventDef>
 	<StudyEventDef OID="Event.enrol_arm_2" Name="Enrolment" Type="Common" Repeating="No" redcap:EventName="Enrolment" redcap:UniqueEventName="enrol_arm_2" redcap:ArmNum="2" redcap:ArmName="Partner" redcap:DayOffset="0">
 		<FormRef FormOID="Form.demographics" OrderNumber="1" Mandatory="No" redcap:FormName="demographics"/>

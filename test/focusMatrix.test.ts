@@ -44,7 +44,7 @@ const options = (level: Level, focus: string, focusDir: FocusDir, over: Partial<
   level, eventSet: null, types: new Set(ALL_TYPES), forms: null, formsNone: false, crossOnly: false, instOnly: false,
   instances: false, expanded: null, expandedEvents: null, explore: null, pair: null, focus, focusDir, focusDepth: 10,
   showMissing: false, hideIsolated: true, hideIsolatedNodes: false,
-  dir: 'LR', labelMode: 'label', group: false, groupBy: 'none', edgeLabels: false, ...over,
+  dir: 'LR', labelMode: 'label', group: false, groupBy: 'none', edgeLabels: false, lineWidths: true, ...over,
 });
 
 const ids = (view: View): string[] => view.nodes.map((node) => node.id).sort();

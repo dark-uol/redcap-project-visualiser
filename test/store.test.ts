@@ -26,7 +26,8 @@ const settle = (write: () => void): void => {
 beforeEach(() => {
   vi.clearAllMocks();
   load(sampleXml, 'sample');
-  settle(() => store.setInstances(false));
+  // swimlane is the default renderer and implies instances; these tests exercise the plain Graphviz view
+  settle(() => { store.setInstances(false); store.presentation.setRenderer('graphviz'); });
 });
 
 afterEach(() => {
@@ -92,12 +93,12 @@ describe('loadText', () => {
     settle(() => {
       store.presentation.setDir('TD');
       store.presentation.setRenderer('mermaid');
-      store.setInstances(true);
+      store.setInstances(false);
     });
     load(sampleXml, 'sample');
     expect(store.presentation.dir()).toBe('LR');
-    expect(store.presentation.renderer()).toBe('graphviz');
-    expect(store.instances()).toBe(false);
+    expect(store.presentation.renderer()).toBe('swimlane');
+    expect(store.instances()).toBe(true); // the default: one node per form per event
   });
 
   it('clears a previous load error on success', () => {
@@ -320,5 +321,56 @@ describe('browser history', () => {
     expect(push).toHaveBeenCalled();
     const [state] = push.mock.calls.at(-1)!;
     expect(state).toEqual(expect.objectContaining({ tab: 'matrix' }));
+  });
+});
+
+describe('effectiveRenderer', () => {
+  it('uses swimlane for a longitudinal project at every level, with or without instances, else ELK', () => {
+    settle(() => store.presentation.setRenderer('swimlane'));
+    settle(() => store.selection.setLevel('field'));
+    expect(store.effectiveRenderer()).toBe('swimlane');
+    settle(() => store.selection.setLevel('form'));
+    expect(store.effectiveRenderer()).toBe('swimlane'); // form instances are off: forms sit in their home event column
+    settle(() => store.setInstances(true));
+    expect(store.effectiveRenderer()).toBe('swimlane');
+    settle(() => store.selection.setLevel('event'));
+    expect(store.effectiveRenderer()).toBe('swimlane');
+    settle(() => store.presentation.setRenderer('mermaid'));
+    expect(store.effectiveRenderer()).toBe('mermaid');
+    settle(() => store.selection.setLevel('field'));
+    settle(() => store.presentation.setRenderer('elk'));
+    expect(store.effectiveRenderer()).toBe('elk');
+  });
+});
+
+describe('switching renderer', () => {
+  it('to swimlane at Level form with Instances off leaves Instances, the view and the exploration alone', () => {
+    settle(() => store.selection.setLevel('form'));
+    expect(store.instances()).toBe(false);
+    const node = store.view()!.nodes[0]!.id;
+    settle(() => store.expandRef(node, 'up'));
+    const before = { nodeIds: store.view()!.nodes.map((n) => n.id), exploration: JSON.stringify(store.currentExploration()), explore: JSON.stringify(store.explore()) };
+    settle(() => store.presentation.setRenderer('swimlane'));
+    expect(store.effectiveRenderer()).toBe('swimlane');
+    expect(store.instances()).toBe(false);
+    expect(store.view()!.nodes.map((n) => n.id)).toEqual(before.nodeIds);
+    expect(JSON.stringify(store.currentExploration())).toBe(before.exploration);
+    expect(JSON.stringify(store.explore())).toBe(before.explore);
+    settle(() => store.presentation.setRenderer('graphviz'));
+    expect(store.instances()).toBe(false);
+  });
+
+  it('never changes the view, the selection or the exploration, only how the view is drawn', () => {
+    settle(() => { store.selection.setLevel('form'); store.setInstances(true); });
+    const nodeIds = store.view()!.nodes.map((n) => n.id);
+    settle(() => store.selection.setSelected(nodeIds[0]!));
+    const before = { selected: store.selection.selected(), nodes: nodeIds, expanded: [...store.expanded()], instances: store.instances() };
+    for (const renderer of ['elk', 'swimlane', 'mermaid', 'graphviz'] as const) {
+      settle(() => store.presentation.setRenderer(renderer));
+      expect(store.selection.selected()).toBe(before.selected);
+      expect(store.view()!.nodes.map((n) => n.id)).toEqual(before.nodes);
+      expect([...store.expanded()]).toEqual(before.expanded);
+      expect(store.instances()).toBe(before.instances);
+    }
   });
 });

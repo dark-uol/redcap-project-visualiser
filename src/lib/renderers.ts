@@ -1,4 +1,5 @@
 /* Graph renderers: Graphviz (@viz-js/viz) and Mermaid, both loaded lazily on first use. */
+import type { EventDef, View, ViewOptions } from './types';
 
 const loadViz = () => import('@viz-js/viz').then((m) => m.instance());
 
@@ -32,4 +33,14 @@ export async function renderMermaid(id: string, src: string): Promise<SVGSVGElem
   const d = document.createElement('div');
   d.innerHTML = out.svg;
   return d.querySelector('svg');
+}
+
+/** Lay the view out with one of our own engines and draw it as a Graphviz-shaped SVG element (loaded lazily, like the other renderers). */
+export async function renderLayout(engine: 'swimlane' | 'elk', view: View, options: ViewOptions, events: EventDef[]): Promise<SVGSVGElement> {
+  const layout = engine === 'elk'
+    ? await import('./layoutElk').then((module) => module.layoutElk(view, options, events))
+    : await import('./layoutSwimlane').then((module) => module.layoutSwimlane(view, events, options));
+  const { layoutToSvg } = await import('./layoutToSvg');
+  const document = new DOMParser().parseFromString(layoutToSvg(layout, view, options), 'image/svg+xml');
+  return document.documentElement as unknown as SVGSVGElement;
 }
