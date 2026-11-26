@@ -70,6 +70,8 @@ export function createState() {
   const [whatIfMode, setWhatIfMode] = createSignal<'survey' | 'form'>('form');
   const [whatIfEvent, setWhatIfEvent] = createSignal<string | null>(null);
   const [whatIfEngine, setWhatIfEngine] = createSignal<WhatIfEngine>('typescript');
+  // work out calculated fields and @DEFAULT values from their inputs when none is set (on by default: a project is explored by its inputs)
+  const [whatIfDerive, setWhatIfDerive] = createSignal(true);
   const [pythonStatus, setPythonStatus] = createSignal<PythonStatus>({ kind: 'idle' });
   const [whatIfField, setWhatIfField] = createSignal<string | null>(null); // variable being edited in the What if tab
   // `values` with one value written into the bucket of an event (ANY_EVENT when null), dropping buckets that become empty.
@@ -121,7 +123,7 @@ export function createState() {
     values: whatIfValues, valueCount: whatIfValueCount, setValueIn: setWhatIfValueIn, clearValues: clearWhatIfValues,
     rows: whatIfRows, addRow: addWhatIfRow, removeRow: removeWhatIfRow, moveRow: moveWhatIfRow,
     mode: whatIfMode, setMode: setWhatIfMode, event: whatIfEvent, setEvent: setWhatIfEvent,
-    engine: whatIfEngine, setEngine: setWhatIfEngine, pythonStatus, setPythonStatus,
+    engine: whatIfEngine, setEngine: setWhatIfEngine, pythonStatus, setPythonStatus, derive: whatIfDerive, setDerive: setWhatIfDerive,
     field: whatIfField, setField: setWhatIfField,
   };
 

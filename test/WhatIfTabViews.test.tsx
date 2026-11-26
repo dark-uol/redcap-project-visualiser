@@ -10,7 +10,7 @@ const valuesRow = (over: Partial<ValuesRow> = {}): ValuesRow => ({
 
 function valuesProps(over: Partial<ValuesTableViewProps> = {}): ValuesTableViewProps {
   return {
-    rows: [valuesRow()], showEventColumn: false, eventLabelOf: (id) => ({ ev1: 'Baseline', ev2: 'Week 1' } as Record<string, string>)[id] ?? id, clearCount: null, mode: 'form', engine: 'typescript', engineStatus: '', query: '', matches: [], listOpen: true,
+    rows: [valuesRow()], showEventColumn: false, eventLabelOf: (id) => ({ ev1: 'Baseline', ev2: 'Week 1' } as Record<string, string>)[id] ?? id, clearCount: null, mode: 'form', engine: 'typescript', engineStatus: '', derive: true, onDeriveChange: vi.fn(), query: '', matches: [], listOpen: true,
     onModeChange: vi.fn(), onEngineChange: vi.fn(), onClearAll: vi.fn(), onExploreRow: vi.fn(), onChangeEvent: vi.fn(), onRemoveRow: vi.fn(),
     onQueryChange: vi.fn(), onChooseMatch: vi.fn(),
     renderValue: (row) => <span class="value-slot">{row().variable}</span>,
@@ -110,6 +110,15 @@ describe('ValuesTableView', () => {
     const withStatus = renderComponent(() => <ValuesTableView {...valuesProps({ engine: 'python', engineStatus: 'Python 3.14.2' })} />);
     expect(withStatus.querySelector('.wi-engine-status')?.textContent).toBe('Python 3.14.2');
     expect((withStatus.querySelector('select.wi-engine') as HTMLSelectElement).value).toBe('python');
+  });
+
+  it('reports the Calculate setting changing', () => {
+    const props = valuesProps({ derive: true });
+    const box = renderComponent(() => <ValuesTableView {...props} />).querySelector('input.wi-derive') as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    box.click();
+    expect(props.onDeriveChange).toHaveBeenCalledWith(false);
+    expect((renderComponent(() => <ValuesTableView {...valuesProps({ derive: false })} />).querySelector('input.wi-derive') as HTMLInputElement).checked).toBe(false);
   });
 
   describe('chooser', () => {

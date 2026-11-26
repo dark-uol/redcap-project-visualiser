@@ -134,6 +134,8 @@ function ValuesTable() {
       mode={whatIf.mode()}
       engine={whatIf.engine()}
       engineStatus={engineStatus()}
+      derive={whatIf.derive()}
+      onDeriveChange={whatIf.setDerive}
       query={query()}
       matches={matches()}
       listOpen={listOpen()}

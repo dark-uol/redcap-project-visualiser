@@ -145,6 +145,7 @@ const field = (variable: string, form: string, over: Partial<Field> = {}): Field
 });
 
 const choices = (...codes: string[]): Field['choices'] => codes.map((code) => ({ code, label: 'choice ' + code }));
+const calculated = (variable: string, form: string, calc: string): Field => field(variable, form, { type: 'calc', calc, annotation: '@HIDDEN' });
 
 /** A hand-written project that exercises what the sample does not: events, @IF, display rules per event, cycles, smart variables. */
 function stressProject(): ParsedODM {
@@ -188,6 +189,28 @@ function stressProject(): ParsedODM {
     field('blank_gate', 'f3', { branching: '[weight] = ""' }),
     field('after_hidden', 'f3', { branching: '[pregnant] = ""' }),
     field('after_hidden_cb', 'f3', { branching: '[symptoms(99)] = "0"' }),
+    // derivation: a default piped across events feeding a chain of calculations (the public modulus-11 check digit)
+    field('id_entered', 'f1'),
+    field('id_copy', 'f3', { annotation: "@CHARLIMIT=10 @DEFAULT='[baseline_arm_1][id_entered]'" }),
+    calculated('id_sum', 'f3', [1, 2, 3, 4, 5, 6, 7, 8, 9].map((position) => `(mid([id_copy],${position},1)*${11 - position})`).join(' + ')),
+    calculated('id_quotient', 'f3', 'rounddown(([id_sum] / 11),0)'),
+    calculated('id_remainder', 'f3', '[id_sum] - ([id_quotient] * 11)'),
+    calculated('id_check', 'f3', '11 - [id_remainder]'),
+    calculated('id_last', 'f3', 'mid([id_copy],10,1)'),
+    calculated('id_valid', 'f3', 'if(([id_check] <> 11 and [id_check] <> [id_last]) or ([id_check] = 11 and [id_last] <> 0), 0, 1)'),
+    field('id_warning', 'f3', { branching: "[id_copy] <> '' and [id_valid] = 0" }),
+    calculated('loop_a', 'f2', '[loop_b] + 1'),
+    calculated('loop_b', 'f2', '[loop_a] + 1'),
+    field('loop_gate', 'f2', { branching: '[loop_a] > 0' }),
+    field('score2', 'f3'),
+    calculated('doubled', 'f3', '[score2] * 2'),
+    field('reads_doubled', 'f1', { branching: '[followup_arm_1][doubled] = 8' }),
+    field('plain_default', 'f1', { annotation: "@DEFAULT='7'" }),
+    field('reads_plain_default', 'f1', { branching: '[plain_default] = 7' }),
+    field('conditional_default', 'f1', { annotation: "@IF([age] > 40, @DEFAULT='7', @DEFAULT='8')" }),
+    field('reads_conditional_default', 'f1', { branching: '[conditional_default] = 7' }),
+    calculated('age_calc', 'f3', 'datediff([dob], "today", "y")'),
+    field('adult_by_calc', 'f3', { branching: '[age_calc] >= 18' }),
     field('orphan', 'f4'),
     field('in_hidden_form', 'f4', { branching: '[age] > 0' }),
     field('unparseable', 'f3', { branching: '[age] >' }),
@@ -212,6 +235,12 @@ function stressProject(): ParsedODM {
 }
 
 const VALUE_POOL = ['', '0', '1', '2', '3', '5', '12', '17', '18', '19', '25', '40', '51', '65', '70', '2.5', 'abc', 'foo bar', 'bar', 'a,b)(', '2020-01-15', '2021-03-20', '2020-01-01'];
+/** Values that make a chain interesting: numbers that pass and fail a check, a short one, a blank. */
+const SPECIAL_VALUES: Record<string, string[]> = {
+  id_entered: ['9434765919', '9434765918', '943476591', '', '12345678901'],
+  score2: ['4', '5', '', 'abc'],
+  dob: ['2000-01-15', '2010-06-30', '15/01/2000', ''],
+};
 const SMART_POOL: [string, string[]][] = [['[user-role-label]', ['Nurse', 'Admin']], ['[arm-number]', ['1', '2']]];
 
 function randomValues(model: ReturnType<typeof buildModel>, random: () => number): Record<string, WhatIfValue> {
@@ -224,6 +253,8 @@ function randomValues(model: ReturnType<typeof buildModel>, random: () => number
       values[variable] = random() < 0.2 ? checked.join(',') : checked;
     } else if (item.choices.length && random() < 0.85) {
       values[variable] = pick(item.choices).code;
+    } else if (SPECIAL_VALUES[variable] && random() < 0.8) {
+      values[variable] = pick(SPECIAL_VALUES[variable]);
     } else {
       values[variable] = pick(VALUE_POOL);
     }
@@ -234,7 +265,7 @@ function randomValues(model: ReturnType<typeof buildModel>, random: () => number
 
 interface VisibilityVector {
   project: string;
-  context: { values: Record<string, Record<string, WhatIfValue>>; mode: 'survey' | 'form'; event: string | null; today: string };
+  context: { values: Record<string, Record<string, WhatIfValue>>; mode: 'survey' | 'form'; event: string | null; today: string; derive: boolean };
   expected: Record<string, unknown>;
 }
 
@@ -249,10 +280,11 @@ function visibilityVectors(name: string, parsed: ParsedODM, count: number, seed:
     const event = eventIds[Math.floor(random() * eventIds.length)]!;
     const mode = random() < 0.5 ? 'survey' : 'form';
     const today = TODAYS[Math.floor(random() * TODAYS.length)]!;
-    const result = evaluateVisibility(model, { values, mode, event, today });
+    const derive = random() < 0.6;
+    const result = evaluateVisibility(model, { values, mode, event, today, derive });
     const expected: Record<string, unknown> = {};
     result.forEach((info, key) => { expected[key] = info; });
-    vectors.push({ project: name, context: { values, mode, event, today }, expected });
+    vectors.push({ project: name, context: { values, mode, event, today, derive }, expected });
   }
   return vectors;
 }

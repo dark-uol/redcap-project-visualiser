@@ -14,7 +14,7 @@ import datetime
 import math
 import re
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Protocol, Union
+from typing import Callable, List, Optional, Protocol, Tuple, Union
 
 LogicValue = Union[str, float, bool, None]
 
@@ -884,3 +884,39 @@ def evaluate_condition(text: str, lookup: LogicLookup) -> ConditionResult:
         return ConditionResult(True, [], [])
     outcome = evaluate_logic(parse_logic(text), lookup)
     return ConditionResult(_to_truth(outcome.value), outcome.missing, outcome.unsupported)
+
+
+def evaluate_value(text: str, lookup: LogicLookup) -> Tuple[Optional[str], List[str]]:
+    """Parse and evaluate ``text`` as an expression (a calculation).
+
+    Returns its value as text (a number as JavaScript prints it; blank text when the inputs are blank or not numbers), or None when
+    it cannot be decided yet, and the constructs that could not be evaluated.
+    """
+    outcome = evaluate_logic(parse_logic(text), lookup)
+    return (None if outcome.value is None else _to_text(outcome.value)), outcome.unsupported
+
+
+_BRACKET_RUN = re.compile(r"(?:\[[^\[\]]*\])+")
+
+
+def piped_text_expression(text: str) -> str:
+    """Text with ``[field]`` references in it (piping, as in ``@DEFAULT='ID-[event][field]'``) as an expression that builds it:
+    ``concat("ID-", [event][field])``.
+
+    Evaluating that with the ordinary evaluator pipes the values in, and an input that is not known makes the whole text unknown, so
+    event prefixes, smart variables and missing-input tracking all behave as in any other logic.
+    """
+
+    def quote(literal: str) -> str:
+        return '"' + literal.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+    pieces: List[str] = []
+    end = 0
+    for match in _BRACKET_RUN.finditer(text):
+        if match.start() > end:
+            pieces.append(quote(text[end : match.start()]))
+        pieces.append(match.group(0))
+        end = match.end()
+    if end < len(text):
+        pieces.append(quote(text[end:]))
+    return "concat(" + ", ".join(pieces) + ")"

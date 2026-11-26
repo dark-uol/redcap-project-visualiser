@@ -11,6 +11,7 @@ import sampleXml from '../public/sample/sample.xml?raw';
 import { buildModel } from '../src/lib/graph';
 import { parseODM } from '../src/lib/parser';
 import { createPythonVisibility, loadPythonRuntime } from '../src/lib/pythonEngine';
+import type { PythonContext } from '../src/lib/pythonEngine';
 import { ANY_EVENT, evaluateVisibility, explainLogic } from '../src/lib/whatIf';
 import type { WhatIfContext } from '../src/lib/whatIf';
 
@@ -27,11 +28,24 @@ describe('Python core on Pyodide', () => {
     const report = JSON.parse(String(runtime.runPython([
       'import io, json, unittest',
       'stream = io.StringIO()',
-      'result = unittest.TextTestRunner(stream=stream, verbosity=0).run(unittest.defaultTestLoader.loadTestsFromNames(["tests.test_parity", "tests.test_clock", "tests.test_instances"]))',
+      'result = unittest.TextTestRunner(stream=stream, verbosity=0).run(unittest.defaultTestLoader.loadTestsFromNames(["tests.test_parity", "tests.test_clock", "tests.test_instances", "tests.test_derive"]))',
       'json.dumps({"ran": result.testsRun, "failures": len(result.failures), "errors": len(result.errors), "output": stream.getvalue()[-3000:]})',
     ].join('\n')))) as { ran: number; failures: number; errors: number; output: string };
     expect(report.output).toContain('OK');
-    expect([report.ran, report.failures, report.errors]).toEqual([29, 0, 0]);
+    expect([report.ran, report.failures, report.errors]).toEqual([40, 0, 0]);
+  }, SLOW);
+
+  it('sends calculations across the bridge, so derived values work in the browser as in TypeScript', async () => {
+    const base = parseODM(sampleXml);
+    const text = (variable: string, over: Partial<(typeof base.fields)[number]> = {}) => ({ ...base.fields[0]!, variable, branching: '', calc: '', annotation: '', synthetic: false, form: base.forms[0]!.id, ...over });
+    const parsed = { ...base, fields: [text('a'), text('b', { type: 'calc', calc: '[a] * 2' }), text('c', { branching: '[b] = 8' })] };
+    const engine = await createPythonVisibility(parsed);
+    const on: PythonContext = { values: { [ANY_EVENT]: { a: '4' } }, mode: 'form', event: null, derive: true };
+    expect(engine.evaluate(on).get('c')?.state).toBe('shown');
+    expect(engine.evaluate({ ...on, values: { [ANY_EVENT]: { a: '5' } } }).get('c')?.state).toBe('hidden');
+    expect(engine.evaluate({ ...on, derive: false }).get('c')?.state).toBe('unknown');
+    expect(engine.evaluate({ ...on, values: {} }).get('c')?.missing).toEqual([{ variable: 'a', event: null }]);
+    engine.destroy();
   }, SLOW);
 
   it('evaluates instances of a repeating instrument across the bridge, with JSON keys for the instance numbers', async () => {

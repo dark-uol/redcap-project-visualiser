@@ -1,6 +1,6 @@
 /* What-if visibility: given values for some fields, decide which fields and forms are shown, hidden or unknown. Pure: no Solid, no DOM. */
 
-import { evaluateCondition, splitLogicParts } from './logic';
+import { evaluateCondition, evaluateValue, pipedTextExpression, splitLogicParts } from './logic';
 import type { LogicFieldRef, LogicLookup, LogicPart } from './logic';
 import type { EventDef, Field, ModelBase } from './types';
 
@@ -19,6 +19,12 @@ export interface WhatIfContext {
   event: string | null;
   /** The date `"today"` means in logic, as `YYYY-MM-DD`. Left out, the system clock's local date: set it when results must be reproducible. */
   today?: string;
+  /**
+   * Work out the value of a calculated field, or of a field with a top-level `@DEFAULT`, when none is set, instead of leaving it unknown.
+   * For exploring a project. Off, a value is only what was set: exported data already holds the stored calculations and defaults, and
+   * deriving them for cells that are missing would invent data.
+   */
+  derive?: boolean;
 }
 
 /** A value the evaluation needs but does not have: the variable, and the event it lives in (null when no event is chosen). */
@@ -242,29 +248,80 @@ function eventSmartValue(event: EventDef, name: string): string | undefined {
   }
 }
 
-/** The event a reference reads from: its own prefix, else the event the record is viewed in (null when neither). */
-const targetEvent = (ref: LogicFieldRef, context: WhatIfContext): string | null => ref.event || context.event;
+/** The event a reference reads from: its own prefix, else `base`, the event it is being read in (null when neither). */
+const targetEvent = (ref: LogicFieldRef, base: string | null): string | null => ref.event || base;
+
+const DEFAULT_TAG = /@DEFAULT(?![A-Za-z0-9_-])\s*=\s*(?:'([^']*)'|"([^"]*)"|(\S+))/gi;
+
+/**
+ * The text of a top-level `@DEFAULT=…` in an action-tag annotation, or undefined. A default inside an `@IF(…)` is not found: it
+ * depends on a condition, and is not derived yet.
+ */
+export function topLevelDefault(annotation: string): string | undefined {
+  const conditional: [number, number][] = [];
+  const ifPattern = /@IF\s*\(/gi;
+  let found: RegExpExecArray | null;
+  while ((found = ifPattern.exec(annotation))) {
+    const close = matchingParenthesis(annotation, found.index + found[0].length - 1);
+    if (close >= 0) {
+      conditional.push([found.index, close]);
+      ifPattern.lastIndex = close + 1;
+    }
+  }
+  for (const match of annotation.matchAll(DEFAULT_TAG)) {
+    if (conditional.some(([from, to]) => match.index >= from && match.index <= to)) continue;
+    return match[1] ?? match[2] ?? match[3];
+  }
+  return undefined;
+}
+
+/** What reading a field gave: its value (undefined: not known yet) and, for a derived field whose value is not known, the inputs that decide it. */
+interface FieldRead { value: string | undefined; deciding?: MissingInput[] }
 
 function makeEvaluate(model: ModelBase, context: WhatIfContext, blankFields: ReadonlySet<string>): Evaluate {
-  const lookupField = function lookupField(ref: LogicFieldRef): string | undefined {
-    const target = targetEvent(ref, context);
+  const derive = context.derive === true;
+  const derivations = new Map<string, FieldRead>();
+  const inProgress = new Set<string>();
+
+  /** The value of a calculated field, or of a field with a `@DEFAULT`, from the inputs it reads (in the event it is read in). */
+  const derivedRead = function derivedRead(field: Field, target: string | null): FieldRead {
+    const key = field.variable + '@' + (target ?? '\u0000');
+    const known = derivations.get(key);
+    if (known) return known;
+    if (inProgress.has(key)) return { value: undefined, deciding: [] }; // a calculation that depends on itself cannot be decided
+    const fallback = topLevelDefault(field.annotation || '');
+    const expression = field.calc && field.calc.trim() ? field.calc : fallback === undefined ? undefined : pipedTextExpression(fallback);
+    if (expression === undefined) return { value: undefined };
+    inProgress.add(key);
+    const { lookup, recorded } = tracking(target);
+    const { value } = evaluateValue(expression, lookup);
+    inProgress.delete(key);
+    const read: FieldRead = value === undefined ? { value, deciding: uniqueInputs(recorded) } : { value };
+    derivations.set(key, read);
+    return read;
+  };
+
+  /** `base` is the event unprefixed references mean: the viewed event, or, inside a derived field, the event that field is read in. */
+  const readField = function readField(ref: LogicFieldRef, base: string | null): FieldRead {
+    const target = targetEvent(ref, base);
     const field = model.byVar.get(ref.name);
     const isCheckbox = field?.type === 'checkbox';
     const blank = isCheckbox && ref.code ? '0' : '';
     // REDCap reads a field from an event it is not collected in as blank
     if (target !== null && field) {
       const definition = (model.parsed.events || []).find((candidate) => candidate.id === target);
-      if (definition && !definition.forms.includes(field.form)) return blank;
+      if (definition && !definition.forms.includes(field.form)) return { value: blank };
     }
     // a field hidden by branching or form display logic counts as blank, as a participant would experience it (an unchecked option reads '0')
-    if (target === context.event && blankFields.has(ref.name)) return blank;
+    if (target === context.event && blankFields.has(ref.name)) return { value: blank };
     const value = (target !== null ? context.values[target]?.[ref.name] : undefined) ?? context.values[ANY_EVENT]?.[ref.name];
-    if (value === undefined) return undefined;
+    // nothing set: a calculation or a default can still give it a value
+    if (value === undefined) return derive && field && !(ref.code && isCheckbox) ? derivedRead(field, target) : { value: undefined };
     if (ref.code && isCheckbox) {
       const checked = Array.isArray(value) ? value : value.split(',').map((code) => code.trim());
-      return checked.includes(ref.code) ? '1' : '0';
+      return { value: checked.includes(ref.code) ? '1' : '0' };
     }
-    return Array.isArray(value) ? value.join(',') : value;
+    return { value: Array.isArray(value) ? value.join(',') : value };
   };
   const viewedEvent = (model.parsed.events || []).find((candidate) => candidate.id === context.event);
   const lookupSmart = function lookupSmart(name: string): string | undefined {
@@ -278,13 +335,18 @@ function makeEvaluate(model: ModelBase, context: WhatIfContext, blankFields: Rea
     const value = (context.event !== null ? context.values[context.event]?.[key] : undefined) ?? context.values[ANY_EVENT]?.[key];
     return Array.isArray(value) ? value.join(',') : value;
   };
-  return function evaluate(text: string): TrackedResult {
+  /** A lookup that reads in `base`, and the inputs it found not to be known. */
+  const tracking = function tracking(base: string | null): { lookup: LogicLookup; recorded: MissingInput[] } {
     const recorded: MissingInput[] = [];
-    const tracking: LogicLookup = {
+    const lookup: LogicLookup = {
       field: function trackedField(ref: LogicFieldRef): string | undefined {
-        const value = lookupField(ref);
-        if (value === undefined) recorded.push({ variable: ref.name, event: targetEvent(ref, context) });
-        return value;
+        const read = readField(ref, base);
+        if (read.value === undefined) {
+          // nobody sets a calculation: report the inputs that decide it, and the field itself only when they are not known
+          if (read.deciding && read.deciding.length) recorded.push(...read.deciding);
+          else recorded.push({ variable: ref.name, event: targetEvent(ref, base) });
+        }
+        return read.value;
       },
       smart: function trackedSmart(name: string): string | undefined {
         const value = lookupSmart(name);
@@ -293,7 +355,11 @@ function makeEvaluate(model: ModelBase, context: WhatIfContext, blankFields: Rea
       },
       today: function today(): string | undefined { return context.today; },
     };
-    const result = evaluateCondition(text, tracking).result;
+    return { lookup, recorded };
+  };
+  return function evaluate(text: string): TrackedResult {
+    const { lookup, recorded } = tracking(context.event);
+    const result = evaluateCondition(text, lookup).result;
     return { result, missing: result === undefined ? uniqueInputs(recorded) : [] };
   };
 }

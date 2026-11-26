@@ -657,6 +657,38 @@ export function evaluateCondition(text: string, lookup: LogicLookup): ConditionR
   return { result: toTruth(value), missing, unsupported };
 }
 
+export interface ValueResult {
+  /** The value as text (a number as JavaScript prints it), or undefined when it cannot be decided yet. */
+  value: string | undefined;
+  unsupported: string[];
+}
+
+/** Parse and evaluate `text` as an expression (a calculation) and give its value, which is blank text when the inputs are blank or not numbers. */
+export function evaluateValue(text: string, lookup: LogicLookup): ValueResult {
+  const { value, unsupported } = evaluateLogic(parseLogic(text), lookup);
+  return { value: value === undefined ? undefined : toText(value), unsupported };
+}
+
+const BRACKET_RUN = /(?:\[[^[\]]*\])+/g;
+
+/**
+ * Text with `[field]` references in it (piping, as in `@DEFAULT='ID-[event][field]'`) as an expression that builds it:
+ * `concat("ID-", [event][field])`. Evaluating that with the ordinary evaluator pipes the values in, and an input that is not known
+ * makes the whole text unknown, so event prefixes, smart variables and missing-input tracking all behave as in any other logic.
+ */
+export function pipedTextExpression(text: string): string {
+  const quote = (literal: string): string => '"' + literal.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+  const pieces: string[] = [];
+  let end = 0;
+  for (const match of text.matchAll(BRACKET_RUN)) {
+    if (match.index > end) pieces.push(quote(text.slice(end, match.index)));
+    pieces.push(match[0]);
+    end = match.index + match[0].length;
+  }
+  if (end < text.length) pieces.push(quote(text.slice(end)));
+  return 'concat(' + pieces.join(', ') + ')';
+}
+
 /** One top-level operand of a condition, with the `and` / `or` (as written) that joins it to the previous one ('' for the first). */
 export interface LogicPart { joiner: string; text: string }
 

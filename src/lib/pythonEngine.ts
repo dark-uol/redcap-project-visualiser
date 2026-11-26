@@ -14,7 +14,7 @@ export function pythonMetadata(parsed: ParsedODM): unknown {
   return {
     forms: parsed.forms.map((form) => ({ id: form.id, repeating: form.repeating })),
     fields: parsed.fields.map((item) => ({
-      variable: item.variable, type: item.type, form: item.form, branching: item.branching, annotation: item.annotation,
+      variable: item.variable, type: item.type, form: item.form, branching: item.branching, annotation: item.annotation, calc: item.calc,
       ...(item.synthetic ? { synthetic: true } : {}),
     })),
     formLogic: parsed.formLogic,

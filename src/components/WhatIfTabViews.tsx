@@ -44,6 +44,9 @@ export type ValuesTableViewProps = {
   /** Which engine evaluates the states, and a one-line status for the Python one ('' when there is nothing to say). */
   engine: WhatIfEngine;
   engineStatus: string;
+  /** Whether calculated fields and `@DEFAULT` values are worked out from their inputs when none is set. */
+  derive: boolean;
+  onDeriveChange: (derive: boolean) => void;
   query: string;
   matches: ChooserMatch[];
   listOpen: boolean;
@@ -107,6 +110,10 @@ export function ValuesTableView(props: ValuesTableViewProps) {
             <option value="typescript" selected={props.engine === 'typescript'}>TypeScript</option>
             <option value="python" selected={props.engine === 'python'}>Python (Pyodide)</option>
           </select>
+        </label>
+        <label class="wi-mode small" title="Work out calculated fields and @DEFAULT values from their inputs when no value is set. Off, they stay unknown until you set them.">
+          <input type="checkbox" class="wi-derive" checked={props.derive} onChange={(event) => props.onDeriveChange(event.currentTarget.checked)} />
+          <span class="muted">Calculate</span>
         </label>
         <Show when={props.engineStatus}>
           <span class="wi-engine-status muted small">{props.engineStatus}</span>

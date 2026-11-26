@@ -7,10 +7,11 @@ rule nodes). Pure standard library.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field as dataclass_field
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 
-from .logic import LogicFieldRef, evaluate_condition, is_space
+from .logic import LogicFieldRef, evaluate_condition, evaluate_value, is_space, piped_text_expression
 
 #: The key of the values bucket that applies in every event.
 ANY_EVENT = ""
@@ -32,6 +33,8 @@ class FieldInfo:
     branching: str = ""
     annotation: str = ""
     synthetic: bool = False
+    #: The calculation of a calculated field ('' for any other).
+    calc: str = ""
 
 
 @dataclass
@@ -98,6 +101,7 @@ def build_model(parsed: Mapping[str, Any]) -> Model:
             branching=item.get("branching", "") or "",
             annotation=item.get("annotation", "") or "",
             synthetic=bool(item.get("synthetic", False)),
+            calc=item.get("calc", "") or "",
         )
     # <form>_complete status pseudo-fields are valid references but not ItemDefs
     for form in parsed.get("forms", []):
@@ -177,6 +181,10 @@ class Context:
     #: with no entry at all is read from ``values`` as before, so a context without instances behaves exactly as it always did.
     #: Instance numbers may be ints or digit strings (JSON keys).
     instances: Mapping[str, Mapping[str, Mapping[Any, Mapping[str, WhatIfValue]]]] = dataclass_field(default_factory=dict)
+    #: Work out the value of a calculated field, or of a field with a top-level ``@DEFAULT``, when none is set, instead of leaving it
+    #: unknown. For exploring a project. Off, a value is only what was set: exported data already holds the stored calculations and
+    #: defaults, and deriving them for cells that are missing would invent data.
+    derive: bool = False
     _numbered: Dict[Tuple[str, str], Dict[int, Mapping[str, WhatIfValue]]] = dataclass_field(init=False, repr=False, compare=False, default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -508,9 +516,52 @@ def _joined(value: Optional[WhatIfValue]) -> Optional[str]:
 BlankCells = Set[Tuple[str, Optional[int]]]
 
 
+@dataclass
+class _Read:
+    """What reading a field gave: its value (None: not known yet), the instance it came from, and, for a derived field whose value is
+    not known, the inputs that decide it."""
+
+    value: Optional[str]
+    instance: Optional[int] = None
+    deciding: Optional[List[MissingInput]] = None
+
+
+def target_event(ref: LogicFieldRef, base: Optional[str]) -> Optional[str]:
+    """The event a reference reads from: its own prefix, else ``base``, the event it is being read in (None when neither)."""
+    return ref.event or base
+
+
+_DEFAULT_TAG = re.compile(r"@DEFAULT(?![A-Za-z0-9_-])\s*=\s*(?:'([^']*)'|\"([^\"]*)\"|(\S+))", re.IGNORECASE)
+_IF_OPEN = re.compile(r"@IF\s*\(", re.IGNORECASE)
+
+
+def top_level_default(annotation: str) -> Optional[str]:
+    """The text of a top-level ``@DEFAULT=…`` in an action-tag annotation, or None.
+
+    A default inside an ``@IF(…)`` is not found: it depends on a condition, and is not derived yet.
+    """
+    conditional: List[Tuple[int, int]] = []
+    position = 0
+    while True:
+        found = _IF_OPEN.search(annotation, position)
+        if found is None:
+            break
+        close = _matching_parenthesis(annotation, found.end() - 1)
+        if close >= 0:
+            conditional.append((found.start(), close))
+            position = close + 1
+        else:
+            position = found.end()
+    for match in _DEFAULT_TAG.finditer(annotation):
+        if any(start <= match.start() <= end for start, end in conditional):
+            continue
+        for group in match.groups():
+            if group is not None:
+                return group
+    return None
+
+
 def _make_evaluate(model: Model, context: Context, blank_cells: BlankCells) -> Evaluate:
-    def target_event(ref: LogicFieldRef) -> Optional[str]:
-        return ref.event or context.event
 
     def resolve_instance(ref: LogicFieldRef, field: FieldInfo, target: Optional[str], numbered: Dict[int, Any], cell: Optional[Cell]) -> int:
         """The instance number a reference to a field of a repeating form means.
@@ -536,9 +587,39 @@ def _make_evaluate(model: Model, context: Context, blank_cells: BlankCells) -> E
             return int(spec)
         return current
 
-    def lookup_field(ref: LogicFieldRef, cell: Optional[Cell]) -> Tuple[Optional[str], Optional[int]]:
-        """The value of a reference (None: unknown), and the instance it was read from (None: not an instance of a repeating form)."""
-        target = target_event(ref)
+    derive = context.derive
+    derivations: Dict[Tuple[str, Optional[str]], _Read] = {}
+    in_progress: Set[Tuple[str, Optional[str]]] = set()
+
+    def derived_read(field: FieldInfo, target: Optional[str]) -> _Read:
+        """The value of a calculated field, or of a field with a ``@DEFAULT``, from the inputs it reads (in the event it is read in)."""
+        key = (field.variable, target)
+        known = derivations.get(key)
+        if known is not None:
+            return known
+        if key in in_progress:
+            return _Read(None, None, [])  # a calculation that depends on itself cannot be decided
+        fallback = top_level_default(field.annotation)
+        if field.calc.strip():
+            expression: Optional[str] = field.calc
+        else:
+            expression = None if fallback is None else piped_text_expression(fallback)
+        if expression is None:
+            return _Read(None)
+        in_progress.add(key)
+        tracking = _Tracking(None, target)
+        value, _unsupported = evaluate_value(expression, tracking)
+        in_progress.discard(key)
+        read = _Read(value) if value is not None else _Read(None, None, _unique_inputs(tracking.recorded))
+        derivations[key] = read
+        return read
+
+    def lookup_field(ref: LogicFieldRef, cell: Optional[Cell], base: Optional[str]) -> _Read:
+        """The value of a reference (value None: unknown) and the instance it was read from (None: not an instance of a repeating form).
+
+        ``base`` is the event an unprefixed reference means: the viewed event, or, inside a derived field, the event that field is read in.
+        """
+        target = target_event(ref, base)
         field = model.fields.get(ref.name)
         is_checkbox = field is not None and field.type == "checkbox"
         blank = "0" if is_checkbox and ref.code else ""
@@ -546,7 +627,7 @@ def _make_evaluate(model: Model, context: Context, blank_cells: BlankCells) -> E
         if target is not None and field is not None:
             definition = model.event(target)
             if definition is not None and field.form not in definition.forms:
-                return blank, None
+                return _Read(blank)
         repeats = field is not None and model.repeats(field.form, target)
         numbered = context.instances_of(target, field.form) if field is not None and repeats else None
         instance: Optional[int] = None
@@ -555,27 +636,32 @@ def _make_evaluate(model: Model, context: Context, blank_cells: BlankCells) -> E
             assert field is not None
             instance = resolve_instance(ref, field, target, numbered, cell)
             if instance not in numbered:
-                return blank, instance  # an instance that does not exist reads as blank
+                return _Read(blank, instance)  # an instance that does not exist reads as blank
             # a field hidden in this instance counts as blank, as a participant would experience it
             if target == context.event and (ref.name, instance) in blank_cells:
-                return blank, instance
+                return _Read(blank, instance)
             value = numbered[instance].get(ref.name)
         else:
             if ref.instance and repeats:
-                return None, None  # an instance of a repeating form the context holds no instances of cannot be read
+                return _Read(None)  # an instance of a repeating form the context holds no instances of cannot be read
             # a field hidden by branching or form display logic counts as blank, as a participant would experience it
             if target == context.event and (ref.name, None) in blank_cells:
-                return blank, None
+                return _Read(blank)
             if target is not None:
                 value = context.values.get(target, {}).get(ref.name)
             if value is None:
                 value = context.values.get(ANY_EVENT, {}).get(ref.name)
+            # nothing set: a calculation or a default can still give it a value (not yet for fields of instances)
+            if value is None:
+                if derive and field is not None and not (ref.code and is_checkbox):
+                    return derived_read(field, target)
+                return _Read(None)
         if value is None:
-            return None, instance
+            return _Read(None, instance)
         if ref.code and is_checkbox:
             checked = value if isinstance(value, list) else [_js_strip(code) for code in value.split(",")]
-            return ("1" if ref.code in checked else "0"), instance
-        return _joined(value), instance
+            return _Read("1" if ref.code in checked else "0", instance)
+        return _Read(_joined(value), instance)
 
     viewed_event = model.event(context.event)
     instance_offsets = {"current-instance": 0, "previous-instance": -1, "next-instance": 1}
@@ -601,15 +687,22 @@ def _make_evaluate(model: Model, context: Context, blank_cells: BlankCells) -> E
         return _joined(value)
 
     class _Tracking:
-        def __init__(self, cell: Optional[Cell]) -> None:
+        """A lookup that reads in ``base``, and the inputs it found not to be known."""
+
+        def __init__(self, cell: Optional[Cell], base: Optional[str]) -> None:
             self.cell = cell
+            self.base = base
             self.recorded: List[MissingInput] = []
 
         def field(self, ref: LogicFieldRef) -> Optional[str]:
-            value, instance = lookup_field(ref, self.cell)
-            if value is None:
-                self.recorded.append(MissingInput(ref.name, target_event(ref), instance))
-            return value
+            read = lookup_field(ref, self.cell, self.base)
+            if read.value is None:
+                # nobody sets a calculation: report the inputs that decide it, and the field itself only when they are not known
+                if read.deciding:
+                    self.recorded.extend(read.deciding)
+                else:
+                    self.recorded.append(MissingInput(ref.name, target_event(ref, self.base), read.instance))
+            return read.value
 
         def smart(self, name: str) -> Optional[str]:
             value = lookup_smart(name, self.cell)
@@ -621,7 +714,7 @@ def _make_evaluate(model: Model, context: Context, blank_cells: BlankCells) -> E
             return context.today
 
     def evaluate(text: str, cell: Optional[Cell]) -> _Tracked:
-        tracking = _Tracking(cell)
+        tracking = _Tracking(cell, context.event)
         result = evaluate_condition(text, tracking).result
         return _Tracked(result, _unique_inputs(tracking.recorded) if result is None else [])
 

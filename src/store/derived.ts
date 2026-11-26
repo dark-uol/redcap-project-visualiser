@@ -125,7 +125,7 @@ export function createDerived(state: State) {
   // Results per event for the current model, values, mode and engine; a fresh cache whenever any of them changes
   interface VisibilityCache { results: Map<string, Map<string, VisibilityInfo>>; requested: Set<string> }
   const visibilityCache = createMemo<VisibilityCache>(() => {
-    model(); state.whatIf.values(); state.whatIf.mode(); state.whatIf.engine();
+    model(); state.whatIf.values(); state.whatIf.mode(); state.whatIf.engine(); state.whatIf.derive();
     return { results: new Map(), requested: new Set() };
   });
   // The Python engine for the loaded model, created on first use. Python loads asynchronously, so its results arrive later
@@ -166,7 +166,7 @@ export function createDerived(state: State) {
     if (!loadedModel || (state.whatIf.valueCount() === 0 && !evenWithoutValues)) return null;
     const cache = visibilityCache();
     const key = event ?? '';
-    const context: WhatIfContext = { values: state.whatIf.values(), mode: state.whatIf.mode(), event };
+    const context: WhatIfContext = { values: state.whatIf.values(), mode: state.whatIf.mode(), event, derive: state.whatIf.derive() };
     if (state.whatIf.engine() === 'python') {
       pythonArrivals(); // look again when a result arrives
       const arrived = cache.results.get(key);

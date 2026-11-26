@@ -41,6 +41,7 @@ class Engine:
                 event=data.get("event"),
                 today=data.get("today"),
                 instances=data.get("instances", {}),
+                derive=bool(data.get("derive", False)),
             ),
         )
         return {key: _info_to_json(info) for key, info in results.items()}, sorted(blank)
@@ -49,6 +50,9 @@ class Engine:
         """``context`` is ``{"values": {event: {variable: value}}, "mode": "form"|"survey", "event": id|null, "today": "YYYY-MM-DD"}``.
 
         ``today`` is optional and is what ``"today"`` means in logic; without it the system clock's local date is used.
+
+        ``derive`` is optional (default false): when true, a calculated field, or a field with a top-level ``@DEFAULT``, takes its value
+        from its inputs when none is set. For exploring a project; leave it off for exported data, which already holds those values.
 
         ``instances`` is optional and holds the values of repeating forms:
         ``{event: {form: {instance: {variable: value}}}}`` (event ``""`` for no events). A field of a repeating form listed there
