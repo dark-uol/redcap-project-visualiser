@@ -189,6 +189,61 @@ describe('layoutToSvg', () => {
     expect(none.querySelector('g.edge > text')).toBeNull();
   });
 
+  describe('viewBox', () => {
+    const longLabelView = makeView({
+      nodes: [node('a'), node('b')],
+      edges: [link('a', 'b', { types: ['branching', 'calc'], byType: { branching: 1, calc: 1 } })],
+    });
+    const viewBoxOf = (svg: string): number[] => parse(svg).documentElement.getAttribute('viewBox')!.split(' ').map(Number);
+
+    it('grows to include a label box left of 0 and right of the layout width', () => {
+      const layout = layoutOf({
+        width: 200, height: 60,
+        nodes: [placed('a', 0, 0), placed('b', 0, 30)],
+        edges: [{ from: 'a', to: 'b', points: [{ x: 0, y: 20 }, { x: 40, y: 20 }], backward: false }],
+      });
+      const svg =layoutToSvg(layout, longLabelView, { ...options, edgeLabels: true });
+      const [minX, minY, width, height] = viewBoxOf(svg);
+      const labelWidth = 'branching+calc'.length * 6.5;
+      expect(minX).toBeLessThan(0);
+      expect(minX).toBeLessThanOrEqual(20 - labelWidth / 2);
+      expect(minX + width).toBeGreaterThanOrEqual(200);
+      expect(minY).toBeLessThanOrEqual(0);
+      expect(minY + height).toBeGreaterThanOrEqual(60);
+      const root = parse(svg).documentElement;
+      expect(root.getAttribute('width')).toBe(String(width));
+      expect(root.getAttribute('height')).toBe(String(height));
+    });
+
+    it('includes a label past the right edge', () => {
+      const layout = layoutOf({
+        width: 200, height: 60,
+        nodes: [placed('a', 0, 0), placed('b', 0, 30)],
+        edges: [{ from: 'a', to: 'b', points: [{ x: 190, y: 20 }, { x: 200, y: 20 }], backward: false }],
+      });
+      const [minX, , width] = viewBoxOf(layoutToSvg(layout, longLabelView, { ...options, edgeLabels: true }));
+      expect(minX).toBe(0);
+      expect(minX + width).toBeGreaterThanOrEqual(195 + (14 * 6.5) / 2);
+    });
+
+    it('keeps 0 0 W H when nothing sticks out', () => {
+      const layout = layoutOf({
+        nodes: [placed('a', 10, 10), placed('b', 170, 10)],
+        edges: [{ from: 'a', to: 'b', points: [{ x: 130, y: 24 }, { x: 170, y: 24 }], backward: false }],
+      });
+      expect(parse(layoutToSvg(layout, longLabelView, { ...options, edgeLabels: true })).documentElement.getAttribute('viewBox')).toBe('0 0 300 200');
+    });
+
+    it('ignores edges without labels, so the layout box stays', () => {
+      const layout = layoutOf({
+        width: 200, height: 60,
+        nodes: [placed('a', 0, 0), placed('b', 0, 30)],
+        edges: [{ from: 'a', to: 'b', points: [{ x: 0, y: 20 }, { x: 40, y: 20 }], backward: false }],
+      });
+      expect(parse(layoutToSvg(layout, longLabelView, options)).documentElement.getAttribute('viewBox')).toBe('0 0 200 60');
+    });
+  });
+
   it('draws missing nodes dashed and the focus node with a heavy stroke', () => {
     const view = makeView({ nodes: [node('a', { kind: 'missing' }), node('b', { focus: true })] });
     const layout = layoutOf({ nodes: [placed('a', 0, 0), placed('b', 150, 0)] });

@@ -26,6 +26,31 @@ const CLUSTER_STROKE = '#9ca3af';
 const CLUSTER_TEXT = '#374151';
 const TEXT_FILL = '#111111';
 
+const EDGE_LABEL_PADDING = 4;
+const MAX_EDGE_LABEL_WIDTH = 260;
+const MAX_EDGE_LABEL_CHARACTERS = Math.floor(MAX_EDGE_LABEL_WIDTH / CHARACTER_WIDTH);
+const SAMPLES_PER_CURVE = 8;
+
+/** The drawing's extent: starts as the layout box and grows (to whole pixels) to cover anything drawn outside it. */
+interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
+
+function includeBox(bounds: Bounds, left: number, top: number, right: number, bottom: number): void {
+  if (left < bounds.minX) bounds.minX = Math.floor(left);
+  if (top < bounds.minY) bounds.minY = Math.floor(top);
+  if (right > bounds.maxX) bounds.maxX = Math.ceil(right);
+  if (bottom > bounds.maxY) bounds.maxY = Math.ceil(bottom);
+}
+
+/** Cubic Bezier point at parameter t. */
+function bezierPoint(curve: [Point, Point, Point, Point], t: number): Point {
+  const u = 1 - t;
+  const weights = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t];
+  return {
+    x: curve.reduce((sum, point, index) => sum + point.x * weights[index], 0),
+    y: curve.reduce((sum, point, index) => sum + point.y * weights[index], 0),
+  };
+}
+
 /** Escapes text for element content and attribute values. */
 const escapeXml = (text: string): string =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -135,17 +160,27 @@ function edgeMarkup(
   view: View,
   options: ViewOptions,
   arrowIdFor: (color: string) => string,
+  bounds: Bounds,
 ): string | null {
   const route = routeOf(layoutEdge);
   if (!route) return null;
+  const routePoints = layoutEdge.curve
+    ? Array.from({ length: SAMPLES_PER_CURVE + 1 }, (_, step) => bezierPoint(layoutEdge.curve!, step / SAMPLES_PER_CURVE))
+    : layoutEdge.points ?? [];
+  routePoints.forEach((point) => includeBox(bounds, point.x, point.y, point.x, point.y));
   const look = edgeAppearance(view, viewEdge, options);
   const width = look.width ?? (look.dash === 'bold' ? BOLD_WIDTH : BASE_WIDTH);
   const pattern = look.dash === 'dashed' ? DASHED_PATTERN : look.dash === 'dotted' ? DOTTED_PATTERN : layoutEdge.backward ? BACKWARD_PATTERN : null;
   const dashed = pattern ? ` stroke-dasharray="${pattern}"` : '';
   const path = `<path d="${route.d}" fill="none" stroke="${look.color}" stroke-width="${formatNumber(width)}"${dashed} marker-end="url(#${arrowIdFor(look.color)})"/>`;
-  const label = look.label
-    ? textLines([look.label], route.middle.x, route.middle.y - 3, 'middle', EDGE_LABEL_FONT_SIZE, look.color)
-    : '';
+  let label = '';
+  if (look.label) {
+    const text = fitText(look.label, MAX_EDGE_LABEL_CHARACTERS);
+    const halfWidth = (text.length * CHARACTER_WIDTH) / 2 + EDGE_LABEL_PADDING;
+    const baseline = route.middle.y - 3;
+    includeBox(bounds, route.middle.x - halfWidth, baseline - EDGE_LABEL_FONT_SIZE - EDGE_LABEL_PADDING, route.middle.x + halfWidth, baseline + EDGE_LABEL_PADDING);
+    label = textLines([text], route.middle.x, baseline, 'middle', EDGE_LABEL_FONT_SIZE, look.color);
+  }
   const title = `<title>${escapeXml(fromNode.label)} -> ${escapeXml(toNode.label)}</title>`;
   return `<g class="edge" data-key="n${fromIndex}->n${toIndex}">${title}${path}${label}</g>`;
 }
@@ -166,13 +201,17 @@ export function layoutToSvg(layout: Layout, view: View, options: ViewOptions): s
     return `arrow-${position}`;
   };
 
+  const bounds: Bounds = { minX: 0, minY: 0, maxX: layout.width, maxY: layout.height };
+  layout.regions.forEach((region) => includeBox(bounds, region.x, region.y, region.x + region.width, region.y + region.height));
+  layout.nodes.forEach((placed) => includeBox(bounds, placed.x, placed.y, placed.x + placed.width, placed.y + placed.height));
+
   const edgeParts: string[] = [];
   layout.edges.forEach((layoutEdge) => {
     const fromIndex = indexById.get(layoutEdge.from);
     const toIndex = indexById.get(layoutEdge.to);
     const viewEdge = viewEdgeByKey.get(`${layoutEdge.from}\n${layoutEdge.to}`);
     if (fromIndex === undefined || toIndex === undefined || !viewEdge) return;
-    const markup = edgeMarkup(layoutEdge, viewEdge, viewNodeById.get(layoutEdge.from)!, viewNodeById.get(layoutEdge.to)!, fromIndex, toIndex, view, options, arrowIdFor);
+    const markup = edgeMarkup(layoutEdge, viewEdge, viewNodeById.get(layoutEdge.from)!, viewNodeById.get(layoutEdge.to)!, fromIndex, toIndex, view, options, arrowIdFor, bounds);
     if (markup) edgeParts.push(markup);
   });
 
@@ -188,8 +227,10 @@ export function layoutToSvg(layout: Layout, view: View, options: ViewOptions): s
   const markers = arrowColors.map((color, index) =>
     `<marker id="arrow-${index}" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="${MARKER_SIZE}" markerHeight="${MARKER_SIZE}" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${color}"/></marker>`);
 
+  const boxWidth = bounds.maxX - bounds.minX;
+  const boxHeight = bounds.maxY - bounds.minY;
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${formatNumber(layout.width)} ${formatNumber(layout.height)}" width="${formatNumber(layout.width)}" height="${formatNumber(layout.height)}" font-family="${FONT}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${formatNumber(bounds.minX)} ${formatNumber(bounds.minY)} ${formatNumber(boxWidth)} ${formatNumber(boxHeight)}" width="${formatNumber(boxWidth)}" height="${formatNumber(boxHeight)}" font-family="${FONT}">`,
     `<defs>${markers.join('')}</defs>`,
     ...regionParts,
     ...clusterParts,
