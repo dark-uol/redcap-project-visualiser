@@ -1,6 +1,6 @@
 /* Signals and setters for the application state, plus the anchor-capture hook and the file sequence number. */
 import { createSignal } from 'solid-js';
-import { allTypesOn, clampDepth, DEFAULT_DIRECTION, DEFAULT_LINE_WIDTHS, DEFAULT_RENDERER } from './common';
+import { allTypesOn, clampDepth, DEFAULT_DIRECTION, DEFAULT_INSTANCES, DEFAULT_LINE_WIDTHS, DEFAULT_RENDERER } from './common';
 import type { AnchorCapture, Tab } from './common';
 import { ANY_EVENT } from '../lib/whatIf';
 import type { WhatIfValue } from '../lib/whatIf';
@@ -40,7 +40,7 @@ export function createState() {
   const setFocusDepth = (v: unknown) => setFocusDepthRaw(clampDepth(v));
   const [eventsOn, setEventsOn] = createSignal<Record<string, boolean>>({}); // event id -> bool (absent = on)
   const [instanceOnly, setInstanceOnly] = createSignal(false); // only logic using [current/first/last/previous/next-instance]
-  const [instances, setInstances] = createSignal(false); // form level, longitudinal: one node per form per event
+  const [instances, setInstances] = createSignal(DEFAULT_INSTANCES); // form level, longitudinal: one node per form per event
   const [crossOnly, setCrossOnly] = createSignal(false); // only references that name another event ([event][var])
   const [formQ, setFormQ] = createSignal('');
   const [pair, setPair] = createSignal<FormPair | null>(null); // only the field links of one form->form edge

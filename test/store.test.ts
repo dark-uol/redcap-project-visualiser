@@ -93,12 +93,12 @@ describe('loadText', () => {
     settle(() => {
       store.presentation.setDir('TD');
       store.presentation.setRenderer('mermaid');
-      store.setInstances(true);
+      store.setInstances(false);
     });
     load(sampleXml, 'sample');
     expect(store.presentation.dir()).toBe('LR');
     expect(store.presentation.renderer()).toBe('swimlane');
-    expect(store.instances()).toBe(false);
+    expect(store.instances()).toBe(true); // the default: one node per form per event
   });
 
   it('clears a previous load error on success', () => {
