@@ -110,13 +110,13 @@ export function GraphViewView(props: GraphViewViewProps) {
 
   /** Wheel zoom, drag to pan and window resize. Returns a cleanup, plus the distance moved since the last mousedown. */
   const attachPanZoomListeners = (): { detach: () => void; movedDistance: () => number } => {
-    let drag: { x: number; y: number } | null = null;
-    let moved = 0;
+    let drag: { x: number; y: number; startX: number; startY: number } | null = null;
+    let moved = 0; // pixels from where the mouse went down: a fast drag may produce a single mousemove, so events cannot be counted
     const onWheel = (e: WheelEvent) => { e.preventDefault(); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY); };
-    const onDown = (e: MouseEvent) => { drag = { x: e.clientX - pan.x, y: e.clientY - pan.y }; moved = 0; stage.classList.add('drag'); };
+    const onDown = (e: MouseEvent) => { drag = { x: e.clientX - pan.x, y: e.clientY - pan.y, startX: e.clientX, startY: e.clientY }; moved = 0; stage.classList.add('drag'); };
     const onMove = (e: MouseEvent) => {
       if (!drag) return;
-      moved++;
+      moved = Math.max(moved, Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY));
       pan.x = e.clientX - drag.x;
       pan.y = e.clientY - drag.y;
       applyTransform();

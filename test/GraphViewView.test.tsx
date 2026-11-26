@@ -69,6 +69,23 @@ describe('GraphViewView', () => {
     expect(renderComponent(() => <GraphViewView {...baseProps()} />).querySelector('.legend')!.textContent).not.toContain('Line thickness');
   });
 
+  it('ignores the click that ends a drag even when the drag produced a single mousemove', async () => {
+    const svg = graphvizSvg();
+    const onClickAction = vi.fn();
+    const container = renderComponent(() => <GraphViewView {...baseProps({ svg, drawnView: makeView(), view: makeView(), onClickAction })} />);
+    await tick();
+    const stage = container.querySelector('#stage')!;
+    stage.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 10, clientY: 10 }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 60, clientY: 40 })); // one big jump, as a fast drag can give
+    window.dispatchEvent(new MouseEvent('mouseup'));
+    stage.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 60, clientY: 40 }));
+    expect(onClickAction).not.toHaveBeenCalled();
+    stage.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 60, clientY: 40 }));
+    window.dispatchEvent(new MouseEvent('mouseup'));
+    stage.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 60, clientY: 40 }));
+    expect(onClickAction).toHaveBeenCalledTimes(1); // a plain click still counts
+  });
+
   it('hands out the anchor-capture function on mount and withdraws it on dispose', () => {
     const onAnchorCapture = vi.fn();
     const container = document.createElement('div');
