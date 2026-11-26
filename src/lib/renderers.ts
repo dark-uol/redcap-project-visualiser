@@ -39,7 +39,7 @@ export async function renderMermaid(id: string, src: string): Promise<SVGSVGElem
 export async function renderLayout(engine: 'swimlane' | 'elk', view: View, options: ViewOptions, events: EventDef[]): Promise<SVGSVGElement> {
   const layout = engine === 'elk'
     ? await import('./layoutElk').then((module) => module.layoutElk(view, options, events))
-    : await import('./layoutSwimlane').then((module) => module.layoutSwimlane(view, events));
+    : await import('./layoutSwimlane').then((module) => module.layoutSwimlane(view, events, options));
   const { layoutToSvg } = await import('./layoutToSvg');
   const document = new DOMParser().parseFromString(layoutToSvg(layout, view, options), 'image/svg+xml');
   return document.documentElement as unknown as SVGSVGElement;

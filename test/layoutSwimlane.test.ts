@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_COLUMN_ROWS, NODE_CLEARANCE, buildNodeGrid, curveHitsNode, curvePoint, layoutSwimlane, wrapLabel } from '../src/lib/layoutSwimlane';
+import { MAX_COLUMN_ROWS, NODE_CLEARANCE, buildNodeGrid, curveHitsNode, curvePoint, layoutSwimlane, originShift, shiftLayoutContents, wrapLabel } from '../src/lib/layoutSwimlane';
 import { layoutToSvg } from '../src/lib/layoutToSvg';
+import { nodeBoxHeight } from '../src/lib/nodeBox';
 import { resolveClick } from '../src/components/hitTest';
 import type { EventDef, View, ViewEdge, ViewOptions } from '../src/lib/types';
 import type { LayoutEdge, Point } from '../src/lib/layout';
-import { makeView, node } from './fixtures';
+import { makeView, node, nodesWithOverflowingText } from './fixtures';
 
 const eventDef = (id: string, over: Partial<EventDef> = {}): EventDef =>
   ({ id, label: id.toUpperCase(), arm: '1', armName: 'Main', repeating: false, forms: ['f1'], ...over });
@@ -624,5 +625,176 @@ describe('wrapLabel', () => {
     expect(wrapLabel('abcdefghij', 4)).toEqual(['abcd', 'efgh', 'ij']);
     expect(wrapLabel('aaa bbb ccc ddd', 3, 2)).toEqual(['aaa', 'bb…']);
     expect(wrapLabel('', 5)).toEqual(['']);
+  });
+});
+
+const drawOptions = (labelMode: ViewOptions['labelMode'] = 'var'): ViewOptions => ({
+  level: 'field', eventSet: null, types: new Set(), forms: null, formsNone: false, crossOnly: false, instOnly: false,
+  instances: false, expanded: null, expandedEvents: null, explore: null, pair: null, focus: '', focusDir: 'both',
+  focusDepth: 0, showMissing: false, hideIsolated: false, hideIsolatedNodes: false,
+  dir: 'LR', labelMode, group: false, groupBy: 'none', edgeLabels: false,
+});
+
+describe('layoutSwimlane node heights', () => {
+  const events = [eventDef('e1', { forms: ['f1'] })];
+  const undefinedNode = node('undef', { form: 'f1', field: 'undef', kind: 'missing', extra: ['alpha', 'beta', 'gamma', 'delta'] });
+
+  it('gives a node with extra lines a taller box than a single-line node, and label mode adds the sub-label line', () => {
+    const view = makeView({ nodes: [node('plain'), undefinedNode, node('described', { sub: 'A longer description' })] });
+    const layout = layoutSwimlane(view, events, drawOptions());
+    expect(findNode(layout, 'plain').height).toBe(28);
+    expect(findNode(layout, 'undef').height).toBe(nodeBoxHeight(undefinedNode, drawOptions()));
+    expect(findNode(layout, 'undef').height).toBe(5 * 14 + 14);
+    expect(findNode(layout, 'described').height).toBe(28);
+    expect(findNode(layoutSwimlane(view, events, drawOptions('label')), 'described').height).toBe(42);
+  });
+
+  it('keeps the plain 28 px box when no options are passed', () => {
+    expect(findNode(layoutSwimlane(makeView({ nodes: [undefinedNode] }), events), 'undef').height).toBe(nodeBoxHeight(undefinedNode, {}));
+  });
+
+  it('draws every text line inside its rect', () => {
+    const view = makeView({ nodes: [node('plain'), undefinedNode, node('described', { sub: 'A longer description', extra: ['x'] })] });
+    [drawOptions(), drawOptions('label')].forEach((options) => {
+      expect(nodesWithOverflowingText(layoutToSvg(layoutSwimlane(view, events, options), view, options))).toEqual([]);
+    });
+  });
+
+  it('stacks nodes of different heights with the usual gap and without overlap', () => {
+    const view = makeView({ nodes: [undefinedNode, node('plain'), node('described', { extra: ['x', 'y'] })] });
+    const layout = layoutSwimlane(view, events, drawOptions());
+    const stacked = layout.nodes.slice().sort((first, second) => first.y - second.y);
+    stacked.slice(1).forEach((placed, index) => expect(placed.y).toBe(stacked[index].y + stacked[index].height + 18));
+    const lane = layout.regions.find((region) => region.kind === 'lane')!;
+    stacked.forEach((placed) => expect(placed.y + placed.height).toBeLessThanOrEqual(lane.y + lane.height));
+  });
+
+  it('wraps by row count with mixed heights: no overlaps, each sub-column as tall as its nodes, the lane tall enough for the tallest', () => {
+    const total = MAX_COLUMN_ROWS * 2 + 5;
+    const nodes = Array.from({ length: total }, (_, index) => node(`n${index}`, { form: 'f1', field: `n${index}`, ...(index % 3 === 0 ? { extra: ['one', 'two'] } : {}) }));
+    const view = makeView({ level: 'field', nodes });
+    const layout = layoutSwimlane(view, events, drawOptions());
+    layout.nodes.forEach((first, index) => layout.nodes.slice(index + 1).forEach((second) => expect(overlaps(first, second)).toBe(false)));
+    const xs = [...new Set(layout.nodes.map((placed) => placed.x))];
+    expect(xs).toHaveLength(3);
+    const lane = layout.regions.find((region) => region.kind === 'lane')!;
+    xs.forEach((x) => {
+      const column = layout.nodes.filter((placed) => placed.x === x).sort((first, second) => first.y - second.y);
+      expect(column.length).toBeLessThanOrEqual(MAX_COLUMN_ROWS);
+      column.slice(1).forEach((placed, index) => expect(placed.y).toBe(column[index].y + column[index].height + 18));
+      const last = column[column.length - 1];
+      expect(last.y + last.height).toBeLessThanOrEqual(lane.y + lane.height);
+    });
+    const tallest = Math.max(...xs.map((x) => { const column = layout.nodes.filter((placed) => placed.x === x); return Math.max(...column.map((placed) => placed.y + placed.height)); }));
+    expect(lane.y + lane.height).toBeGreaterThanOrEqual(tallest);
+  });
+
+  it('encloses tall nodes in their form box', () => {
+    const view = makeView({
+      level: 'field', nodes: [undefinedNode, node('plain', { form: 'f1', field: 'plain' })],
+      groups: [{ id: 'f1', label: 'Form 1', nodes: ['undef', 'plain'] }],
+    });
+    const layout = layoutSwimlane(view, events, drawOptions());
+    const box = layout.regions.find((region) => region.kind === 'cluster')!;
+    layout.nodes.forEach((placed) => {
+      expect(placed.y).toBeGreaterThanOrEqual(box.y);
+      expect(placed.y + placed.height).toBeLessThanOrEqual(box.y + box.height);
+    });
+  });
+
+  it('keeps routes clear of mixed-height nodes on a seeded random layout', () => {
+    const wallEvents = [eventDef('e1', { dayOffset: 0, forms: ['f1'] }), eventDef('e2', { dayOffset: 1, forms: ['f2'] }), eventDef('e3', { dayOffset: 2, forms: ['f3'] })];
+    const fieldNodes = (prefix: string, form: string) => Array.from({ length: 25 }, (_, index) =>
+      node(`${prefix}${index}`, { form, field: `${prefix}${index}`, ...(index % 4 === 0 ? { extra: ['one', 'two'] } : {}) }));
+    let state = 99;
+    const random = (): number => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
+    let routed = 0;
+    let routedHits = 0;
+    for (let trial = 0; trial < 4; trial++) {
+      const edges: ViewEdge[] = [];
+      for (let count = 0; count < 120; count++) {
+        const from = `${'abc'[Math.floor(random() * 3)]}${Math.floor(random() * 25)}`;
+        const to = `${'abc'[Math.floor(random() * 3)]}${Math.floor(random() * 25)}`;
+        if (from !== to) edges.push(link(from, to));
+      }
+      const view = makeView({ level: 'field', nodes: [...fieldNodes('a', 'f1'), ...fieldNodes('b', 'f2'), ...fieldNodes('c', 'f3')], edges });
+      const layout = layoutSwimlane(view, wallEvents, drawOptions());
+      layout.nodes.forEach((first, index) => layout.nodes.slice(index + 1).forEach((second) => expect(overlaps(first, second)).toBe(false)));
+      layout.edges.forEach((edge) => { routed++; routedHits += routeHitCount(layout, edge) > 0 ? 1 : 0; });
+    }
+    expect(routed).toBeGreaterThan(300);
+    expect(routedHits / routed).toBeLessThan(0.02);
+  });
+});
+
+describe('layoutSwimlane shift into the drawing bounds', () => {
+  const curve = (...points: Point[]): LayoutEdge => ({ from: 'a', to: 'b', curve: points as LayoutEdge['curve'], backward: false });
+
+  it('computes no shift while every route keeps the arrow margin from the origin, and the missing distance otherwise', () => {
+    expect(originShift(10, 10)).toEqual({ x: 0, y: 0 });
+    expect(originShift(150, 40)).toEqual({ x: 0, y: 0 });
+    expect(originShift(-30, 25)).toEqual({ x: 40, y: 0 });
+    expect(originShift(5, -12)).toEqual({ x: 5, y: 22 });
+    expect(originShift(-3, -4)).toEqual({ x: 13, y: 14 });
+  });
+
+  it('moves nodes, routes and regions by the same amount, keeping relative geometry, and lanes stay at x = 0', () => {
+    const contents = {
+      nodes: [{ id: 'a', x: 20, y: 30, width: 120, height: 28 }, { id: 'b', x: 20, y: 100, width: 120, height: 42 }],
+      edges: [
+        curve({ x: 20, y: 44 }, { x: -50, y: 44 }, { x: -50, y: 121 }, { x: 20, y: 121 }),
+        { from: 'a', to: 'b', points: [{ x: 20, y: 44 }, { x: -20, y: 44 }, { x: -20, y: 121 }, { x: 20, y: 121 }], backward: false },
+      ],
+      regions: [
+        { id: 'lane', kind: 'lane' as const, label: 'L', x: 0, y: 10, width: 300, height: 200 },
+        { id: 'column', kind: 'column' as const, label: 'C', x: 10, y: 10, width: 160, height: 200 },
+      ],
+    };
+    const before = structuredClone(contents);
+    shiftLayoutContents(contents, { x: 60, y: 7 });
+    contents.nodes.forEach((placed, index) => {
+      expect(placed).toEqual({ ...before.nodes[index], x: before.nodes[index].x + 60, y: before.nodes[index].y + 7 });
+    });
+    expect(contents.edges[0].curve).toEqual(before.edges[0].curve!.map((point) => ({ x: point.x + 60, y: point.y + 7 })));
+    expect(contents.edges[1].points).toEqual(before.edges[1].points!.map((point) => ({ x: point.x + 60, y: point.y + 7 })));
+    expect(contents.regions[0]).toEqual({ ...before.regions[0], y: 17 });
+    expect(contents.regions[1]).toEqual({ ...before.regions[1], x: 70, y: 17 });
+    // a route that left the origin by 50 now starts inside it, and the gap between node and route is unchanged
+    const leftmost = Math.min(...contents.edges[0].curve!.map((point) => point.x));
+    expect(leftmost).toBe(10);
+    expect(contents.nodes[0].x - leftmost).toBe(before.nodes[0].x - Math.min(...before.edges[0].curve!.map((point) => point.x)));
+    expect(contents.nodes[1].y - contents.nodes[0].y).toBe(before.nodes[1].y - before.nodes[0].y);
+  });
+
+  it('shifts a whole layout so a route that starts left of x = 0 ends up inside, with its shape unchanged', () => {
+    // the real layout never bows far enough left of the first column to need the shift, so apply the computed shift to a laid-out view
+    const view = makeView({
+      level: 'field', nodes: ['a', 'b', 'c', 'd'].map((id) => node(id, { form: 'f1', field: id })),
+      edges: [link('d', 'a'), link('a', 'd'), link('c', 'a'), link('b', 'd')],
+    });
+    const layout = layoutSwimlane(view, [eventDef('e1', { forms: ['f1'] })]);
+    const before = structuredClone(layout);
+    const leftmost = Math.min(...layout.edges.flatMap((edge) => routeSamples(edge).map((point) => point.x)));
+    const shift = originShift(leftmost - 500, 30); // as if the routes reached 500 px further left
+    expect(shift.x).toBe(10 - (leftmost - 500));
+    shiftLayoutContents(layout, shift);
+    layout.nodes.forEach((placed) => expect(placed.x).toBeGreaterThan(0));
+    layout.nodes.forEach((placed, index) => {
+      expect(placed.x - before.nodes[index].x).toBe(shift.x);
+      expect(placed.y - before.nodes[index].y).toBe(shift.y);
+    });
+    layout.edges.forEach((edge, index) => {
+      const original = before.edges[index];
+      const moved = (edge.curve ?? edge.points)!;
+      const first = (original.curve ?? original.points)!;
+      moved.forEach((point, pointIndex) => {
+        expect(point.x - first[pointIndex].x).toBe(shift.x);
+        expect(point.y - first[pointIndex].y).toBe(shift.y);
+      });
+    });
+    layout.regions.forEach((region, index) => {
+      expect(region.x - before.regions[index].x).toBe(region.kind === 'lane' ? 0 : shift.x);
+      expect(region.y - before.regions[index].y).toBe(shift.y);
+    });
   });
 });

@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { layoutElk } from '../src/lib/layoutElk';
 import type { Layout, LayoutNode, Point } from '../src/lib/layout';
 import type { EventDef, View, ViewEdge, ViewGroup } from '../src/lib/types';
-import { makeView, node } from './fixtures';
+import { layoutToSvg } from '../src/lib/layoutToSvg';
+import { nodeBoxHeight } from '../src/lib/nodeBox';
+import type { ViewOptions } from '../src/lib/types';
+import { makeView, node, nodesWithOverflowingText } from './fixtures';
 
 const eventDef = (id: string, over: Partial<EventDef> = {}): EventDef =>
   ({ id, label: id.toUpperCase(), arm: '1', armName: 'Main', repeating: false, forms: ['f1'], ...over });
@@ -161,6 +164,25 @@ describe('layoutElk', () => {
     expect(layout.edges.find((edge) => edge.from === 'n3' && edge.to === 'n1')!.backward).toBe(true);
     expectEdgeEndsOnNodes(layout, 'n1', 'n2');
     expectEdgeEndsOnNodes(layout, 'n3', 'n1');
+  });
+
+  it('sizes a node box by the lines drawn in it, so extra lines make a taller box and the text stays inside the rect', async () => {
+    const drawn: ViewOptions = {
+      level: 'form', eventSet: null, types: new Set(), forms: null, formsNone: false, crossOnly: false, instOnly: false,
+      instances: false, expanded: null, expandedEvents: null, explore: null, pair: null, focus: '', focusDir: 'both',
+      focusDepth: 0, showMissing: false, hideIsolated: false, hideIsolatedNodes: false,
+      dir: 'LR', labelMode: 'label', group: false, groupBy: 'none', edgeLabels: false,
+    };
+    const tall = node('undef', { kind: 'missing', extra: ['alpha', 'beta', 'gamma', 'delta'] });
+    const described = node('described', { sub: 'A longer description' });
+    const view = makeView({ nodes: [node('plain'), tall, described, node('stacked')], edges: [link('plain', 'undef'), link('undef', 'stacked')] });
+    const layout = await layoutElk(view, drawn, []);
+    expect(placed(layout, 'plain').height).toBe(28);
+    expect(placed(layout, 'undef').height).toBe(nodeBoxHeight(tall, drawn));
+    expect(placed(layout, 'undef').height).toBeGreaterThan(placed(layout, 'plain').height);
+    expect(placed(layout, 'described').height).toBe(42);
+    layout.nodes.forEach((first, index) => layout.nodes.slice(index + 1).forEach((second) => expect(overlaps(first, second)).toBe(false)));
+    expect(nodesWithOverflowingText(layoutToSvg(layout, view, drawn))).toEqual([]);
   });
 
   it('gives equal days one partition, so nodes of both events on that day share a column', async () => {

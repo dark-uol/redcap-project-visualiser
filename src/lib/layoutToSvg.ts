@@ -1,12 +1,13 @@
 /* Serialises a Layout as an SVG string shaped like Graphviz output (g.node / g.edge / g.cluster keyed by data-key), so the
  * graph stage can highlight and resolve clicks on it unchanged. Pure: no Solid, no DOM. */
 import { KIND_FILL, KIND_STROKE, edgeAppearance, nodeLines } from './exporters';
+import { TEXT_LINE_HEIGHT } from './nodeBox';
 import type { Layout, LayoutEdge, LayoutNode, LayoutRegion, Point } from './layout';
 import type { View, ViewEdge, ViewNode, ViewOptions } from './types';
 
 const CHARACTER_WIDTH = 6.5;
 const NODE_TEXT_PADDING = 12;
-const LINE_HEIGHT = 14;
+const LINE_HEIGHT = TEXT_LINE_HEIGHT;
 const LABEL_FONT_SIZE = 12;
 const EDGE_LABEL_FONT_SIZE = 9;
 const BASE_WIDTH = 1.2;

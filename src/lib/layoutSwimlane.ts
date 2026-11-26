@@ -2,9 +2,9 @@
  * Pure and deterministic; no Solid, no DOM. */
 import type { EventDef, View, ViewEdge, ViewNode } from './types';
 import type { Layout, LayoutEdge, LayoutNode, LayoutRegion, Point } from './layout';
+import { NODE_BOX_MINIMUM_HEIGHT, NODE_BOX_WIDTH, nodeBoxHeight, type NodeBoxOptions } from './nodeBox';
 
-const NODE_WIDTH = 120;
-const NODE_HEIGHT = 28;
+const NODE_WIDTH = NODE_BOX_WIDTH;
 const NODE_GAP = 18;
 const COLUMN_GAP = 40;
 const COLUMN_PITCH = NODE_WIDTH + COLUMN_GAP;
@@ -105,8 +105,6 @@ export const wrapLabel = (text: string, maxCharacters: number, maxLines: number 
   return kept;
 };
 
-const stackHeight = (count: number): number => (count === 0 ? 0 : count * NODE_HEIGHT + (count - 1) * NODE_GAP);
-
 /** Assigns each drawn event column a centre x: scaled by day when every event has one, else by order; then keeps columns apart.
  * A column is `columnWidth` wide (one pitch per sub-column) and centred on its desired x, but never starts left of the first
  * column's left edge and never overlaps what precedes it: it is pushed right until its left edge clears the right edge of the
@@ -166,14 +164,17 @@ const initialOrder = (column: ColumnPlan, viewOrder: Map<string, number>): ViewN
  * The fields of a zoomed-in form stay together, ordered as one unit, with padding around them for the cluster box. */
 const orderLane = (
   lane: LanePlan, neighbours: Map<string, string[]>, viewOrder: Map<string, number>, headerHeight: number, clusterOf: Map<string, string>,
+  heightById: Map<string, number>,
 ): void => {
   const placedTop = new Map<string, number>();
   lane.columns.forEach((column) => {
     const initial = initialOrder(column, viewOrder);
-    // a wrapped column is that many times shorter, so an unconnected node's slot is scaled to its row
+    // a wrapped column is that many times shorter, so an unconnected node's slot (the height of the nodes before it) is scaled to its row
+    let heightBefore = 0;
     const keyed = initial.map((node, slot) => {
       const tops = (neighbours.get(node.id) ?? []).filter((id) => placedTop.has(id)).map((id) => placedTop.get(id) as number);
-      const barycentre = tops.length ? tops.reduce((sum, top) => sum + top, 0) / tops.length : (slot / column.subColumns) * (NODE_HEIGHT + NODE_GAP);
+      const barycentre = tops.length ? tops.reduce((sum, top) => sum + top, 0) / tops.length : heightBefore / column.subColumns;
+      heightBefore += (heightById.get(node.id) as number) + NODE_GAP;
       return { node, slot, barycentre };
     });
     const clusterSizes = new Map<string, number>();
@@ -211,7 +212,7 @@ const orderLane = (
       column.topById.set(node.id, top);
       column.subColumnById.set(node.id, subColumn);
       placedTop.set(node.id, top);
-      top += NODE_HEIGHT;
+      top += heightById.get(node.id) as number;
       previousCluster = cluster;
     });
     column.contentHeight = keyed.length ? Math.max(tallest, top - headerHeight + (previousCluster ? CLUSTER_BOTTOM : 0)) : 0;
@@ -340,7 +341,7 @@ const gutterRoutes = (source: LayoutNode, target: LayoutNode, leftward: boolean,
   const end = { x: direction > 0 ? target.x : target.x + target.width, y: targetMiddle };
   const sourceGutter = start.x + direction * GUTTER_OFFSET;
   const targetGutter = end.x - direction * GUTTER_OFFSET;
-  const row = NODE_HEIGHT + NODE_GAP;
+  const row = NODE_BOX_MINIMUM_HEIGHT + NODE_GAP;
   const below = (node: LayoutNode): number => node.y + node.height + NODE_GAP / 2;
   const above = (node: LayoutNode): number => node.y - NODE_GAP / 2;
   const channels: number[] = [below(source), above(source), below(target), above(target)];
@@ -351,7 +352,30 @@ const gutterRoutes = (source: LayoutNode, target: LayoutNode, leftward: boolean,
   return routes;
 };
 
-export function layoutSwimlane(view: View, events: EventDef[]): Layout {
+/** The shift that brings every route at least ARROW_MARGIN inside the origin: right for a route left of it, down for one above. */
+export const originShift = (routeLeft: number, routeTop: number): Point => ({
+  x: routeLeft - ARROW_MARGIN < 0 ? ARROW_MARGIN - routeLeft : 0,
+  y: routeTop - ARROW_MARGIN < 0 ? ARROW_MARGIN - routeTop : 0,
+});
+
+/** Moves nodes, routes and regions by `shift`. A lane spans the whole width, so it moves down only. */
+export const shiftLayoutContents = (
+  contents: { nodes: LayoutNode[]; edges: LayoutEdge[]; regions: LayoutRegion[] }, shift: Point,
+): void => {
+  const moved = (point: Point): Point => ({ x: point.x + shift.x, y: point.y + shift.y });
+  contents.nodes.forEach((placed) => { placed.x += shift.x; placed.y += shift.y; });
+  contents.edges.forEach((edge) => {
+    if (edge.curve) edge.curve = edge.curve.map(moved) as Curve;
+    if (edge.points) edge.points = edge.points.map(moved);
+  });
+  contents.regions.forEach((region) => {
+    if (region.kind !== 'lane') region.x += shift.x;
+    region.y += shift.y;
+  });
+};
+
+export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxOptions = {}): Layout {
+  const heightById = new Map(view.nodes.map((viewNode) => [viewNode.id, nodeBoxHeight(viewNode, options)] as const));
   const eventById = new Map(events.map((event) => [event.id, event]));
   const viewOrder = new Map(view.nodes.map((node, index) => [node.id, index]));
 
@@ -431,7 +455,7 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   // Vertical placement.
   let cursorY = MARGIN;
   lanes.forEach((lane) => {
-    orderLane(lane, neighbours, viewOrder, headerHeight, clusterOf);
+    orderLane(lane, neighbours, viewOrder, headerHeight, clusterOf, heightById);
     const tallest = Math.max(...lane.columns.map((column) => column.contentHeight));
     lane.y = cursorY;
     lane.height = headerHeight + tallest + LANE_FOOTER;
@@ -469,7 +493,7 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
           const placed: LayoutNode = {
             id: node.id, x: column.centerX - columnWidth(column) / 2 + (COLUMN_PITCH - NODE_WIDTH) / 2 + subColumn * COLUMN_PITCH,
             y: lane.y + (column.topById.get(node.id) as number),
-            width: NODE_WIDTH, height: NODE_HEIGHT,
+            width: NODE_WIDTH, height: heightById.get(node.id) as number,
           };
           nodes.push(placed);
           nodeById.set(node.id, placed);
@@ -591,20 +615,10 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   });
   let totalWidth = width;
   let totalHeight = height;
-  const shiftX = routeLeft - ARROW_MARGIN < 0 ? ARROW_MARGIN - routeLeft : 0;
-  const shiftY = routeTop - ARROW_MARGIN < 0 ? ARROW_MARGIN - routeTop : 0;
-  if (shiftX > 0 || shiftY > 0) {
-    const moved = (point: Point): Point => ({ x: point.x + shiftX, y: point.y + shiftY });
-    nodes.forEach((placed) => { placed.x += shiftX; placed.y += shiftY; });
-    edges.forEach((edge) => {
-      if (edge.curve) edge.curve = edge.curve.map(moved) as Curve;
-      if (edge.points) edge.points = edge.points.map(moved);
-    });
-    regions.forEach((region) => {
-      if (region.kind !== 'lane') region.x += shiftX;
-      region.y += shiftY;
-    });
-    totalWidth += shiftX; totalHeight += shiftY; routeRight += shiftX; routeBottom += shiftY;
+  const shift = originShift(routeLeft, routeTop);
+  if (shift.x > 0 || shift.y > 0) {
+    shiftLayoutContents({ nodes, edges, regions }, shift);
+    totalWidth += shift.x; totalHeight += shift.y; routeRight += shift.x; routeBottom += shift.y;
   }
   if (routeRight + ARROW_MARGIN > totalWidth) totalWidth = routeRight + MARGIN;
   if (routeBottom + ARROW_MARGIN > totalHeight) totalHeight = routeBottom + MARGIN;

@@ -34,7 +34,7 @@ export function edgeAppearance(view: View, edge: ViewEdge, options: ViewOptions)
   return { color, dash, width: widthOf(edge, view), label: edgeText(edge, options, view) };
 }
 
-export function nodeLines(n: ViewNode, o: ViewOptions): string[] {
+export function nodeLines(n: ViewNode, o: Pick<Partial<ViewOptions>, 'labelMode'>): string[] {
   const lines = [n.label];
   if (n.extra) lines.push(...n.extra);
   if (o.labelMode === 'label' && n.sub) lines.push(trunc(n.sub, 36));

@@ -3,10 +3,9 @@
  * relative to the edge's container; both are converted to absolute coordinates here. */
 import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk-api';
 import type { Layout, LayoutEdge, LayoutNode, LayoutRegion, Point } from './layout';
+import { nodeBoxSize, type NodeBoxOptions } from './nodeBox';
 import type { EventDef, View, ViewOptions } from './types';
 
-const NODE_WIDTH = 120;
-const NODE_HEIGHT = 28;
 const MARGIN = 20;
 const ROOT_ID = 'root';
 /** Room above the members for the group label. */
@@ -61,7 +60,7 @@ const partitionByNodeIndex = (view: View, events: EventDef[]): number[] | undefi
   return eventIdByNodeIndex.map((eventId) => (eventId === undefined ? sortKeys.length : (partitionOfKey.get(sortKeyOf(eventId)) as number)));
 };
 
-export async function layoutElk(view: View, options: Pick<ViewOptions, 'dir'>, events: EventDef[]): Promise<Layout> {
+export async function layoutElk(view: View, options: Pick<ViewOptions, 'dir'> & NodeBoxOptions, events: EventDef[]): Promise<Layout> {
   const engine = await loadElk();
   const nodeIndexById = new Map(view.nodes.map((node, index) => [node.id, index] as const));
   const groupIndexById = new Map(view.groups.map((group, index) => [group.id, index] as const));
@@ -131,8 +130,8 @@ export async function layoutElk(view: View, options: Pick<ViewOptions, 'dir'>, e
     const parentIndex = parentIndexes[groupIndex];
     (parentIndex === -1 ? rootChildren : (groupElkNodes.get(parentIndex) as ElkNode).children as ElkNode[]).push(groupElk);
   }
-  view.nodes.forEach((_, nodeIndex) => {
-    const leaf: ElkNode = { id: nodeElkId(nodeIndex), width: NODE_WIDTH, height: NODE_HEIGHT };
+  view.nodes.forEach((viewNode, nodeIndex) => {
+    const leaf: ElkNode = { id: nodeElkId(nodeIndex), ...nodeBoxSize(viewNode, options) };
     if (partitions) leaf.layoutOptions = { 'elk.partitioning.partition': String(partitions[nodeIndex]) };
     const groupIndex = groupOfNodeIndex[nodeIndex];
     (groupIndex === -1 ? rootChildren : (groupElkNodes.get(groupIndex) as ElkNode).children as ElkNode[]).push(leaf);

@@ -28,3 +28,20 @@ export const field = (over: Partial<Field> = {}): Field => ({
 });
 
 export const edge = (over: Partial<Edge> = {}): Edge => ({ from: 'a', to: 'b', type: 'branching', expr: "[a] = '1'", cross: false, missing: false, ...over });
+
+/** The keys of nodes in a `layoutToSvg` string whose text lines stick out of the node's rect (first line's ascent above it,
+ * last line's descent below it). Regex-based so it also runs in the node test environment. */
+export const nodesWithOverflowingText = (svg: string): string[] => {
+  const overflowing: string[] = [];
+  const ascent = 9;
+  const descent = 3;
+  for (const match of svg.matchAll(/<g class="node" data-key="([^"]*)">(.*?)<\/g>/g)) {
+    const rect = /<rect x="[^"]*" y="([^"]*)" width="[^"]*" height="([^"]*)"/.exec(match[2]);
+    const baselines = [...match[2].matchAll(/<text [^>]*? y="([^"]*)"/g)].map((textMatch) => Number(textMatch[1]));
+    if (!rect || baselines.length === 0) continue;
+    const top = Number(rect[1]);
+    const bottom = top + Number(rect[2]);
+    if (Math.min(...baselines) - ascent < top || Math.max(...baselines) + descent > bottom) overflowing.push(match[1]);
+  }
+  return overflowing;
+};
