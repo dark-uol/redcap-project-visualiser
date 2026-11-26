@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { layoutSwimlane, wrapLabel } from '../src/lib/layoutSwimlane';
+import { MAX_COLUMN_ROWS, NODE_CLEARANCE, buildNodeGrid, curveHitsNode, curvePoint, layoutSwimlane, wrapLabel } from '../src/lib/layoutSwimlane';
 import { layoutToSvg } from '../src/lib/layoutToSvg';
 import { resolveClick } from '../src/components/hitTest';
 import type { EventDef, View, ViewEdge, ViewOptions } from '../src/lib/types';
@@ -127,7 +127,10 @@ describe('layoutSwimlane', () => {
 
   it('puts nodes with a missing or unknown event into one "(no event)" lane with a single column', () => {
     const events = [eventDef('e1')];
-    const view = makeView({ level: 'form', nodes: [node('a', { event: 'e1' }), node('b', { event: null }), node('c'), node('d', { event: 'ghost' })] });
+    const view = makeView({
+      level: 'form',
+      nodes: [node('a', { event: 'e1' }), node('b', { event: null, form: 'none' }), node('c', { form: 'none' }), node('d', { event: 'ghost', form: 'none' })],
+    });
     const layout = layoutSwimlane(view, events);
     const lanes = layout.regions.filter((region) => region.kind === 'lane');
     expect(lanes.map((lane) => lane.label)).toEqual(['Arm 1: Main', '(no event)']);
@@ -334,6 +337,168 @@ describe('layoutSwimlane at field level', () => {
     const document = new DOMParser().parseFromString(layoutToSvg(layout, view, options), 'image/svg+xml');
     const cluster = document.querySelector('g.cluster')!;
     expect(resolveClick(cluster, view, (id) => id === 'f2')).toEqual({ type: 'select', id: '@form:f2' });
+  });
+});
+
+describe('layoutSwimlane at form level without instances', () => {
+  const events = [eventDef('e1', { forms: ['f1', 'f2'] }), eventDef('e2', { forms: ['f2', 'f3'] })];
+  const formNode = (id: string, form: string) => node(id, { form, kind: 'form' });
+
+  it('places each form node in the first event that collects the form, and forms in no event in "(no event)"', () => {
+    const view = makeView({ level: 'form', nodes: [formNode('f1', 'f1'), formNode('f2', 'f2'), formNode('f3', 'f3'), formNode('f9', 'f9')] });
+    const layout = layoutSwimlane(view, events);
+    const columns = layout.regions.filter((region) => region.kind === 'column');
+    const columnLabelOf = (id: string): string => {
+      const placed = findNode(layout, id);
+      return columns.find((column) => placed.x >= column.x && placed.x < column.x + column.width && placed.y >= column.y && placed.y < column.y + column.height)!.label;
+    };
+    expect(columnLabelOf('f1')).toBe('E1');
+    expect(columnLabelOf('f2')).toBe('E1');
+    expect(columnLabelOf('f3')).toBe('E2');
+    expect(columnLabelOf('f9')).toBe('(no event)');
+  });
+
+  it('still places form instances by their own event when instances are on', () => {
+    const view = makeView({ level: 'form', nodes: [node('f2@e1', { form: 'f2', event: 'e1', kind: 'form' }), node('f2@e2', { form: 'f2', event: 'e2', kind: 'form' })] });
+    const layout = layoutSwimlane(view, events);
+    expect(findNode(layout, 'f2@e2').x).toBeGreaterThan(findNode(layout, 'f2@e1').x);
+  });
+});
+
+type SwimlaneLayout = ReturnType<typeof layoutSwimlane>;
+const overlaps = (first: { x: number; y: number; width: number; height: number }, second: { x: number; y: number; width: number; height: number }): boolean =>
+  first.x < second.x + second.width && second.x < first.x + first.width && first.y < second.y + second.height && second.y < first.y + first.height;
+
+describe('layoutSwimlane tall columns', () => {
+  const count = 60;
+  const events = [eventDef('e1', { dayOffset: 0, forms: ['f1', 'f2'] }), eventDef('e2', { dayOffset: 1, forms: ['f3'] })];
+  const manyNodes = (total: number, form: (index: number) => string) =>
+    Array.from({ length: total }, (_, index) => node(`n${index}`, { form: form(index), field: `n${index}` }));
+  const tallView = (groups: View['groups'] = [], edges: ViewEdge[] = []) =>
+    makeView({ level: 'field', nodes: [...manyNodes(count, (index) => (index < 40 ? 'f1' : 'f2')), node('later', { form: 'f3', field: 'later' })], groups, edges });
+  const columnRegion = (layout: SwimlaneLayout, id: string) => layout.regions.find((region) => region.id === `column:${id}`)!;
+
+  it('flows more than MAX_COLUMN_ROWS nodes into several sub-columns of at most that many rows', () => {
+    const layout = layoutSwimlane(tallView(), events);
+    const firstColumn = columnRegion(layout, 'e1');
+    const members = layout.nodes.filter((placed) => placed.id.startsWith('n'));
+    const xs = [...new Set(members.map((placed) => placed.x))].sort((first, second) => first - second);
+    expect(xs).toHaveLength(Math.ceil(count / MAX_COLUMN_ROWS));
+    xs.forEach((x) => expect(members.filter((placed) => placed.x === x).length).toBeLessThanOrEqual(MAX_COLUMN_ROWS));
+    expect(firstColumn.width).toBe(xs.length * 160);
+    members.forEach((placed) => {
+      expect(placed.x).toBeGreaterThanOrEqual(firstColumn.x);
+      expect(placed.x + placed.width).toBeLessThanOrEqual(firstColumn.x + firstColumn.width);
+    });
+  });
+
+  it('keeps one sub-column unwrapped at the limit, and grows the width and shrinks the height when wrapped', () => {
+    const atLimit = layoutSwimlane(makeView({ level: 'field', nodes: manyNodes(MAX_COLUMN_ROWS, () => 'f1') }), events);
+    expect(columnRegion(atLimit, 'e1').width).toBe(160);
+    const single = layoutSwimlane(makeView({ level: 'field', nodes: manyNodes(count, () => 'f1').slice(0, MAX_COLUMN_ROWS) }), events);
+    const wrapped = layoutSwimlane(tallView(), events);
+    expect(wrapped.width).toBeGreaterThan(single.width);
+    const unwrappedHeight = 20 + 26 + (count + 1) * 28 + count * 18; // roughly one column of every node
+    expect(wrapped.height).toBeLessThan(unwrappedHeight / 2);
+  });
+
+  it('has unique ids, no overlapping nodes, and a later column that starts right of the wide one', () => {
+    const layout = layoutSwimlane(tallView(), events);
+    expect(new Set(layout.nodes.map((placed) => placed.id)).size).toBe(count + 1);
+    layout.nodes.forEach((first, index) => layout.nodes.slice(index + 1).forEach((second) => expect(overlaps(first, second)).toBe(false)));
+    const first = columnRegion(layout, 'e1');
+    const second = columnRegion(layout, 'e2');
+    expect(second.x).toBeGreaterThanOrEqual(first.x + first.width);
+    expect(layout.width).toBeGreaterThanOrEqual(second.x + second.width);
+  });
+
+  it('shares an x between equal-day columns of different arms, and pushes the next one past the widest', () => {
+    const shared = [
+      eventDef('a', { dayOffset: 5, forms: ['f1'] }), eventDef('b', { dayOffset: 5, arm: '2', armName: 'Other', forms: ['f2'] }), eventDef('c', { dayOffset: 6, forms: ['f3'] }),
+    ];
+    const view = makeView({
+      level: 'field',
+      nodes: [...manyNodes(60, () => 'f1'), node('b1', { form: 'f2', field: 'b1' }), node('c1', { form: 'f3', field: 'c1' })],
+    });
+    const layout = layoutSwimlane(view, shared);
+    const [wide, narrow, next] = ['a', 'b', 'c'].map((id) => columnRegion(layout, id));
+    expect(narrow.x + narrow.width / 2).toBe(wide.x + wide.width / 2);
+    expect(next.x).toBeGreaterThanOrEqual(wide.x + wide.width);
+  });
+
+  it('centres the column header over the full width', () => {
+    const layout = layoutSwimlane(tallView(), events);
+    const column = columnRegion(layout, 'e1');
+    expect(column.width).toBeGreaterThan(160);
+    expect(column.labelLines).toBeDefined();
+    const svg = layoutToSvg(layout, tallView(), {
+      level: 'field', eventSet: null, types: new Set(), forms: null, formsNone: false, crossOnly: false, instOnly: false,
+      instances: false, expanded: null, expandedEvents: null, explore: null, pair: null, focus: '', focusDir: 'both',
+      focusDepth: 0, showMissing: false, hideIsolated: false, hideIsolatedNodes: false,
+      dir: 'LR', labelMode: 'var', group: true, groupBy: 'form', edgeLabels: false,
+    });
+    expect(svg).toContain(`x="${column.x + column.width / 2}"`);
+  });
+
+  it('fills column-major and draws one box per sub-column for a form, enclosing its members, with one group index', () => {
+    const groups = [
+      { id: 'f1', label: 'Form 1', nodes: Array.from({ length: 40 }, (_, index) => `n${index}`) },
+      { id: 'f2', label: 'Form 2', nodes: Array.from({ length: 20 }, (_, index) => `n${40 + index}`) },
+    ];
+    const layout = layoutSwimlane(tallView(groups), events);
+    const boxes = layout.regions.filter((region) => region.kind === 'cluster');
+    expect(new Set(boxes.map((box) => box.id)).size).toBe(boxes.length);
+    expect(boxes.filter((box) => box.groupIndex === 0).length).toBeGreaterThan(1);
+    groups.forEach((group, groupIndex) => {
+      const own = boxes.filter((box) => box.groupIndex === groupIndex);
+      group.nodes.forEach((id) => {
+        const member = findNode(layout, id);
+        expect(own.some((box) => member.x >= box.x && member.x + member.width <= box.x + box.width && member.y >= box.y && member.y + member.height <= box.y + box.height)).toBe(true);
+      });
+    });
+    // contiguity: within a sub-column the nodes run in order, and the next sub-column continues the sequence
+    const order = layout.nodes.filter((placed) => placed.id.startsWith('n')).sort((first, second) => first.x - second.x || first.y - second.y).map((placed) => placed.id);
+    expect(order).toEqual(order.slice().sort((first, second) => Number(first.slice(1)) - Number(second.slice(1))));
+  });
+
+  it('routes edges between neighbouring sub-columns and within one around the nodes in the way', () => {
+    const edges = [link('n0', 'n30'), link('n30', 'n3'), link('n10', 'n11'), link('n5', 'n12'), link('n40', 'n25')];
+    const layout = layoutSwimlane(tallView([], edges), events);
+    expect(layout.edges).toHaveLength(edges.length);
+    const crossing = layout.edges.filter((edge) => {
+      const curve = edge.curve!;
+      return Array.from({ length: 31 }, (_, index) => curvePoint(curve, (index + 1) / 32)).some((point) =>
+        layout.nodes.some((placed) => placed.id !== edge.from && placed.id !== edge.to
+          && point.x > placed.x && point.x < placed.x + placed.width && point.y > placed.y && point.y < placed.y + placed.height));
+    });
+    expect(crossing.map((edge) => `${edge.from}>${edge.to}`)).toEqual([]);
+  });
+});
+
+describe('curveHitsNode grid index', () => {
+  it('agrees with testing every node, on a seeded random layout', () => {
+    let state = 12345;
+    const random = (): number => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
+    const nodes = Array.from({ length: 300 }, (_, index) => ({ id: `n${index}`, x: random() * 3000, y: random() * 3000, width: 120, height: 28 }));
+    const grid = buildNodeGrid(nodes);
+    let hits = 0;
+    for (let trial = 0; trial < 1500; trial++) {
+      const start = { x: random() * 3000, y: random() * 3000 };
+      const near = (): { x: number; y: number } => ({ x: start.x + random() * 400 - 200, y: start.y + random() * 400 - 200 });
+      const curve: [{ x: number; y: number }, { x: number; y: number }, { x: number; y: number }, { x: number; y: number }] = [start, near(), near(), near()];
+      const ignored = new Set([`n${Math.floor(random() * 300)}`, `n${Math.floor(random() * 300)}`]);
+      let expected = false;
+      for (let step = 1; step < 32 && !expected; step++) {
+        const sample = curvePoint(curve, step / 32);
+        expected = nodes.some((node) => !ignored.has(node.id)
+          && sample.x > node.x - NODE_CLEARANCE && sample.x < node.x + node.width + NODE_CLEARANCE
+          && sample.y > node.y - NODE_CLEARANCE && sample.y < node.y + node.height + NODE_CLEARANCE);
+      }
+      if (expected) hits++;
+      expect(curveHitsNode(curve, grid, ignored)).toBe(expected);
+    }
+    expect(hits).toBeGreaterThan(100);
+    expect(hits).toBeLessThan(1500);
   });
 });
 

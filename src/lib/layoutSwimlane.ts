@@ -27,17 +27,37 @@ const LANE_GAP = 20;
 const BACKWARD_BOW = 40;
 const FIRST_CENTER = MARGIN + LANE_LABEL_WIDTH + COLUMN_PITCH / 2;
 const NO_EVENT_ARM = '(no event)';
+/** An event column holds at most this many stacked nodes; more flow into side-by-side sub-columns, so a big project
+ * stays a sensible height. */
+export const MAX_COLUMN_ROWS = 25;
 
 interface ColumnPlan {
   id: string;
   event?: EventDef;
   nodes: ViewNode[];
+  /** Centre of the whole column region (all its sub-columns). */
   centerX: number;
+  /** Number of side-by-side sub-columns, each COLUMN_PITCH wide; the region is `subColumns * COLUMN_PITCH` wide. */
+  subColumns: number;
+  /** Stacked nodes per sub-column (the last may hold fewer). */
+  rowsPerSubColumn: number;
   /** Top-left y of each node, relative to the lane's top, by node id. */
   topById: Map<string, number>;
-  /** Height of the stacked nodes, including cluster padding. */
+  /** Index of the sub-column each node sits in, by node id. */
+  subColumnById: Map<string, number>;
+  /** Height of the tallest sub-column's stacked nodes, including cluster padding. */
   contentHeight: number;
 }
+
+const newColumnPlan = (id: string, nodes: ViewNode[], event?: EventDef): ColumnPlan => {
+  const subColumns = Math.max(1, Math.ceil(nodes.length / MAX_COLUMN_ROWS));
+  return {
+    id, event, nodes, centerX: 0, subColumns, rowsPerSubColumn: Math.max(1, Math.ceil(nodes.length / subColumns)),
+    topById: new Map(), subColumnById: new Map(), contentHeight: 0,
+  };
+};
+
+const columnWidth = (column: ColumnPlan): number => column.subColumns * COLUMN_PITCH;
 
 interface LanePlan {
   id: string;
@@ -87,7 +107,10 @@ export const wrapLabel = (text: string, maxCharacters: number, maxLines: number 
 
 const stackHeight = (count: number): number => (count === 0 ? 0 : count * NODE_HEIGHT + (count - 1) * NODE_GAP);
 
-/** Assigns each drawn event column a centre x: scaled by day when every event has one, else by order; then enforces the pitch. */
+/** Assigns each drawn event column a centre x: scaled by day when every event has one, else by order; then keeps columns apart.
+ * A column is `columnWidth` wide (one pitch per sub-column) and centred on its desired x, but never starts left of the first
+ * column's left edge and never overlaps what precedes it: it is pushed right until its left edge clears the right edge of the
+ * previous column, or, when columns share an x (equal days in different arms), of the widest column in that shared group. */
 const placeColumns = (columns: ColumnPlan[]): void => {
   const timed = columns.length > 0 && columns.every((column) => column.event?.dayOffset !== undefined);
   if (timed) {
@@ -98,9 +121,13 @@ const placeColumns = (columns: ColumnPlan[]): void => {
   const firstDay = timed ? (columns[0].event!.dayOffset as number) : 0;
   const lastDay = timed ? (columns[columns.length - 1].event!.dayOffset as number) : 0;
   const pixelsPerDay = lastDay > firstDay ? Math.min(PIXELS_PER_DAY, MAX_DAY_SPAN_PIXELS / (lastDay - firstDay)) : PIXELS_PER_DAY;
+  const firstLeft = firstCenter - COLUMN_PITCH / 2;
   let previous: ColumnPlan | undefined;
   let sharedArms = new Set<string>();
+  // right edge of the group of columns sharing the previous x
+  let groupRight = firstLeft;
   columns.forEach((column, index) => {
+    const halfWidth = columnWidth(column) / 2;
     const desired = timed
       ? firstCenter + ((column.event!.dayOffset as number) - firstDay) * pixelsPerDay
       : firstCenter + index * COLUMN_PITCH;
@@ -110,9 +137,11 @@ const placeColumns = (columns: ColumnPlan[]): void => {
       // Equal days in different arms may share an x: their lanes keep them apart.
       column.centerX = previous.centerX;
       sharedArms.add(arm);
+      groupRight = Math.max(groupRight, column.centerX + halfWidth);
     } else {
-      column.centerX = previous ? Math.max(desired, previous.centerX + COLUMN_PITCH) : desired;
+      column.centerX = Math.max(desired, firstLeft + halfWidth, previous ? groupRight + halfWidth : 0);
       sharedArms = new Set([arm]);
+      groupRight = column.centerX + halfWidth;
     }
     previous = column;
   });
@@ -137,46 +166,65 @@ const orderLane = (
   const placedTop = new Map<string, number>();
   lane.columns.forEach((column) => {
     const initial = initialOrder(column, viewOrder);
+    // a wrapped column is that many times shorter, so an unconnected node's slot is scaled to its row
     const keyed = initial.map((node, slot) => {
       const tops = (neighbours.get(node.id) ?? []).filter((id) => placedTop.has(id)).map((id) => placedTop.get(id) as number);
-      const barycentre = tops.length ? tops.reduce((sum, top) => sum + top, 0) / tops.length : slot * (NODE_HEIGHT + NODE_GAP);
+      const barycentre = tops.length ? tops.reduce((sum, top) => sum + top, 0) / tops.length : (slot / column.subColumns) * (NODE_HEIGHT + NODE_GAP);
       return { node, slot, barycentre };
+    });
+    const clusterSizes = new Map<string, number>();
+    initial.forEach((node) => {
+      const cluster = clusterOf.get(node.id);
+      if (cluster) clusterSizes.set(cluster, (clusterSizes.get(cluster) ?? 0) + 1);
     });
     const clusterMeans = new Map<string, number>();
     keyed.forEach(({ node, barycentre }) => {
       const cluster = clusterOf.get(node.id);
-      if (cluster) clusterMeans.set(cluster, (clusterMeans.get(cluster) ?? 0) + barycentre / initial.filter((other) => clusterOf.get(other.id) === cluster).length);
+      if (cluster) clusterMeans.set(cluster, (clusterMeans.get(cluster) ?? 0) + barycentre / (clusterSizes.get(cluster) as number));
     });
     const sortKey = (entry: { node: ViewNode; barycentre: number }): number => {
       const cluster = clusterOf.get(entry.node.id);
       return cluster ? (clusterMeans.get(cluster) as number) : entry.barycentre;
     };
     keyed.sort((first, second) => sortKey(first) - sortKey(second) || first.slot - second.slot);
+    // Fill column-major: the sorted nodes run down the first sub-column, then the next, so a form's fields stay contiguous.
+    // Each sub-column starts again at the header, and a form box cut by a boundary is closed and reopened (CLUSTER_TOP again).
     let top = headerHeight;
     let previousCluster: string | undefined;
+    let tallest = 0;
     keyed.forEach(({ node }, position) => {
+      const subColumn = Math.floor(position / column.rowsPerSubColumn);
+      const startsSubColumn = position % column.rowsPerSubColumn === 0;
+      if (startsSubColumn && position > 0) {
+        tallest = Math.max(tallest, top - headerHeight + (previousCluster ? CLUSTER_BOTTOM : 0));
+        top = headerHeight;
+        previousCluster = undefined;
+      }
       const cluster = clusterOf.get(node.id);
-      if (position > 0) top += NODE_GAP;
+      if (!startsSubColumn) top += NODE_GAP;
       if (previousCluster && previousCluster !== cluster) top += CLUSTER_BOTTOM;
       if (cluster && cluster !== previousCluster) top += CLUSTER_TOP;
       column.topById.set(node.id, top);
+      column.subColumnById.set(node.id, subColumn);
       placedTop.set(node.id, top);
       top += NODE_HEIGHT;
       previousCluster = cluster;
     });
-    column.contentHeight = keyed.length ? top - headerHeight + (previousCluster ? CLUSTER_BOTTOM : 0) : 0;
+    column.contentHeight = keyed.length ? Math.max(tallest, top - headerHeight + (previousCluster ? CLUSTER_BOTTOM : 0)) : 0;
   });
 };
 
-type Curve = [Point, Point, Point, Point];
+export type Curve = [Point, Point, Point, Point];
 /** Vertical shifts tried, in order, for a left-to-right or backward edge until one clears every other node. */
 const ROUTE_OFFSETS = [0, -40, 40, -80, 80, -120, 120];
 /** Horizontal bows tried, in order, for a same-column edge that cannot run straight. */
-const SIDE_BOWS = [70, -70, 110, -110, 160, -160];
-const NODE_CLEARANCE = 4;
+const SIDE_BOWS = [70, -70, 24, -24, 110, -110, 160, -160];
+export const NODE_CLEARANCE = 4;
 const RECIPROCAL_NUDGE = 8;
+const CURVE_SAMPLES = 32;
+const GRID_CELL = NODE_WIDTH;
 
-const curvePoint = (curve: Curve, t: number): Point => {
+export const curvePoint = (curve: Curve, t: number): Point => {
   const u = 1 - t;
   const weights = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t];
   return {
@@ -185,12 +233,38 @@ const curvePoint = (curve: Curve, t: number): Point => {
   };
 };
 
-/** Whether the curve passes through any node other than the ignored ones (its own endpoints). */
-const curveHitsNode = (curve: Curve, nodes: LayoutNode[], ignored: Set<string>): boolean => {
-  const steps = 32;
-  for (let step = 1; step < steps; step++) {
-    const point = curvePoint(curve, step / steps);
-    const hit = nodes.some((node) => !ignored.has(node.id)
+/** Uniform grid of node boxes (each node listed in every cell its clearance-inflated box touches), so a point query looks at
+ * a handful of nodes instead of all of them. */
+export type NodeGrid = Map<string, LayoutNode[]>;
+
+const cellKey = (column: number, row: number): string => `${column},${row}`;
+
+export const buildNodeGrid = (nodes: LayoutNode[]): NodeGrid => {
+  const grid: NodeGrid = new Map();
+  nodes.forEach((node) => {
+    const firstColumn = Math.floor((node.x - NODE_CLEARANCE) / GRID_CELL);
+    const lastColumn = Math.floor((node.x + node.width + NODE_CLEARANCE) / GRID_CELL);
+    const firstRow = Math.floor((node.y - NODE_CLEARANCE) / GRID_CELL);
+    const lastRow = Math.floor((node.y + node.height + NODE_CLEARANCE) / GRID_CELL);
+    for (let column = firstColumn; column <= lastColumn; column++) {
+      for (let row = firstRow; row <= lastRow; row++) {
+        const key = cellKey(column, row);
+        const cell = grid.get(key);
+        if (cell) cell.push(node); else grid.set(key, [node]);
+      }
+    }
+  });
+  return grid;
+};
+
+/** Whether the curve passes through any node other than the ignored ones (its own endpoints): samples the curve and checks
+ * only the nodes in the grid cell of each sample. Same result as testing every node. */
+export const curveHitsNode = (curve: Curve, grid: NodeGrid, ignored: Set<string>): boolean => {
+  for (let step = 1; step < CURVE_SAMPLES; step++) {
+    const point = curvePoint(curve, step / CURVE_SAMPLES);
+    const cell = grid.get(cellKey(Math.floor(point.x / GRID_CELL), Math.floor(point.y / GRID_CELL)));
+    if (!cell) continue;
+    const hit = cell.some((node) => !ignored.has(node.id)
       && point.x > node.x - NODE_CLEARANCE && point.x < node.x + node.width + NODE_CLEARANCE
       && point.y > node.y - NODE_CLEARANCE && point.y < node.y + node.height + NODE_CLEARANCE);
     if (hit) return true;
@@ -205,13 +279,13 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   // Group the nodes by event; unknown or missing events go to the "(no event)" bucket.
   const nodesByEvent = new Map<string, ViewNode[]>();
   const unplaced: ViewNode[] = [];
-  // at field level a variable has no event of its own: it sits in the first event whose schedule includes its form
+  // without instances a field or a form has no event of its own: it sits in the first event whose schedule includes its form
   const firstEventOfForm = new Map<string, EventDef>();
   events.forEach((event) => event.forms.forEach((formId) => { if (!firstEventOfForm.has(formId)) firstEventOfForm.set(formId, event); }));
   const homeEvent = (node: ViewNode): EventDef | undefined => {
     if (node.event != null) return eventById.get(node.event); // a form instance
     if (view.level === 'event') return eventById.get(node.id); // a collapsed event is itself a node, whose id is the event's
-    if (view.level === 'field' && node.form) return firstEventOfForm.get(node.form);
+    if ((view.level === 'field' || view.level === 'form') && node.form) return firstEventOfForm.get(node.form);
     return undefined;
   };
   view.nodes.forEach((node) => {
@@ -226,7 +300,7 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   events.forEach((event) => {
     const nodes = nodesByEvent.get(event.id);
     if (nodes && !columns.some((column) => column.event === event)) {
-      columns.push({ id: `column:${event.id}`, event, nodes, centerX: 0, topById: new Map(), contentHeight: 0 });
+      columns.push(newColumnPlan(`column:${event.id}`, nodes, event));
     }
   });
   placeColumns(columns);
@@ -244,7 +318,9 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
     lane.columns.push(column);
   });
   if (unplaced.length) {
-    const column: ColumnPlan = { id: `column:${NO_EVENT_ARM}`, nodes: unplaced, centerX: FIRST_CENTER, topById: new Map(), contentHeight: 0 };
+    const column = newColumnPlan(`column:${NO_EVENT_ARM}`, unplaced);
+    // left-aligned with the first event column
+    column.centerX = FIRST_CENTER - COLUMN_PITCH / 2 + columnWidth(column) / 2;
     lanes.push({ id: `lane:${NO_EVENT_ARM}`, label: NO_EVENT_ARM, columns: [column], y: 0, height: 0 });
   }
 
@@ -287,8 +363,8 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   const nodes: LayoutNode[] = [];
   const nodeColumn = new Map<string, ColumnPlan>();
   const nodeById = new Map<string, LayoutNode>();
-  const maxCenterX = Math.max(FIRST_CENTER, ...lanes.flatMap((lane) => lane.columns.map((column) => column.centerX)));
-  const width = maxCenterX + COLUMN_PITCH / 2 + MARGIN;
+  const maxRight = Math.max(FIRST_CENTER + COLUMN_PITCH / 2, ...lanes.flatMap((lane) => lane.columns.map((column) => column.centerX + columnWidth(column) / 2)));
+  const width = maxRight + MARGIN;
   const height = Math.max(cursorY - LANE_GAP, MARGIN) + MARGIN;
   const regions: LayoutRegion[] = [];
   lanes.forEach((lane) => {
@@ -297,7 +373,7 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
       const event = column.event;
       const region: LayoutRegion = {
         id: column.id, kind: 'column', label: event ? event.label : NO_EVENT_ARM, labelLines: columnLines.get(column.id),
-        x: column.centerX - COLUMN_PITCH / 2, y: lane.y, width: COLUMN_PITCH, height: lane.height,
+        x: column.centerX - columnWidth(column) / 2, y: lane.y, width: columnWidth(column), height: lane.height,
       };
       const sublabel = event ? formatSublabel(event) : undefined;
       if (sublabel !== undefined) region.sublabel = sublabel;
@@ -310,8 +386,10 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
         .slice()
         .sort((first, second) => (column.topById.get(first.id) as number) - (column.topById.get(second.id) as number))
         .forEach((node) => {
+          const subColumn = column.subColumnById.get(node.id) as number;
           const placed: LayoutNode = {
-            id: node.id, x: column.centerX - NODE_WIDTH / 2, y: lane.y + (column.topById.get(node.id) as number),
+            id: node.id, x: column.centerX - columnWidth(column) / 2 + (COLUMN_PITCH - NODE_WIDTH) / 2 + subColumn * COLUMN_PITCH,
+            y: lane.y + (column.topById.get(node.id) as number),
             width: NODE_WIDTH, height: NODE_HEIGHT,
           };
           nodes.push(placed);
@@ -323,21 +401,23 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
 
   clusterGroups.forEach((group) => {
     const members = group.nodes.map((id) => nodeById.get(id)).filter((member): member is LayoutNode => member !== undefined);
-    // one box per column the group's nodes landed in
-    const membersByColumn = new Map<ColumnPlan, LayoutNode[]>();
+    // one box per sub-column (of each column) the group's nodes landed in
+    const membersByColumn = new Map<string, { column: ColumnPlan; subColumn: number; members: LayoutNode[] }>();
     members.forEach((member) => {
       const column = nodeColumn.get(member.id) as ColumnPlan;
-      const list = membersByColumn.get(column);
-      if (list) list.push(member); else membersByColumn.set(column, [member]);
+      const subColumn = column.subColumnById.get(member.id) as number;
+      const key = `${column.id}\u0000${subColumn}`;
+      const entry = membersByColumn.get(key);
+      if (entry) entry.members.push(member); else membersByColumn.set(key, { column, subColumn, members: [member] });
     });
     const boxCount = membersByColumn.size;
-    membersByColumn.forEach((columnMembers, column) => {
+    membersByColumn.forEach(({ column, subColumn, members: columnMembers }) => {
       const left = Math.min(...columnMembers.map((member) => member.x)) - CLUSTER_SIDE;
       const top = Math.min(...columnMembers.map((member) => member.y)) - CLUSTER_TOP;
       const right = Math.max(...columnMembers.map((member) => member.x + member.width)) + CLUSTER_SIDE;
       const bottom = Math.max(...columnMembers.map((member) => member.y + member.height)) + CLUSTER_BOTTOM;
       regions.push({
-        id: boxCount > 1 ? `cluster:${group.id}:${column.id}` : `cluster:${group.id}`, kind: 'cluster', groupIndex: view.groups.indexOf(group),
+        id: boxCount > 1 ? `cluster:${group.id}:${column.id}${column.subColumns > 1 ? `:${subColumn}` : ''}` : `cluster:${group.id}`, kind: 'cluster', groupIndex: view.groups.indexOf(group),
         label: group.label, labelLines: wrapLabel(group.label, CLUSTER_LABEL_CHARACTERS, 1), x: left, y: top, width: right - left, height: bottom - top,
       });
     });
@@ -345,17 +425,20 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
 
   const edges: LayoutEdge[] = [];
   const edgeKeys = new Set(view.edges.map((edge) => `${edge.from}\u0000${edge.to}`));
+  const grid = buildNodeGrid(nodes);
   view.edges.forEach((edge: ViewEdge) => {
     const source = nodeById.get(edge.from);
     const target = nodeById.get(edge.to);
     if (!source || !target) return;
-    const sourceX = nodeColumn.get(edge.from)!.centerX;
-    const targetX = nodeColumn.get(edge.to)!.centerX;
-    const backward = targetX < sourceX;
+    // "backward" is about time (an earlier event), the route's direction is about where the two boxes are: side by side
+    // (including neighbouring sub-columns of one column), or overlapping in x, which runs vertically.
+    const backward = nodeColumn.get(edge.to)!.centerX < nodeColumn.get(edge.from)!.centerX;
+    const leftward = target.x + target.width <= source.x;
+    const rightward = target.x >= source.x + source.width;
     const middleY = (node: LayoutNode): number => node.y + node.height / 2;
     const ignored = new Set([edge.from, edge.to]);
     const candidates: Curve[] = [];
-    if (backward) {
+    if (leftward) {
       const start = { x: source.x, y: middleY(source) };
       const end = { x: target.x + target.width, y: middleY(target) };
       const reach = Math.abs(start.x - end.x) / 2;
@@ -363,7 +446,7 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
         const bowY = Math.max(start.y, end.y) + BACKWARD_BOW + Math.abs(offset);
         candidates.push([start, { x: start.x - reach, y: bowY }, { x: end.x + reach, y: bowY }, end]);
       });
-    } else if (targetX > sourceX) {
+    } else if (rightward) {
       const start = { x: source.x + source.width, y: middleY(source) };
       const end = { x: target.x, y: middleY(target) };
       const reach = (end.x - start.x) / 2;
@@ -387,7 +470,7 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
         candidates.push([sideStart, { x: sideStart.x + bow, y: sideStart.y }, { x: sideEnd.x + bow, y: sideEnd.y }, sideEnd]);
       });
     }
-    const curve = candidates.find((candidate) => !curveHitsNode(candidate, nodes, ignored)) ?? candidates[0];
+    const curve = candidates.find((candidate) => !curveHitsNode(candidate, grid, ignored)) ?? candidates[0];
     edges.push({ from: edge.from, to: edge.to, curve, backward });
   });
 

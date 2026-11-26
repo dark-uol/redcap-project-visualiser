@@ -325,12 +325,12 @@ describe('browser history', () => {
 });
 
 describe('effectiveRenderer', () => {
-  it('uses swimlane for a longitudinal project at field or event level, or form level with instances, else ELK', () => {
+  it('uses swimlane for a longitudinal project at every level, with or without instances, else ELK', () => {
     settle(() => store.presentation.setRenderer('swimlane'));
     settle(() => store.selection.setLevel('field'));
     expect(store.effectiveRenderer()).toBe('swimlane');
     settle(() => store.selection.setLevel('form'));
-    expect(store.effectiveRenderer()).toBe('elk'); // form instances are off
+    expect(store.effectiveRenderer()).toBe('swimlane'); // form instances are off: forms sit in their home event column
     settle(() => store.setInstances(true));
     expect(store.effectiveRenderer()).toBe('swimlane');
     settle(() => store.selection.setLevel('event'));
@@ -344,6 +344,22 @@ describe('effectiveRenderer', () => {
 });
 
 describe('switching renderer', () => {
+  it('to swimlane at Level form with Instances off leaves Instances, the view and the exploration alone', () => {
+    settle(() => store.selection.setLevel('form'));
+    expect(store.instances()).toBe(false);
+    const node = store.view()!.nodes[0]!.id;
+    settle(() => store.expandRef(node, 'up'));
+    const before = { nodeIds: store.view()!.nodes.map((n) => n.id), exploration: JSON.stringify(store.currentExploration()), explore: JSON.stringify(store.explore()) };
+    settle(() => store.presentation.setRenderer('swimlane'));
+    expect(store.effectiveRenderer()).toBe('swimlane');
+    expect(store.instances()).toBe(false);
+    expect(store.view()!.nodes.map((n) => n.id)).toEqual(before.nodeIds);
+    expect(JSON.stringify(store.currentExploration())).toBe(before.exploration);
+    expect(JSON.stringify(store.explore())).toBe(before.explore);
+    settle(() => store.presentation.setRenderer('graphviz'));
+    expect(store.instances()).toBe(false);
+  });
+
   it('never changes the view, the selection or the exploration, only how the view is drawn', () => {
     settle(() => { store.selection.setLevel('form'); store.setInstances(true); });
     const nodeIds = store.view()!.nodes.map((n) => n.id);

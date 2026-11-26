@@ -135,7 +135,7 @@ describe('ViewSectionView options that do not apply', () => {
     expect(renderView({ level: 'event' }).container.textContent).not.toContain('Group fields by');
   });
 
-  it('offers the swimlane renderer only with events at form or event level', () => {
+  it('offers the swimlane renderer only with events, at every level', () => {
     const swimlaneOffered = (overrides: Partial<ViewSectionViewProps>) => {
       const { selectIn } = renderView(overrides);
       return Array.from(selectIn('Renderer').options).some((option) => option.value === 'swimlane');
