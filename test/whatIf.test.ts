@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildModel } from '../src/lib/graph';
 import type { Field, Form, FormLogicRule, ParsedODM } from '../src/lib/types';
-import { ANY_EVENT, controllersOf, dependentsOf, explainLogic, smartKey, evaluateVisibility, eventForField, eventsForField, eventsToEvaluate, parseActionTags, splitTopLevel } from '../src/lib/whatIf';
+import { ANY_EVENT, controllersOf, dependentsOf, explainLogic, smartKey, valueIsIgnored, evaluateVisibility, eventForField, eventsForField, eventsToEvaluate, parseActionTags, splitTopLevel } from '../src/lib/whatIf';
 import type { WhatIfContext, WhatIfValue } from '../src/lib/whatIf';
 
 const field = (variable: string, form: string, over: Partial<Field> = {}): Field => ({
@@ -418,5 +418,37 @@ describe('explainLogic', () => {
       { joiner: '', text: "[a] = ''", result: true },
       { joiner: 'and', text: "[b] = '1'", result: undefined },
     ]);
+  });
+});
+
+describe('valueIsIgnored', () => {
+  const fields = [
+    field('gate', 'f1'),
+    field('by_branching', 'f1', { branching: '[gate] = 1' }),
+    field('by_tag', 'f1', { annotation: '@HIDDEN' }),
+    field('by_form', 'f2'),
+    field('visible', 'f1'),
+  ];
+  const parsed = parsedWith(fields, [{ logic: '[gate] = 1', forms: ['f2'] }], ['f1', 'f2']);
+  const ignoredIn = (values: Record<string, WhatIfValue>, variable: string): boolean =>
+    valueIsIgnored(evaluateVisibility(buildModel(parsed), context(values)).get(variable));
+
+  it('is true when branching logic or form display logic hides the field, so it reads as blank', () => {
+    expect(ignoredIn({ gate: '0' }, 'by_branching')).toBe(true);
+    expect(ignoredIn({ gate: '0' }, 'by_form')).toBe(true);
+  });
+
+  it('is false for action-tag hiding, which keeps the value, and for shown or undecided fields', () => {
+    expect(ignoredIn({ gate: '1' }, 'by_tag')).toBe(false);
+    expect(ignoredIn({ gate: '1' }, 'by_branching')).toBe(false);
+    expect(ignoredIn({}, 'by_branching')).toBe(false);
+    expect(ignoredIn({}, 'visible')).toBe(false);
+    expect(valueIsIgnored(undefined)).toBe(false);
+  });
+
+  it('is true for a field whose form is not used in the chosen event', () => {
+    const withEvent: ParsedODM = { ...parsed, events: [{ id: 'e1', label: 'E1', arm: '1', armName: 'Arm 1', repeating: false, forms: ['f1'] }] };
+    const results = evaluateVisibility(buildModel(withEvent), context({ gate: '1' }, { event: 'e1' }));
+    expect(valueIsIgnored(results.get('by_form'))).toBe(true);
   });
 });

@@ -1,12 +1,13 @@
 /* What if tab: one editable table of the values set (fields and smart variables, each with the event its value is for), then the explored field's state, what decides whether it is shown and what it affects. */
 import { Show, createMemo, createSignal } from 'solid-js';
 import type { Accessor } from 'solid-js';
-import { controllersOf, dependentsOf, eventForField, eventsForField, eventsToEvaluate, isSmartKey } from '../lib/whatIf';
+import { ANY_EVENT, controllersOf, dependentsOf, eventForField, eventsForField, eventsToEvaluate, isSmartKey, valueIsIgnored } from '../lib/whatIf';
 import type { MissingInput, Visibility, VisibilityInfo } from '../lib/whatIf';
 import type { Field, Model, WhatIfEngine } from '../lib/types';
 import { computeVisibilityLogic, chooserMatches, displayRows, nextExploredRow, rowKeyOf, smartVariableNames } from '../lib/whatIfRows';
 import type { ChooserMatch, TableRow } from '../lib/whatIfRows';
 import { need, model, selection, whatIf, visibilityIn, formLabel } from '../store';
+import { IgnoredValueHintView } from './whatIfViews';
 import { LogicText, SmartValueInput, StateBadge, ValueInput, editField, eventLabel, missingText } from './whatIfParts';
 import { FieldEditorView, ValuesTableView, VisibilityTableView } from './WhatIfTabViews';
 import type { ValuesRow, VisibilityRow } from './WhatIfTabViews';
@@ -117,8 +118,12 @@ function ValuesTable() {
       <Show when={fieldFor(row().variable)} keyed>{(defined) => <ValueInput field={defined} event={row().event} compact />}</Show>
     </Show>
   );
+  const hasValueInRow = (row: ValuesRow): boolean => whatIf.values()[row.event ?? ANY_EVENT]?.[row.variable] !== undefined;
   const renderState = (row: Accessor<ValuesRow>) => (
-    <Show when={!row().isSmart && row().explorable}><StateBadge info={visibilityIn(row().event, true)?.get(row().variable)} /></Show>
+    <Show when={!row().isSmart && row().explorable}>
+      <StateBadge info={visibilityIn(row().event, true)?.get(row().variable)} />
+      <Show when={hasValueInRow(row()) && valueIsIgnored(visibilityIn(row().event, true)?.get(row().variable))}><IgnoredValueHintView /></Show>
+    </Show>
   );
   return (
     <ValuesTableView

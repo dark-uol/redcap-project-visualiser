@@ -34,6 +34,14 @@ export interface VisibilityInfo {
 
 const MAX_ROUNDS = 50;
 
+/** The reasons that make a hidden field read as blank in other logic (a hidden form, branching logic that is false). Action-tag hiding is not one: it keeps the value. */
+const BLANKING_REASONS: ReadonlySet<string> = new Set(['branching logic false', 'form hidden by form display logic', 'form not used in this event']);
+
+/** True when the field is hidden in a way that makes it read as blank, so a value set for it is not used by any other logic. */
+export function valueIsIgnored(info: VisibilityInfo | undefined): boolean {
+  return info !== undefined && info.state === 'hidden' && info.reasons.some((reason) => BLANKING_REASONS.has(reason));
+}
+
 // ---------- action tags ----------
 
 /** A parsed action-tag item: a plain tag name, or an `@IF(condition, then, else)` with the raw branch texts. */

@@ -119,6 +119,7 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 .wi-state{border:1px solid var(--line);border-radius:10px;padding:0 6px}
 .wi-state.shown{background:rgba(22,163,74,.15);border-color:#16a34a;color:#15803d}
 .wi-state.hidden{color:var(--muted);text-decoration:line-through}
+.wi-ignored{margin-left:6px}
 .wi-state.unknown{background:transparent;border-color:#d97706;color:#b45309}
 @media (prefers-color-scheme:dark){.wi-state.shown{color:#4ade80}.wi-state.unknown{color:#fbbf24}}
 .wi-part{border-radius:3px;padding:0 2px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
