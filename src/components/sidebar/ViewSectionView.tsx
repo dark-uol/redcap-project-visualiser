@@ -30,10 +30,10 @@ export type ViewSectionViewProps = {
 /** Presentational: the view options (level, renderer, layout, labels, grouping and which nodes are included). Owns only the hint's open/closed state. */
 export function ViewSectionView(props: ViewSectionViewProps) {
   const help = createHint();
-  /** The swimlane spike needs events and a form or event level. It stays listed when it is already the current renderer, so the select never shows blank. */
+  /** The swimlane spike needs events. It stays listed when it is already the current renderer, so the select never shows blank. */
   const rendererOptions = (): [Renderer, string][] => {
     const options: [Renderer, string][] = [['graphviz', 'Graphviz'], ['mermaid', 'Mermaid'], ['elk', 'ELK (spike)']];
-    if ((props.hasEvents && props.level !== 'field') || props.renderer === 'swimlane') options.push(['swimlane', 'Swimlane (spike)']);
+    if (props.hasEvents || props.renderer === 'swimlane') options.push(['swimlane', 'Swimlane (spike)']);
     return options;
   };
   return (

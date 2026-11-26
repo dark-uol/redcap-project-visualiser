@@ -325,10 +325,10 @@ describe('browser history', () => {
 });
 
 describe('effectiveRenderer', () => {
-  it('uses swimlane only for a longitudinal project at form or event level, else Graphviz', () => {
+  it('uses swimlane for a longitudinal project at field or event level, or form level with instances, else ELK', () => {
     settle(() => store.presentation.setRenderer('swimlane'));
     settle(() => store.selection.setLevel('field'));
-    expect(store.effectiveRenderer()).toBe('elk');
+    expect(store.effectiveRenderer()).toBe('swimlane');
     settle(() => store.selection.setLevel('form'));
     expect(store.effectiveRenderer()).toBe('elk'); // form instances are off
     settle(() => store.setInstances(true));

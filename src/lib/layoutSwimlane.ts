@@ -205,9 +205,17 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   // Group the nodes by event; unknown or missing events go to the "(no event)" bucket.
   const nodesByEvent = new Map<string, ViewNode[]>();
   const unplaced: ViewNode[] = [];
+  // at field level a variable has no event of its own: it sits in the first event whose schedule includes its form
+  const firstEventOfForm = new Map<string, EventDef>();
+  events.forEach((event) => event.forms.forEach((formId) => { if (!firstEventOfForm.has(formId)) firstEventOfForm.set(formId, event); }));
+  const homeEvent = (node: ViewNode): EventDef | undefined => {
+    if (node.event != null) return eventById.get(node.event); // a form instance
+    if (view.level === 'event') return eventById.get(node.id); // a collapsed event is itself a node, whose id is the event's
+    if (view.level === 'field' && node.form) return firstEventOfForm.get(node.form);
+    return undefined;
+  };
   view.nodes.forEach((node) => {
-    // at event level a collapsed event is itself a node, whose id is the event's
-    const event = eventById.get(node.event ?? (view.level === 'event' ? node.id : ''));
+    const event = homeEvent(node);
     if (!event) { unplaced.push(node); return; }
     const bucket = nodesByEvent.get(event.id);
     if (bucket) bucket.push(node); else nodesByEvent.set(event.id, [node]);
@@ -248,9 +256,12 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   };
   view.edges.forEach((edge) => { link(edge.from, edge.to); link(edge.to, edge.from); });
 
-  // Zoomed-in forms: the group named after the expanded form instance holds its field nodes.
+  // Boxes: at field level the selectable groups (forms; event and arm groups are the columns and lanes already); otherwise
+  // the group named after an expanded form instance holds its field nodes.
   const clusterOf = new Map<string, string>();
-  const clusterGroups = view.groups.filter((group) => (view.expandedNodes ?? []).some((expanded) => expanded.id === group.id));
+  const clusterGroups = view.level === 'field'
+    ? view.groups.filter((group) => !group.noSelect)
+    : view.groups.filter((group) => (view.expandedNodes ?? []).some((expanded) => expanded.id === group.id));
   clusterGroups.forEach((group) => group.nodes.forEach((id) => clusterOf.set(id, group.id)));
 
   // Header: tall enough for the longest wrapped event name, plus the day line when any column has one.
@@ -312,12 +323,24 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
 
   clusterGroups.forEach((group) => {
     const members = group.nodes.map((id) => nodeById.get(id)).filter((member): member is LayoutNode => member !== undefined);
-    if (!members.length) return;
-    const left = Math.min(...members.map((member) => member.x)) - CLUSTER_SIDE;
-    const top = Math.min(...members.map((member) => member.y)) - CLUSTER_TOP;
-    const right = Math.max(...members.map((member) => member.x + member.width)) + CLUSTER_SIDE;
-    const bottom = Math.max(...members.map((member) => member.y + member.height)) + CLUSTER_BOTTOM;
-    regions.push({ id: `cluster:${group.id}`, kind: 'cluster', groupIndex: view.groups.indexOf(group), label: group.label, labelLines: wrapLabel(group.label, CLUSTER_LABEL_CHARACTERS, 1), x: left, y: top, width: right - left, height: bottom - top });
+    // one box per column the group's nodes landed in
+    const membersByColumn = new Map<ColumnPlan, LayoutNode[]>();
+    members.forEach((member) => {
+      const column = nodeColumn.get(member.id) as ColumnPlan;
+      const list = membersByColumn.get(column);
+      if (list) list.push(member); else membersByColumn.set(column, [member]);
+    });
+    const boxCount = membersByColumn.size;
+    membersByColumn.forEach((columnMembers, column) => {
+      const left = Math.min(...columnMembers.map((member) => member.x)) - CLUSTER_SIDE;
+      const top = Math.min(...columnMembers.map((member) => member.y)) - CLUSTER_TOP;
+      const right = Math.max(...columnMembers.map((member) => member.x + member.width)) + CLUSTER_SIDE;
+      const bottom = Math.max(...columnMembers.map((member) => member.y + member.height)) + CLUSTER_BOTTOM;
+      regions.push({
+        id: boxCount > 1 ? `cluster:${group.id}:${column.id}` : `cluster:${group.id}`, kind: 'cluster', groupIndex: view.groups.indexOf(group),
+        label: group.label, labelLines: wrapLabel(group.label, CLUSTER_LABEL_CHARACTERS, 1), x: left, y: top, width: right - left, height: bottom - top,
+      });
+    });
   });
 
   const edges: LayoutEdge[] = [];

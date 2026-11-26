@@ -23,14 +23,14 @@ export function createDerived(state: State) {
     return loadedModel ? loadedModel.parsed.forms.map((f) => f.id) : [];
   });
   /**
-   * The renderer actually used. Swimlane needs a longitudinal project showing events or form instances; where it does not
-   * apply, ELK stands in. Switching renderer never changes the view itself, only how it is laid out.
+   * The renderer actually used. Swimlane needs a longitudinal project: it shows events, form instances, or fields in the
+   * column of their form's first event. Without events ELK stands in. Switching renderer never changes the view itself,
+   * only how it is laid out.
    */
   const effectiveRenderer = (): Renderer => {
     const loadedModel = model();
     const hasEvents = !!loadedModel && (loadedModel.parsed.events || []).length > 0;
-    const swimlaneApplies = hasEvents && (level() === 'event' || (level() === 'form' && instances()));
-    // ELK stands in: it lays out any view, with boxes for groups, so field level keeps every feature
+    const swimlaneApplies = hasEvents && (level() === 'event' || level() === 'field' || (level() === 'form' && instances()));
     return renderer() === 'swimlane' && !swimlaneApplies ? 'elk' : renderer();
   };
   const instanceMode = (): boolean => {

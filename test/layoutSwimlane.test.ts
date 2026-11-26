@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { layoutSwimlane, wrapLabel } from '../src/lib/layoutSwimlane';
-import type { EventDef, ViewEdge } from '../src/lib/types';
+import { layoutToSvg } from '../src/lib/layoutToSvg';
+import { resolveClick } from '../src/components/hitTest';
+import type { EventDef, View, ViewEdge, ViewOptions } from '../src/lib/types';
 import { makeView, node } from './fixtures';
 
 const eventDef = (id: string, over: Partial<EventDef> = {}): EventDef =>
@@ -125,7 +127,7 @@ describe('layoutSwimlane', () => {
 
   it('puts nodes with a missing or unknown event into one "(no event)" lane with a single column', () => {
     const events = [eventDef('e1')];
-    const view = makeView({ nodes: [node('a', { event: 'e1' }), node('b', { event: null }), node('c'), node('d', { event: 'ghost' })] });
+    const view = makeView({ level: 'form', nodes: [node('a', { event: 'e1' }), node('b', { event: null }), node('c'), node('d', { event: 'ghost' })] });
     const layout = layoutSwimlane(view, events);
     const lanes = layout.regions.filter((region) => region.kind === 'lane');
     expect(lanes.map((lane) => lane.label)).toEqual(['Arm 1: Main', '(no event)']);
@@ -254,6 +256,84 @@ describe('layoutSwimlane clusters', () => {
       expect(member.y + member.height).toBeLessThan(cluster.y + cluster.height);
     }
     expect(other.y >= cluster.y + cluster.height || other.y + other.height <= cluster.y).toBe(true);
+  });
+});
+
+describe('layoutSwimlane at field level', () => {
+  const events = [eventDef('e1', { forms: ['f1', 'f2'] }), eventDef('e2', { forms: ['f2', 'f3'] })];
+  const fieldNode = (id: string, form: string) => node(id, { form, field: id });
+  const fieldView = (groups: View['groups'] = []) => makeView({
+    level: 'field',
+    nodes: [fieldNode('a', 'f1'), fieldNode('b', 'f2'), fieldNode('c', 'f2'), fieldNode('d', 'f3'), fieldNode('lonely', 'f9')],
+    groups,
+  });
+  const columnOf = (layout: ReturnType<typeof layoutSwimlane>, id: string): string => {
+    const placed = findNode(layout, id);
+    const column = layout.regions.find((region) => region.kind === 'column' && placed.x >= region.x && placed.x < region.x + region.width && placed.y >= region.y && placed.y < region.y + region.height)!;
+    return column.label;
+  };
+
+  it('puts each field in the column of the first event that collects its form, once', () => {
+    const layout = layoutSwimlane(fieldView(), events);
+    expect(columnOf(layout, 'a')).toBe('E1');
+    expect(columnOf(layout, 'b')).toBe('E1'); // f2 is in both events: first only
+    expect(columnOf(layout, 'c')).toBe('E1');
+    expect(columnOf(layout, 'd')).toBe('E2');
+    expect(layout.nodes.map((placed) => placed.id).sort()).toEqual(['a', 'b', 'c', 'd', 'lonely']);
+  });
+
+  it('sends a field whose form is in no event to the (no event) lane', () => {
+    const layout = layoutSwimlane(fieldView(), events);
+    expect(columnOf(layout, 'lonely')).toBe('(no event)');
+  });
+
+  it('boxes a form around its contiguous fields with the form group index', () => {
+    const groups = [
+      { id: 'f1', label: 'Form 1', nodes: ['a'] },
+      { id: 'f2', label: 'Form 2', nodes: ['b', 'c'] },
+    ];
+    const layout = layoutSwimlane(fieldView(groups), events);
+    const clusters = layout.regions.filter((region) => region.kind === 'cluster');
+    expect(clusters.map((region) => region.groupIndex)).toEqual([0, 1]);
+    const box = clusters[1];
+    for (const id of ['b', 'c']) {
+      const member = findNode(layout, id);
+      expect(member.y).toBeGreaterThan(box.y);
+      expect(member.y + member.height).toBeLessThan(box.y + box.height);
+    }
+    expect(Math.abs(findNode(layout, 'b').y - findNode(layout, 'c').y)).toBe(28 + 18);
+  });
+
+  it('draws no boxes for event or arm groups, which are the columns and lanes', () => {
+    const groups = [
+      { id: 'event:e1', label: 'E1', nodes: ['a', 'b', 'c'], noSelect: true },
+      { id: 'arm:1', label: 'Arm 1', nodes: ['d'], noSelect: true },
+    ];
+    expect(layoutSwimlane(fieldView(groups), events).regions.filter((region) => region.kind === 'cluster')).toEqual([]);
+  });
+
+  it('draws one box per column when a form lands in several columns', () => {
+    const groups = [{ id: 'mixed', label: 'Mixed', nodes: ['a', 'd'] }];
+    const layout = layoutSwimlane(fieldView(groups), events);
+    const clusters = layout.regions.filter((region) => region.kind === 'cluster');
+    expect(clusters).toHaveLength(2);
+    expect(clusters.every((region) => region.groupIndex === 0)).toBe(true);
+    expect(new Set(clusters.map((region) => region.id)).size).toBe(2);
+  });
+
+  it('resolves a click on a form box to a form selection', () => {
+    const groups = [{ id: 'f2', label: 'Form 2', nodes: ['b', 'c'] }];
+    const view = fieldView(groups);
+    const layout = layoutSwimlane(view, events);
+    const options: ViewOptions = {
+      level: 'field', eventSet: null, types: new Set(), forms: null, formsNone: false, crossOnly: false, instOnly: false,
+      instances: false, expanded: null, expandedEvents: null, explore: null, pair: null, focus: '', focusDir: 'both',
+      focusDepth: 0, showMissing: false, hideIsolated: false, hideIsolatedNodes: false,
+      dir: 'LR', labelMode: 'var', group: true, groupBy: 'form', edgeLabels: false,
+    };
+    const document = new DOMParser().parseFromString(layoutToSvg(layout, view, options), 'image/svg+xml');
+    const cluster = document.querySelector('g.cluster')!;
+    expect(resolveClick(cluster, view, (id) => id === 'f2')).toEqual({ type: 'select', id: '@form:f2' });
   });
 });
 

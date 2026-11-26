@@ -142,7 +142,7 @@ describe('ViewSectionView options that do not apply', () => {
     };
     expect(swimlaneOffered({ level: 'form', hasEvents: true })).toBe(true);
     expect(swimlaneOffered({ level: 'event', hasEvents: true })).toBe(true);
-    expect(swimlaneOffered({ level: 'field', hasEvents: true })).toBe(false);
+    expect(swimlaneOffered({ level: 'field', hasEvents: true })).toBe(true);
     expect(swimlaneOffered({ level: 'form', hasEvents: false })).toBe(false);
     expect(swimlaneOffered({ level: 'field', hasEvents: false })).toBe(false);
   });
