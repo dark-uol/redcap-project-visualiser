@@ -58,7 +58,11 @@ function regionMarkup(region: LayoutRegion): string {
   const label = kind === 'column'
     ? textLines(regionLines(region), region.x + region.width / 2, region.y + 16, 'middle', LABEL_FONT_SIZE, CLUSTER_TEXT)
     : textLines(regionLines(region), region.x + 8, region.y + 16, 'start', LABEL_FONT_SIZE, CLUSTER_TEXT);
-  return `<g class="region ${kind}" data-region-id="${escapeXml(region.id)}">${rect}${label}</g>`;
+  // a column that draws an expanded event is also that event's box: Graphviz-shaped, so it highlights and clicks like one
+  const boxed = kind === 'column' && region.groupIndex !== undefined;
+  const classes = boxed ? 'cluster region column' : `region ${kind}`;
+  const key = boxed ? ` data-key="cluster_${region.groupIndex}"` : '';
+  return `<g class="${classes}"${key} data-region-id="${escapeXml(region.id)}">${rect}${label}</g>`;
 }
 
 function clusterMarkup(region: LayoutRegion): string {

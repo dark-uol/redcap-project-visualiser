@@ -222,6 +222,20 @@ describe('layoutSwimlane', () => {
   });
 });
 
+describe('layoutSwimlane expanded events', () => {
+  it('gives the column of an expanded event the index of its group, and no other column one', () => {
+    const events = [eventDef('e1', { forms: ['f1'] }), eventDef('e2')];
+    const view = makeView({
+      level: 'event',
+      nodes: [node('f1@e1', { event: 'e1', form: 'f1', kind: 'form' }), node('e2', { kind: 'form' })],
+      groups: [{ id: 'e1', label: 'E1', nodes: ['f1@e1'] }],
+    });
+    const columns = layoutSwimlane(view, events).regions.filter((region) => region.kind === 'column');
+    expect(columns.find((column) => column.id === 'column:e1')!.groupIndex).toBe(0);
+    expect(columns.find((column) => column.id === 'column:e2')!.groupIndex).toBeUndefined();
+  });
+});
+
 describe('layoutSwimlane clusters', () => {
   it('boxes the fields of a zoomed-in form and keeps them together', () => {
     const events = [eventDef('e1', { forms: ['f1', 'f2'] })];

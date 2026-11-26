@@ -291,6 +291,9 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
       const sublabel = event ? formatSublabel(event) : undefined;
       if (sublabel !== undefined) region.sublabel = sublabel;
       if (event) region.repeating = event.repeating;
+      // at event level an expanded event is a group named after it: its column is that group's box
+      const eventGroupIndex = event && view.level === 'event' ? view.groups.findIndex((group) => group.id === event.id) : -1;
+      if (eventGroupIndex >= 0) region.groupIndex = eventGroupIndex;
       regions.push(region);
       column.nodes
         .slice()

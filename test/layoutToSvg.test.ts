@@ -65,6 +65,16 @@ describe('layoutToSvg', () => {
     expect(doc.querySelectorAll('g.edge')).toHaveLength(1);
   });
 
+  it('draws a column that has a groupIndex as a keyed cluster, still a column', () => {
+    const regions: LayoutRegion[] = [
+      { id: 'col:e1', kind: 'column', label: 'E1', labelLines: ['E1'], x: 120, y: 0, width: 120, height: 80, groupIndex: 2 },
+    ];
+    const doc = parse(layoutToSvg(layoutOf({ regions }), makeView(), options));
+    const box = doc.querySelector('g.cluster[data-key="cluster_2"]')!;
+    expect(box.classList.contains('column')).toBe(true);
+    expect(box.textContent).toContain('E1');
+  });
+
   it('keys clusters by groupIndex and keeps lanes and columns out of the cluster class', () => {
     const regions: LayoutRegion[] = [
       { id: 'lane:1', kind: 'lane', label: 'Arm 1: Main', x: 0, y: 0, width: 300, height: 80 },

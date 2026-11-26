@@ -31,7 +31,7 @@ export interface LayoutRegion {
   x: number; y: number; width: number; height: number;
   /** Column only: the event repeats, so it is drawn as a stack. */
   repeating?: boolean;
-  /** Cluster only: index of the `View.groups` entry this box draws; lanes and columns have none and are not clickable. */
+  /** Index of the `View.groups` entry this box draws: a cluster's, or an expanded event's column. Lanes and other columns have none and are not clickable. */
   groupIndex?: number;
 }
 

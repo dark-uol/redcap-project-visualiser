@@ -17,8 +17,10 @@ export default function ViewSection() {
   };
   /** The selected node keeps its place on screen across the switch: the stage anchors on it before the new engine draws. */
   const changeRenderer = function changeRenderer(next: Renderer): void {
+    // setInstances snapshots the graph for a filter-style animation (captureAnchor('')), so it goes first: capturing the
+    // selected node after it is what the next render restores, and a later capture would overwrite that one.
+    if (next === 'swimlane' && level() === 'form' && hasEvents() && !instances()) setInstances(true);
     captureAnchor(selected() ?? '');
-    if (next === 'swimlane' && level() === 'form' && hasEvents()) setInstances(true);
     setRenderer(next);
   };
 
