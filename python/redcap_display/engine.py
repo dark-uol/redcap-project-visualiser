@@ -31,12 +31,15 @@ class Engine:
         data = json.loads(context) if isinstance(context, str) else context
         results, blank = evaluate_visibility_with_blank(
             self._model,
-            Context(values=data.get("values", {}), mode=data.get("mode", "form"), event=data.get("event")),
+            Context(values=data.get("values", {}), mode=data.get("mode", "form"), event=data.get("event"), today=data.get("today")),
         )
         return {key: _info_to_json(info) for key, info in results.items()}, sorted(blank)
 
     def evaluate(self, context: Union[str, Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
-        """``context`` is ``{"values": {event: {variable: value}}, "mode": "form"|"survey", "event": id|null}``."""
+        """``context`` is ``{"values": {event: {variable: value}}, "mode": "form"|"survey", "event": id|null, "today": "YYYY-MM-DD"}``.
+
+        ``today`` is optional and is what ``"today"`` means in logic; without it the system clock's local date is used.
+        """
         return self._run(context)[0]
 
     def evaluate_json(self, context: Union[str, Mapping[str, Any]]) -> str:

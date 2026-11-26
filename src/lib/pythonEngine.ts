@@ -30,6 +30,12 @@ export interface PythonVisibilityEngine {
   destroy(): void;
 }
 
+/** The local date as `YYYY-MM-DD`, from the JavaScript clock, so "today" matches the TypeScript engine whatever time zone Pyodide assumes. */
+function localIsoDate(): string {
+  const now = new Date();
+  return String(now.getFullYear()).padStart(4, '0') + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+}
+
 /** The slice of the Pyodide API used here, so the module needs no Pyodide types at import time. */
 interface PyodideRuntime {
   FS: { mkdirTree(path: string): void; writeFile(path: string, data: string): void };
@@ -76,7 +82,7 @@ export async function createPythonVisibility(parsed: ParsedODM, options: PythonR
   return {
     pythonVersion,
     evaluate: function evaluate(context: WhatIfContext): Map<string, VisibilityInfo> {
-      const outcome = JSON.parse(proxy.evaluate_json(JSON.stringify(context))) as { results: Record<string, VisibilityInfo>; blank: string[] };
+      const outcome = JSON.parse(proxy.evaluate_json(JSON.stringify({ ...context, today: context.today ?? localIsoDate() }))) as { results: Record<string, VisibilityInfo>; blank: string[] };
       const results = new Map(Object.entries(outcome.results));
       rememberBlankFields(results, outcome.blank);
       return results;

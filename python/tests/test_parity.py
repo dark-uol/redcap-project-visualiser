@@ -16,15 +16,19 @@ def reference_key(ref: LogicFieldRef) -> str:
 
 
 class _TableLookup:
-    def __init__(self, fields, smart):
+    def __init__(self, fields, smart, today):
         self._fields = fields
         self._smart = smart
+        self._today = today
 
     def field(self, ref):
         return self._fields.get(reference_key(ref))
 
     def smart(self, name):
         return self._smart.get(name)
+
+    def today(self):
+        return self._today
 
 
 def comparable(value):
@@ -42,7 +46,7 @@ class ConditionParity(unittest.TestCase):
     def test_conditions_match_typescript(self):
         failures = []
         for vector in PAYLOAD["conditions"]:
-            result = evaluate_logic(parse_logic(vector["expression"]), _TableLookup(vector["fields"], vector["smart"]))
+            result = evaluate_logic(parse_logic(vector["expression"]), _TableLookup(vector["fields"], vector["smart"], vector["today"]))
             actual = (comparable(result.value), result.missing, result.unsupported)
             expected = (comparable(vector["value"]), vector["missing"], vector["unsupported"])
             if actual != expected:

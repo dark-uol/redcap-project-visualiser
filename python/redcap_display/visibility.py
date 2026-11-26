@@ -140,6 +140,8 @@ class Context:
     mode: str = "form"  # 'survey' | 'form'
     #: Unique event name the record is viewed in, or None when not chosen.
     event: Optional[str] = None
+    #: The date ``"today"`` means in logic, as ``YYYY-MM-DD``. None: the system clock's local date, so set it when results must be reproducible.
+    today: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +498,9 @@ def _make_evaluate(model: Model, context: Context, blank_fields: Set[str]) -> Ev
             if value is None:
                 self.recorded.append(MissingInput(smart_key(name), None))
             return value
+
+        def today(self) -> Optional[str]:
+            return context.today
 
     def evaluate(text: str) -> _Tracked:
         tracking = _Tracking()

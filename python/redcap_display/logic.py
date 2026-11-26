@@ -9,6 +9,8 @@ behaviour is reproduced on purpose, so that both engines give the same answer on
 
 from __future__ import annotations
 
+import calendar
+import datetime
 import math
 import re
 from dataclasses import dataclass
@@ -131,6 +133,10 @@ class LogicLookup(Protocol):
     def field(self, ref: LogicFieldRef) -> Optional[str]: ...
 
     def smart(self, name: str) -> Optional[str]: ...
+
+    # Optionally, a ``today(self) -> Optional[str]`` method returns the date ``"today"`` means, as ``YYYY-MM-DD``
+    # (year 1000 to 9999). Without one the system clock's local date is used, so a result depends on when it is computed:
+    # inject a date wherever results must be reproducible.
 
 
 @dataclass(frozen=True)
@@ -556,12 +562,34 @@ def _round_to(value: float, digits: float, mode: str) -> float:
     return _divide(sign * magnitude, factor)
 
 
-def _today() -> "tuple[int, int, int]":
-    """Today's local date as (year, month, day). A module-level hook so tests can pin it."""
-    import datetime
+#: What ``"today"`` means: milliseconds since the epoch (UTC) of a date.
+Today = Callable[[], int]
 
-    today = datetime.date.today()
-    return today.year, today.month, today.day
+_INJECTED_TODAY = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})")
+
+
+def _parse_injected_today(text: str) -> int:
+    """Milliseconds since the epoch (UTC) of an injected ``today``; raises on anything but a real calendar date from year 1000 to 9999."""
+    match = _INJECTED_TODAY.fullmatch(text)
+    if match:
+        year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        if year >= 1000 and 1 <= month <= 12 and 1 <= day <= calendar.monthrange(year, month)[1]:
+            return _days_from_civil(year, month, day) * 86400000
+    raise ValueError('today must be a calendar date written YYYY-MM-DD (year 1000 to 9999), not "%s"' % text)
+
+
+def _today_of(lookup: LogicLookup) -> Today:
+    """The injected date when the lookup supplies one (its ``today()``), else the system clock's local date."""
+
+    def today() -> int:
+        supply = getattr(lookup, "today", None)
+        injected = supply() if supply is not None else None
+        if injected is not None:
+            return _parse_injected_today(injected)
+        now = datetime.date.today()
+        return _days_from_civil(now.year, now.month, now.day) * 86400000
+
+    return today
 
 
 def _days_from_civil(year: int, month: int, day: int) -> int:
@@ -579,12 +607,11 @@ _DATE = re.compile(
 )
 
 
-def _parse_date(text: str, date_format: str) -> Optional[int]:
+def _parse_date(text: str, date_format: str, today: Today) -> Optional[int]:
     """A date as milliseconds since the epoch (UTC), or None."""
     trimmed = js_trim(text).lower()
     if trimmed == "today":
-        year, month, day = _today()
-        return _days_from_civil(year, month, day) * 86400000
+        return today()
     match = _DATE.fullmatch(trimmed)
     if not match:
         return None
@@ -614,7 +641,7 @@ _UNIT_MILLISECONDS = {
 }
 
 
-def _evaluate_date_difference(args: List[LogicValue]) -> LogicValue:
+def _evaluate_date_difference(args: List[LogicValue], today: Today) -> LogicValue:
     if len(args) < 3:
         return ""
     date_format = "ymd"
@@ -630,8 +657,8 @@ def _evaluate_date_difference(args: List[LogicValue]) -> LogicValue:
     unit_size = _UNIT_MILLISECONDS.get(_to_text(args[2]))
     if unit_size is None:
         return ""
-    start = _parse_date(_to_text(args[0]), date_format)
-    end = _parse_date(_to_text(args[1]), date_format)
+    start = _parse_date(_to_text(args[0]), date_format, today)
+    end = _parse_date(_to_text(args[1]), date_format, today)
     if start is None or end is None:
         return ""
     difference = (end - start) / unit_size
@@ -649,7 +676,7 @@ def _utf16_length(text: str) -> int:
     return len(text.encode("utf-16-le")) // 2
 
 
-def _evaluate_call(name: str, args: List[LogicValue]):
+def _evaluate_call(name: str, args: List[LogicValue], today: Today):
     def text_at(index: int) -> str:
         return _to_text(args[index]) if index < len(args) and args[index] is not None else ""
 
@@ -684,7 +711,7 @@ def _evaluate_call(name: str, args: List[LogicValue]):
     if name == "sqrt":
         return "" if first is None or first < 0 else math.sqrt(first)
     if name == "datediff":
-        return _evaluate_date_difference(args)
+        return _evaluate_date_difference(args, today)
     if name == "isnumber":
         return _is_numeric_text(text_at(0))
     if name == "isinteger":
@@ -805,12 +832,13 @@ def _evaluate_node(node: LogicExpression, context: _EvaluationContext) -> LogicV
             # Unknown condition: still decided when both branches agree.
             return values[1] if values[1] is not None and _strictly_equal(values[1], values[2]) else None
         # Probe with no arguments to learn whether the function name is known at all.
-        if _evaluate_call(node.name, []) is _UNSUPPORTED:
+        today = _today_of(context.lookup)
+        if _evaluate_call(node.name, [], today) is _UNSUPPORTED:
             context.mark_unsupported(node.name)
             return None
         if any(value is None for value in values):
             return None
-        return _evaluate_call(node.name, values)
+        return _evaluate_call(node.name, values, today)
     raise TypeError("unknown node")
 
 

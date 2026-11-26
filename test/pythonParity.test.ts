@@ -72,6 +72,8 @@ const EXPRESSIONS: string[] = [
   'datediff("2020-02-31", "2020-03-01", "d")', 'datediff("2020-02-30", "2020-03-01", "d")', 'datediff("2021-02-29", "2021-03-01", "d")', 'datediff("99-01-01", "2000-01-01", "y")', 'datediff("50-06-15", "2020-06-15", "y")',
   'datediff("2020-13-01", "2020-03-01", "d")', 'datediff("2020-01-32", "2020-03-01", "d")', 'datediff("2020-01-01 25:61:61", "2020-01-02", "h")', 'datediff("2020-01-01 10:30", "2020-01-01 12:45:30", "m")',
   'datediff("2020-01-01", "2020-01-02", "x")', 'datediff("2020-01-01", "2020-01-02")', 'datediff("nope", "2020-01-02", "d")', 'datediff([blank], [d1], "d")', 'datediff("2020-01-01", "2024-01-01", "y") = 4',
+  'datediff([d1], "today", "d")', 'datediff("today", [d1], "y")', 'datediff("2020-01-01", "today", "M")', 'datediff("TODAY", " 2000-01-01 ", "d")', 'datediff("today", "today", "d") = 0',
+  'datediff([d1], "today", "y", true)', 'datediff("today", "2021-06-15", "d")', 'datediff("today", "today", "d", "dmy")', 'datediff("today", "2024-03-01", "d", true)', 'datediff([d2], "today", "h")',
   'datediff("0001-01-01", "0001-01-02", "d")', 'datediff("1900-01-01", "2100-12-31", "d")', 'datediff("2020-01-01", "2020-12-31", "M", "ymd")', 'datediff("2020/01/01", "2020/12/31", "d")',
   // if
   'if([a] > 3, 1, 0) = 1', 'if([a] > 30, 1, 0) = 1', 'if([missing] > 3, 1, 1) = 1', 'if([missing] > 3, 1, 2) = 1', 'if([missing] > 3, true, true)', 'if([missing] > 3, "1", 1)', 'if([missing], [a], [a])', 'if(1, 2)', 'if()',
@@ -103,10 +105,14 @@ const TABLES: Table[] = [
 
 const SMART_TABLES: Table[] = [{}, { 'event-name': 'baseline_arm_1', 'user-role-label': 'Nurse' }];
 
+/** The dates `"today"` is pinned to; a leap day and a century-end are in there on purpose. */
+const TODAYS = ['2021-06-15', '2024-02-29', '1999-12-31'];
+
 interface ConditionVector {
   expression: string;
   fields: Table;
   smart: Table;
+  today: string;
   value: string | number | boolean | null;
   missing: string[];
   unsupported: string[];
@@ -117,13 +123,15 @@ function conditionVectors(): ConditionVector[] {
   EXPRESSIONS.forEach((expression, expressionIndex) => {
     TABLES.forEach((fields, tableIndex) => {
       const smart = SMART_TABLES[(expressionIndex + tableIndex) % SMART_TABLES.length]!;
+      const today = TODAYS[(expressionIndex + tableIndex) % TODAYS.length]!;
       const result = evaluateLogic(parseLogic(expression), {
         field: (ref) => fields[referenceKey(ref)],
         smart: (name) => smart[name],
+        today: () => today,
       });
       // NaN and infinities cannot be written in JSON; the evaluator never returns them from arithmetic, but a function might
       const value = result.value === undefined ? null : typeof result.value === 'number' && !Number.isFinite(result.value) ? String(result.value) : result.value;
-      vectors.push({ expression, fields, smart, value, missing: result.missing, unsupported: result.unsupported });
+      vectors.push({ expression, fields, smart, today, value, missing: result.missing, unsupported: result.unsupported });
     });
   });
   return vectors;
@@ -174,6 +182,9 @@ function stressProject(): ParsedODM {
     field('date_gate', 'f3', { branching: 'datediff([visit1], [visit2], "d") > 30' }),
     field('visit1', 'f3'),
     field('visit2', 'f3'),
+    field('dob', 'f3'),
+    field('adult_by_dob', 'f3', { branching: 'datediff([dob], "today", "y") >= 18' }),
+    field('recent_visit', 'f3', { annotation: '@IF(datediff([visit1], "today", "d") < 30, @HIDDEN-SURVEY, @DEFAULT="x")' }),
     field('blank_gate', 'f3', { branching: '[weight] = ""' }),
     field('after_hidden', 'f3', { branching: '[pregnant] = ""' }),
     field('after_hidden_cb', 'f3', { branching: '[symptoms(99)] = "0"' }),
@@ -223,7 +234,7 @@ function randomValues(model: ReturnType<typeof buildModel>, random: () => number
 
 interface VisibilityVector {
   project: string;
-  context: { values: Record<string, Record<string, WhatIfValue>>; mode: 'survey' | 'form'; event: string | null };
+  context: { values: Record<string, Record<string, WhatIfValue>>; mode: 'survey' | 'form'; event: string | null; today: string };
   expected: Record<string, unknown>;
 }
 
@@ -237,10 +248,11 @@ function visibilityVectors(name: string, parsed: ParsedODM, count: number, seed:
     parsed.events.forEach((event) => { if (index > 0 && random() < 0.5) values[event.id] = randomValues(model, random); });
     const event = eventIds[Math.floor(random() * eventIds.length)]!;
     const mode = random() < 0.5 ? 'survey' : 'form';
-    const result = evaluateVisibility(model, { values, mode, event });
+    const today = TODAYS[Math.floor(random() * TODAYS.length)]!;
+    const result = evaluateVisibility(model, { values, mode, event, today });
     const expected: Record<string, unknown> = {};
     result.forEach((info, key) => { expected[key] = info; });
-    vectors.push({ project: name, context: { values, mode, event }, expected });
+    vectors.push({ project: name, context: { values, mode, event, today }, expected });
   }
   return vectors;
 }

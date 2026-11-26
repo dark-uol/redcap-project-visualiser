@@ -17,6 +17,8 @@ export interface WhatIfContext {
   mode: 'survey' | 'form';
   /** Unique event name the record is viewed in, or null when not chosen. */
   event: string | null;
+  /** The date `"today"` means in logic, as `YYYY-MM-DD`. Left out, the system clock's local date: set it when results must be reproducible. */
+  today?: string;
 }
 
 /** A value the evaluation needs but does not have: the variable, and the event it lives in (null when no event is chosen). */
@@ -281,6 +283,7 @@ function makeEvaluate(model: ModelBase, context: WhatIfContext, blankFields: Rea
         if (value === undefined) recorded.push({ variable: smartKey(name), event: null });
         return value;
       },
+      today: function today(): string | undefined { return context.today; },
     };
     const result = evaluateCondition(text, tracking).result;
     return { result, missing: result === undefined ? uniqueInputs(recorded) : [] };

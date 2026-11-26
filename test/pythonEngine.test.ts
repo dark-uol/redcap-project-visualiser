@@ -6,7 +6,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import sampleXml from '../public/sample/sample.xml?raw';
 import { buildModel } from '../src/lib/graph';
 import { parseODM } from '../src/lib/parser';
@@ -27,11 +27,32 @@ describe('Python core on Pyodide', () => {
     const report = JSON.parse(String(runtime.runPython([
       'import io, json, unittest',
       'stream = io.StringIO()',
-      'result = unittest.TextTestRunner(stream=stream, verbosity=0).run(unittest.defaultTestLoader.loadTestsFromName("tests.test_parity"))',
+      'result = unittest.TextTestRunner(stream=stream, verbosity=0).run(unittest.defaultTestLoader.loadTestsFromNames(["tests.test_parity", "tests.test_clock"]))',
       'json.dumps({"ran": result.testsRun, "failures": len(result.failures), "errors": len(result.errors), "output": stream.getvalue()[-3000:]})',
     ].join('\n')))) as { ran: number; failures: number; errors: number; output: string };
     expect(report.output).toContain('OK');
-    expect([report.ran, report.failures, report.errors]).toEqual([2, 0, 0]);
+    expect([report.ran, report.failures, report.errors]).toEqual([7, 0, 0]);
+  }, SLOW);
+
+  it('gives Python the JavaScript clock\'s local date, whatever time zone Pyodide assumes', async () => {
+    const parsed = { ...parseODM(sampleXml) };
+    parsed.fields = [
+      ...parsed.fields,
+      { ...parsed.fields[0]!, variable: 'adult_by_dob', branching: 'datediff([dob_for_clock_test], "today", "y") >= 18' },
+    ];
+    const engine = await createPythonVisibility(parsed);
+    const context: WhatIfContext = { values: { [ANY_EVENT]: { dob_for_clock_test: '2005-06-15' } }, mode: 'form', event: null };
+    vi.useFakeTimers({ toFake: ['Date'] }); // after the load, which needs real timers
+    try {
+      vi.setSystemTime(new Date(2023, 5, 14, 23, 59));
+      expect(engine.evaluate(context).get('adult_by_dob')?.state).toBe('hidden');
+      vi.setSystemTime(new Date(2023, 5, 17, 0, 1));
+      expect(engine.evaluate(context).get('adult_by_dob')?.state).toBe('shown');
+      expect(engine.evaluate({ ...context, today: '2023-06-14' }).get('adult_by_dob')?.state).toBe('hidden'); // an injected date wins
+    } finally {
+      vi.useRealTimers();
+    }
+    engine.destroy();
   }, SLOW);
 
   it('agrees with the TypeScript engine on the sample project, through the wrapper the app uses', async () => {
