@@ -22,16 +22,19 @@ export function createDerived(state: State) {
     const loadedModel = model();
     return loadedModel ? loadedModel.parsed.forms.map((f) => f.id) : [];
   });
-  /** The renderer actually used: swimlane needs a longitudinal project and a form or event level, otherwise Graphviz stands in. */
+  /**
+   * The renderer actually used. Swimlane needs a longitudinal project showing events or form instances; where it does not
+   * apply, Graphviz stands in. Switching renderer never changes the view itself, only how it is laid out.
+   */
   const effectiveRenderer = (): Renderer => {
     const loadedModel = model();
-    const swimlaneApplies = !!loadedModel && (loadedModel.parsed.events || []).length > 0 && level() !== 'field';
+    const hasEvents = !!loadedModel && (loadedModel.parsed.events || []).length > 0;
+    const swimlaneApplies = hasEvents && (level() === 'event' || (level() === 'form' && instances()));
     return renderer() === 'swimlane' && !swimlaneApplies ? 'graphviz' : renderer();
   };
   const instanceMode = (): boolean => {
     const loadedModel = model();
-    // the swimlane layout is always of form instances, so it needs no separate toggle
-    return (instances() || effectiveRenderer() === 'swimlane') && level() === 'form' && !!loadedModel && (loadedModel.parsed.events || []).length > 0;
+    return instances() && level() === 'form' && !!loadedModel && (loadedModel.parsed.events || []).length > 0;
   };
   const exploreVisible = (exploration: Pick<Explore, 'seeds' | 'exp'>): Set<string> =>
     new Set([...exploration.seeds, ...exploration.exp.flatMap((x) => x.added)]);
@@ -106,7 +109,7 @@ export function createDerived(state: State) {
   const mermaidSrc = lazySrc(toMermaid);
   const dotSrc = lazySrc(toDot);
   // string memo: downstream only re-runs when the text sent to the renderer actually changes
-  const graphSrc = createMemo<string | null>(() => (view() ? (effectiveRenderer() === 'graphviz' ? dotSrc() : effectiveRenderer() === 'swimlane' ? '' : mermaidSrc()) : null));
+  const graphSrc = createMemo<string | null>(() => (view() ? (effectiveRenderer() === 'graphviz' ? dotSrc() : effectiveRenderer() === 'mermaid' ? mermaidSrc() : '') : null));
   const graphStatus = createMemo<string>(() => {
     const v = view();
     if (!v) return '';

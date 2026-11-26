@@ -100,13 +100,13 @@ describe('layoutSwimlane', () => {
     const forward = layout.edges.find((edge) => edge.from === 'a')!;
     const backward = layout.edges.find((edge) => edge.from === 'b')!;
     expect(forward.backward).toBe(false);
-    expect(forward.curve[0]).toEqual({ x: findNode(layout, 'a').x + 120, y: findNode(layout, 'a').y + 14 });
-    expect(forward.curve[3]).toEqual({ x: findNode(layout, 'b').x, y: findNode(layout, 'b').y + 14 });
+    expect(forward.curve![0]).toEqual({ x: findNode(layout, 'a').x + 120, y: findNode(layout, 'a').y + 14 });
+    expect(forward.curve![3]).toEqual({ x: findNode(layout, 'b').x, y: findNode(layout, 'b').y + 14 });
     expect(backward.backward).toBe(true);
-    expect(backward.curve[0].x).toBe(findNode(layout, 'b').x);
-    expect(backward.curve[3].x).toBe(findNode(layout, 'a').x + 120);
-    expect(backward.curve[1].y).toBeGreaterThan(backward.curve[0].y);
-    expect(backward.curve[2].y).toBeGreaterThan(backward.curve[3].y);
+    expect(backward.curve![0].x).toBe(findNode(layout, 'b').x);
+    expect(backward.curve![3].x).toBe(findNode(layout, 'a').x + 120);
+    expect(backward.curve![1].y).toBeGreaterThan(backward.curve![0].y);
+    expect(backward.curve![2].y).toBeGreaterThan(backward.curve![3].y);
   });
 
   it('connects nodes in the same column bottom-to-top', () => {
@@ -118,9 +118,9 @@ describe('layoutSwimlane', () => {
     const layout = layoutSwimlane(view, events);
     const [edge] = layout.edges;
     expect(edge.backward).toBe(false);
-    expect(edge.curve[0]).toEqual({ x: 60 + findNode(layout, 'a').x, y: findNode(layout, 'a').y + 28 });
-    expect(edge.curve[3]).toEqual({ x: 60 + findNode(layout, 'b').x, y: findNode(layout, 'b').y });
-    expect(edge.curve[1].x).toBe(edge.curve[0].x);
+    expect(edge.curve![0]).toEqual({ x: 60 + findNode(layout, 'a').x, y: findNode(layout, 'a').y + 28 });
+    expect(edge.curve![3]).toEqual({ x: 60 + findNode(layout, 'b').x, y: findNode(layout, 'b').y });
+    expect(edge.curve![1].x).toBe(edge.curve![0].x);
   });
 
   it('puts nodes with a missing or unknown event into one "(no event)" lane with a single column', () => {
@@ -164,7 +164,7 @@ describe('layoutSwimlane', () => {
     });
     const layout = layoutSwimlane(view, events);
     const middle = findNode(layout, 'b');
-    const curve = layout.edges[0].curve;
+    const curve = layout.edges[0].curve!;
     for (let step = 1; step < 40; step++) {
       const t = step / 40, u = 1 - t;
       const x = u * u * u * curve[0].x + 3 * u * u * t * curve[1].x + 3 * u * t * t * curve[2].x + t * t * t * curve[3].x;
@@ -181,7 +181,7 @@ describe('layoutSwimlane', () => {
       edges: [link('u', 'a')],
     });
     const layout = layoutSwimlane(view, events);
-    const curve = layout.edges[0].curve;
+    const curve = layout.edges[0].curve!;
     ['b', 'c'].forEach((id) => {
       const blocker = findNode(layout, id);
       for (let step = 1; step < 40; step++) {
@@ -197,8 +197,8 @@ describe('layoutSwimlane', () => {
     const view = makeView({ nodes: [node('a', { event: 'e1' }), node('b', { event: 'e1' })], edges: [link('a', 'b'), link('b', 'a')] });
     const layout = layoutSwimlane(view, [eventDef('e1')]);
     const [forward, back] = layout.edges;
-    expect(forward.curve[0].x).not.toBe(back.curve[3].x);
-    expect(forward.curve[0].x).toBeLessThan(back.curve[3].x);
+    expect(forward.curve![0].x).not.toBe(back.curve![3].x);
+    expect(forward.curve![0].x).toBeLessThan(back.curve![3].x);
   });
 
   it('wraps a long event name in the column header and grows the header to fit', () => {

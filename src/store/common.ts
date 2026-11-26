@@ -1,6 +1,6 @@
 /* Constants, types and pure helpers shared by the store modules. No signals here. */
 import { TYPES } from '../lib/graph';
-import type { DepType, Direction, FormPair, Level, Renderer, View } from '../lib/types';
+import type { DepType, Direction, EventDef, FormPair, Level, Renderer, View, ViewOptions } from '../lib/types';
 
 export const MAX_AUTO_EDGES = 700;
 export const DEFAULT_DIRECTION: Direction = 'LR';
@@ -33,6 +33,9 @@ export interface RenderInput {
   tooBig: boolean;
   status: string;
   view: View | null;
+  /** How the view is presented and the project's events: inputs to the layout engines that draw the SVG themselves. */
+  options: ViewOptions | null;
+  events: EventDef[];
 }
 
 export const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));

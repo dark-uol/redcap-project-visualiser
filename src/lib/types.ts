@@ -6,7 +6,7 @@ export type Direction = 'LR' | 'TD';
 export type LabelMode = 'var' | 'label';
 export type GroupBy = 'none' | 'form' | 'event' | 'arm';
 export type FocusDir = 'both' | 'up' | 'down';
-export type Renderer = 'graphviz' | 'mermaid' | 'swimlane';
+export type Renderer = 'graphviz' | 'mermaid' | 'swimlane' | 'elk';
 /** 'up' / 'down' = field-level or instance references; 'fup' / 'fdown' = whole-form references. */
 export type NeighborDir = 'up' | 'down' | 'fup' | 'fdown';
 export type NodeKind = 'field' | 'calc' | 'form' | 'missing' | 'status' | 'logic';

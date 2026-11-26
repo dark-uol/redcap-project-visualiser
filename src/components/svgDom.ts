@@ -9,6 +9,8 @@ export const EDGE_SEL = 'g.edge, path.flowchart-link';
 
 /** Node key (`n<index>`) of a `g.node` element. */
 export const nodeKey = (g: Element): string | null => {
+  const keyed = g.getAttribute('data-key'); // layout-engine SVGs carry their key directly
+  if (keyed) return keyed;
   const t = g.querySelector('title');
   if (t && /^n\d+$/.test(t.textContent ?? '')) return t.textContent;
   const m = /-(n\d+)-/.exec(g.id || '');
@@ -18,7 +20,7 @@ export const nodeKey = (g: Element): string | null => {
 /** `[from, to]` node keys of an edge element. */
 export const edgeKey = (g: Element): [string, string] | null => {
   const t = g.querySelector('title');
-  let m: RegExpExecArray | null = t ? /^(n\d+)->(n\d+)$/.exec(t.textContent ?? '') : null;
+  let m: RegExpExecArray | null = /^(n\d+)->(n\d+)$/.exec(g.getAttribute('data-key') ?? '') ?? (t ? /^(n\d+)->(n\d+)$/.exec(t.textContent ?? '') : null);
   if (m) return [m[1], m[2]];
   m = /L[_-](n\d+)[_-](n\d+)/.exec(g.id || '');
   return m ? [m[1], m[2]] : null;
@@ -27,13 +29,13 @@ export const edgeKey = (g: Element): [string, string] | null => {
 /** Index of the group a `g.cluster` element draws. */
 export const clusterIndex = (g: Element): number | null => {
   const t = g.querySelector('title');
-  const m = (t && /^cluster_(\d+)$/.exec(t.textContent ?? '')) || /(?:^|[-_])g(\d+)$/.exec(g.id || '');
+  const m = /^cluster_(\d+)$/.exec(g.getAttribute('data-key') ?? '') || (t && /^cluster_(\d+)$/.exec(t.textContent ?? '')) || /(?:^|[-_])g(\d+)$/.exec(g.id || '');
   return m ? +m[1] : null;
 };
 
 /** Graphviz cluster element for group index `groupIndex`. */
 export const clusterEl = (s: SVGSVGElement, groupIndex: number): Element | null =>
-  [...s.querySelectorAll('g.cluster')].find((c) => c.querySelector('title')?.textContent === 'cluster_' + groupIndex) ?? null;
+  [...s.querySelectorAll('g.cluster')].find((c) => (c.getAttribute('data-key') ?? c.querySelector('title')?.textContent) === 'cluster_' + groupIndex) ?? null;
 
 /** Size the svg to its viewBox (adding one if missing) and record the size in data attributes. */
 export const normalizeSvg = (s: SVGSVGElement): void => {

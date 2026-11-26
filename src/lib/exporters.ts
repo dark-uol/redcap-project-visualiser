@@ -3,26 +3,38 @@ import { TYPES, nodeInfo } from './graph';
 import type { DepType, Edge, Model, NodeKind, View, ViewEdge, ViewNode, ViewOptions } from './types';
 
 const PRIORITY: DepType[] = ['branching', 'calc', 'formlogic', 'actiontag', 'piping', 'embedding', 'logicsrc'];
-const KIND_FILL: Record<NodeKind, string> = { field: '#dbeafe', calc: '#ffedd5', form: '#e5e7eb', missing: '#fee2e2', status: '#dcfce7', logic: '#fce7f3' };
-const KIND_STROKE: Record<NodeKind, string> = { field: '#3b82f6', calc: '#f97316', form: '#6b7280', missing: '#dc2626', status: '#16a34a', logic: '#be185d' };
+export const KIND_FILL: Record<NodeKind, string> = { field: '#dbeafe', calc: '#ffedd5', form: '#e5e7eb', missing: '#fee2e2', status: '#dcfce7', logic: '#fce7f3' };
+export const KIND_STROKE: Record<NodeKind, string> = { field: '#3b82f6', calc: '#f97316', form: '#6b7280', missing: '#dc2626', status: '#16a34a', logic: '#be185d' };
 
 const isAggregated = (view: View): boolean => view.level === 'form' || view.level === 'event';
 
 /** Line width for form-level edges: 1px for one field, growing logarithmically (cap 10px). */
-const widthOf = (e: ViewEdge, view: View): number | null =>
+export const widthOf = (e: ViewEdge, view: View): number | null =>
   (isAggregated(view) && !e.fieldLevel ? Math.min(10, 1 + 1.6 * Math.log2(Math.max(1, e.count))) : null);
 
 const trunc = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + '…' : s);
-const primary = (e: ViewEdge): DepType => PRIORITY.find((t) => e.types.includes(t)) ?? e.types[0];
+export const primary = (e: ViewEdge): DepType => PRIORITY.find((t) => e.types.includes(t)) ?? e.types[0];
 
-function edgeText(e: ViewEdge, o: ViewOptions, view: View): string {
+export function edgeText(e: ViewEdge, o: ViewOptions, view: View): string {
   if (isAggregated(view) && !e.fieldLevel) {
     return e.types.map((t) => `${t} ${e.byType[t]}`).join(', ') + ` · ${e.count} field${e.count === 1 ? '' : 's'}`;
   }
   return o.edgeLabels ? e.types.join('+') : '';
 }
 
-function nodeLines(n: ViewNode, o: ViewOptions): string[] {
+/** Colour, dash style, line width and label of one view edge, shared by the DOT and SVG outputs. */
+export function edgeAppearance(view: View, edge: ViewEdge, options: ViewOptions): { color: string; dash: 'solid' | 'bold' | 'dashed' | 'dotted'; width: number | null; label: string } {
+  const p = primary(edge);
+  let dash: 'solid' | 'bold' | 'dashed' | 'dotted' = p === 'calc' ? 'bold' : p === 'branching' ? 'solid' : 'dashed';
+  let color: string = TYPES[p].color;
+  if (view.instances) {
+    if (edge.crossArm) color = '#dc2626';
+    if (edge.mismatch) dash = 'dashed'; else if (edge.relative) dash = 'dotted';
+  }
+  return { color, dash, width: widthOf(edge, view), label: edgeText(edge, options, view) };
+}
+
+export function nodeLines(n: ViewNode, o: ViewOptions): string[] {
   const lines = [n.label];
   if (n.extra) lines.push(...n.extra);
   if (o.labelMode === 'label' && n.sub) lines.push(trunc(n.sub, 36));
@@ -127,16 +139,9 @@ export function toDot(view: View, o: ViewOptions): string {
   view.nodes.forEach((n) => { if (!grouped.has(n.id)) L.push(node(n, '  ')); });
   view.edges.forEach((e) => {
     if (!id.has(e.from) || !id.has(e.to)) return;
-    const p = primary(e);
-    const t = edgeText(e, o, view);
-    let style = p === 'calc' ? 'bold' : p === 'branching' ? 'solid' : 'dashed';
-    let col: string = TYPES[p].color;
-    if (view.instances) {
-      if (e.crossArm) col = '#dc2626';
-      if (e.mismatch) style = 'dashed'; else if (e.relative) style = 'dotted';
-    }
-    const wd = widthOf(e, view);
-    L.push(`  ${id.get(e.from)} -> ${id.get(e.to)} [color="${col}", style=${style}${wd ? ', penwidth=' + wd.toFixed(1) : ''}${t ? ', label=' + dq(t) : ''}];`);
+    const look = edgeAppearance(view, e, o);
+    const wd = look.width;
+    L.push(`  ${id.get(e.from)} -> ${id.get(e.to)} [color="${look.color}", style=${look.dash}${wd ? ', penwidth=' + wd.toFixed(1) : ''}${look.label ? ', label=' + dq(look.label) : ''}];`);
   });
   L.push('}');
   return L.join('\n') + '\n';

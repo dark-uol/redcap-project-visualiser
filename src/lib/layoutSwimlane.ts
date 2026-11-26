@@ -314,7 +314,7 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
     const top = Math.min(...members.map((member) => member.y)) - CLUSTER_TOP;
     const right = Math.max(...members.map((member) => member.x + member.width)) + CLUSTER_SIDE;
     const bottom = Math.max(...members.map((member) => member.y + member.height)) + CLUSTER_BOTTOM;
-    regions.push({ id: `cluster:${group.id}`, kind: 'cluster', label: group.label, labelLines: wrapLabel(group.label, CLUSTER_LABEL_CHARACTERS, 1), x: left, y: top, width: right - left, height: bottom - top });
+    regions.push({ id: `cluster:${group.id}`, kind: 'cluster', groupIndex: view.groups.indexOf(group), label: group.label, labelLines: wrapLabel(group.label, CLUSTER_LABEL_CHARACTERS, 1), x: left, y: top, width: right - left, height: bottom - top });
   });
 
   const edges: LayoutEdge[] = [];

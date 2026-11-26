@@ -32,7 +32,7 @@ export function ViewSectionView(props: ViewSectionViewProps) {
   const help = createHint();
   /** The swimlane spike needs events and a form or event level. It stays listed when it is already the current renderer, so the select never shows blank. */
   const rendererOptions = (): [Renderer, string][] => {
-    const options: [Renderer, string][] = [['graphviz', 'Graphviz'], ['mermaid', 'Mermaid']];
+    const options: [Renderer, string][] = [['graphviz', 'Graphviz'], ['mermaid', 'Mermaid'], ['elk', 'ELK (spike)']];
     if ((props.hasEvents && props.level !== 'field') || props.renderer === 'swimlane') options.push(['swimlane', 'Swimlane (spike)']);
     return options;
   };
@@ -49,12 +49,10 @@ export function ViewSectionView(props: ViewSectionViewProps) {
       <Show when={props.level === 'field'}>
         <Labeled label="Group fields by" hint="Draws a box around the fields that share a form, event or arm."><Select<GroupBy> value={props.groupBy} onChange={props.onGroupByChange} options={[['form', 'Form'], ['event', 'Event (longitudinal)'], ['arm', 'Arm (longitudinal)'], ['none', 'No grouping']]} /></Labeled>
       </Show>
-      <Show when={props.level === 'form' && props.hasEvents && props.renderer !== 'swimlane'}>
+      <Show when={props.level === 'form' && props.hasEvents}>
         <Check checked={props.instances} onChange={props.onInstancesChange} label="Instances (one node per form per event)" hint="A form collected in several events gets one node per event, banded by event (or by arm via Group by). Select a node to add its links or zoom into its fields." />
       </Show>
-      <Show when={props.renderer !== 'swimlane'}>
-        <Check checked={props.edgeLabels} onChange={props.onEdgeLabelsChange} label="Edge labels" hint="Writes the dependency type (branching, calc and so on) on each edge." />
-      </Show>
+      <Check checked={props.edgeLabels} onChange={props.onEdgeLabelsChange} label="Edge labels" hint="Writes the dependency type (branching, calc and so on) on each edge." />
       <Show when={props.level !== 'field'}>
         <Check checked={props.hideIsolatedNodes} onChange={props.onHideIsolatedNodesChange} label={(props.level === 'event' ? 'Hide events' : 'Hide forms') + ' with no dependencies'} hint="Leaves out nodes that have no links to anything else." />
       </Show>

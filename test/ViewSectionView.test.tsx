@@ -111,11 +111,11 @@ describe('ViewSectionView checkboxes', () => {
 });
 
 describe('ViewSectionView options that do not apply', () => {
-  it('hides Direction, Edge labels and Instances for the swimlane renderer, but keeps Node text', () => {
+  it('hides Direction (always left to right) for the swimlane renderer, but keeps the other options', () => {
     const text = renderView({ renderer: 'swimlane', level: 'form', hasEvents: true }).container.textContent;
     expect(text).not.toContain('Direction');
-    expect(text).not.toContain('Edge labels');
-    expect(text).not.toContain('Instances (one node per form per event)');
+    expect(text).toContain('Edge labels');
+    expect(text).toContain('Instances (one node per form per event)');
     expect(text).toContain('Node text');
   });
 

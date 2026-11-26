@@ -13,6 +13,7 @@
   "dependencies": {
     "@solidjs/web": "2.0.3",
     "@viz-js/viz": "^3.31.0",
+    "elkjs": "^0.12.2",
     "mermaid": "^12.3.0",
     "solid-js": "2.0.3"
   },

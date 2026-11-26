@@ -330,10 +330,15 @@ describe('effectiveRenderer', () => {
     settle(() => store.selection.setLevel('field'));
     expect(store.effectiveRenderer()).toBe('graphviz');
     settle(() => store.selection.setLevel('form'));
+    expect(store.effectiveRenderer()).toBe('graphviz'); // form instances are off
+    settle(() => store.setInstances(true));
     expect(store.effectiveRenderer()).toBe('swimlane');
     settle(() => store.selection.setLevel('event'));
     expect(store.effectiveRenderer()).toBe('swimlane');
     settle(() => store.presentation.setRenderer('mermaid'));
     expect(store.effectiveRenderer()).toBe('mermaid');
+    settle(() => store.selection.setLevel('field'));
+    settle(() => store.presentation.setRenderer('elk'));
+    expect(store.effectiveRenderer()).toBe('elk');
   });
 });
