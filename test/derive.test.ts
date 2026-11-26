@@ -42,6 +42,8 @@ const fields: Field[] = [
   field('reads_plain_default', 'f_reg', { branching: '[plain_default] = 7' }),
   field('conditional_default', 'f_reg', { annotation: "@IF([nhs_entered] = '1', @DEFAULT='7', @DEFAULT='8')" }),
   field('reads_conditional_default', 'f_reg', { branching: '[conditional_default] = 7' }),
+  // a calculation whose result decides nothing
+  calculated('unused_calc', 'f_reg', '[nhs_entered] * 2'),
 ];
 
 const parsed: ParsedODM = {
@@ -231,9 +233,27 @@ describe('calculationChainOf', () => {
     expect(calculationChainOf(model, 'reads_plain_default')).toEqual(['plain_default']);
   });
 
-  it('is empty when nothing in the chain can be worked out', () => {
-    expect(calculationChainOf(model, 'nhs_entered')).toEqual([]);
-    expect(calculationChainOf(model, 'score')).toEqual([]);
+  it('is empty when nothing connected to the field can be worked out', () => {
+    expect(calculationChainOf(model, 'reads_conditional_default')).toEqual([]);
+    expect(calculationChainOf(model, 'unused_calc').sort()).toEqual(['nhs_entered', 'unused_calc']); // its own calculation, and what it reads
+  });
+
+  it('for an input, lists the calculations it feeds that go on to decide something, with the input first', () => {
+    expect(calculationChainOf(model, 'nhs_entered')).toEqual(FULL_CHAIN);
+    expect(calculationChainOf(model, 'score')).toEqual(['score', 'doubled']);
+  });
+
+  it('leaves out a calculation the input feeds that decides nothing', () => {
+    expect(calculationChainOf(model, 'nhs_entered')).not.toContain('unused_calc');
+  });
+
+  it('for a field in the middle of the chain, lists what feeds it and what it feeds, in one order', () => {
+    expect(calculationChainOf(model, 'nhs_sum')).toEqual(FULL_CHAIN);
+  });
+
+  it('is the same list whichever field of the chain is explored, except for the ends', () => {
+    const chains = ['nhs_entered', 'nhs_copy', 'nhs_sum', 'nhs_check', 'nhs_valid', 'nhs_warning'].map((variable) => calculationChainOf(model, variable));
+    chains.forEach((chain) => expect(chain).toEqual(FULL_CHAIN));
   });
 
   it('terminates on a calculation that depends on itself', () => {

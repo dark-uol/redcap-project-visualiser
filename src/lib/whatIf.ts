@@ -569,13 +569,52 @@ function derivationInputsOf(model: ModelBase, field: Field): string[] {
 }
 
 /**
- * The calculations and defaults behind a field's visibility, inputs first: every calculated or defaulted field that can decide whether
- * `nodeId` is shown (or is `nodeId`), after the fields it is worked out from, each listed once. Reading down the list follows the
- * chain from what you enter to what it comes to. Empty when nothing in the chain is derivable.
+ * The calculated and defaulted fields `variable` feeds, whose results go on to decide something: derivable fields reached through
+ * chains of calculations and defaults from it, keeping those that have a visibility dependent of their own (other than `variable`),
+ * or feed a derivable field that does. A calculation that leads nowhere is left out.
+ */
+function downstreamCalculationsOf(model: ModelBase, variable: string): string[] {
+  const reached = new Set([variable]);
+  const found: string[] = [];
+  const queue = [variable];
+  while (queue.length) {
+    derivedFrom(model, queue.shift()!).forEach((derived) => {
+      if (reached.has(derived)) return;
+      reached.add(derived);
+      found.push(derived);
+      queue.push(derived);
+    });
+  }
+  const decidesSomething = function decidesSomething(start: string): boolean {
+    const visited = new Set([start]);
+    const pending = [start];
+    while (pending.length) {
+      const current = pending.shift()!;
+      if (visibilityTargetsOf(model, current).some((target) => target !== variable)) return true;
+      derivedFrom(model, current).forEach((next) => {
+        if (reached.has(next) && !visited.has(next)) { visited.add(next); pending.push(next); }
+      });
+    }
+    return false;
+  };
+  return found.filter(decidesSomething);
+}
+
+/**
+ * The calculations and defaults connected to a field, inputs first: every calculated or defaulted field that can decide whether
+ * `nodeId` is shown, or whose value `nodeId` feeds and goes on to decide something, or that is `nodeId`; each after the fields it is
+ * worked out from, listed once, in project order where that does not matter. Reading down the list follows the chain from what you
+ * enter to what it comes to. Empty when nothing connected is derivable.
  */
 export function calculationChainOf(model: ModelBase, nodeId: string): string[] {
-  const roots = [...controllersOf(model, nodeId, true).map((controller) => controller.variable), nodeId]
-    .filter((variable) => isDerivable(model.byVar.get(variable)));
+  const position = new Map([...model.byVar.keys()].map((variable, index) => [variable, index]));
+  const roots = unique([
+    ...controllersOf(model, nodeId, true).map((controller) => controller.variable),
+    ...downstreamCalculationsOf(model, nodeId),
+    nodeId,
+  ])
+    .filter((variable) => isDerivable(model.byVar.get(variable)))
+    .sort((left, right) => (position.get(left) ?? 0) - (position.get(right) ?? 0));
   const seen = new Set<string>();
   const ordered: string[] = [];
   const visit = function visit(variable: string): void {
