@@ -211,8 +211,6 @@ export type VisibilityRow = {
   state: Visibility;
   /** The state's reasons and missing inputs, which the state badge turns into its tooltip. */
   info: VisibilityInfo | undefined;
-  /** Distance upstream of the chosen field in "Shown when"; unused in "Affects". */
-  step: number;
   /** The form this row belongs to (for the form filter), or undefined for an id the project does not define. */
   formId: string | undefined;
   formLabel: string;
@@ -225,19 +223,12 @@ export type VisibilityRow = {
   logicTexts: string[];
   logicNote: string;
   needs: MissingInput[];
-  /** The value to show for this row, as text ('' when it has none): one you set, or one worked out from the row's inputs. */
-  value: string;
-  /** Where `value` came from: set by you, calculated from a formula, or a `@DEFAULT`. '' when there is no value. */
-  valueKind: 'set' | 'calculated' | 'default' | '';
-  /** The formula (`= …`) or default (`default …`) as written, so a step can be read, whether or not it has a value yet. '' for any other row. */
-  derivation: string;
 };
 
 export type VisibilityTableViewProps = {
   title: string;
   emptyText: string;
   rows: VisibilityRow[];
-  showStep?: boolean;
   showEventColumn: boolean;
   collapsed: boolean;
   onToggleCollapsed: () => void;
@@ -276,8 +267,6 @@ export function VisibilityTableView(props: VisibilityTableViewProps) {
   };
   const visibleRows = () => filterVisibilityRows(props.rows, { state: stateFilter(), event: activeEvent(), form: activeForm() });
   const countOf = (state: Visibility): number => countByState(props.rows, state);
-  // the Value column only appears when some row has a value to show
-  const showValues = () => props.rows.some((row) => row.valueKind !== '');
   return (
     <div class="wi-section">
       {/* the heading folds the section away; the counts stay in view so a collapsed section still says how things stand */}
@@ -307,15 +296,12 @@ export function VisibilityTableView(props: VisibilityTableViewProps) {
         </div>
         <table class="wi-table">
           <thead><tr>
-            <Show when={props.showStep}><th>Step</th></Show>
-            <th>Field</th><Show when={props.showEventColumn}><th>Event</th></Show><th>Label</th>
-            <Show when={showValues()}><th>Value</th></Show><th>State</th><th>Logic</th><th>Needs</th>
+            <th>Field</th><Show when={props.showEventColumn}><th>Event</th></Show><th>Label</th><th>State</th><th>Logic</th><th>Needs</th>
           </tr></thead>
           <tbody>
             <For each={visibleRows()} keyed={(row) => row.key}>
               {(row) => (
                 <tr>
-                  <Show when={props.showStep}><td>{row().step}</td></Show>
                   <td>
                     <Show when={row().kind === 'form'} fallback={
                       <Show when={row().kind === 'field'} fallback={<code>{row().id}</code>}>
@@ -331,21 +317,10 @@ export function VisibilityTableView(props: VisibilityTableViewProps) {
                       {row().label}
                     </Show>
                   </td>
-                  <Show when={showValues()}>
-                    <td>
-                      <Show when={row().valueKind !== ''}>
-                        <span class={'wi-value-' + row().valueKind} title={VALUE_TITLES[row().valueKind as 'set' | 'calculated' | 'default']}>
-                          {row().valueKind === 'set' ? '' : '= '}
-                          <Show when={row().value !== ''} fallback={<span class="muted">(blank)</span>}><code>{row().value}</code></Show>
-                        </span>
-                      </Show>
-                    </td>
-                  </Show>
                   <td>{props.renderState(row)}</td>
                   <td class="expr">
                     <For each={row().logicTexts}>{(text) => props.renderLogicText(text, row)}</For>
                     <Show when={row().logicNote}><div class="muted">{row().logicNote}</div></Show>
-                    <Show when={row().derivation}><div class="muted wi-derivation">{row().derivation}</div></Show>
                   </td>
                   <td>
                     <For each={row().needs} keyed={inputKey}>{(input) => props.renderNeed(input, row)}</For>
@@ -356,6 +331,79 @@ export function VisibilityTableView(props: VisibilityTableViewProps) {
           </tbody>
         </table>
       </Show>
+      </Show>
+    </div>
+  );
+}
+
+// ---- the calculations table ----
+
+export type CalculationRow = {
+  key: string;
+  id: string;
+  event: string | null;
+  eventLabel: string;
+  label: string;
+  /** The calculation (`= …`) or default (`default …`) as written; '' for an input, which has neither. */
+  formula: string;
+  /** What the step came to, as text. Meaningful only when `valueKind` is not ''. */
+  value: string;
+  /** Where `value` came from: set by you, calculated from its formula, or its `@DEFAULT`. '' when there is no value yet. */
+  valueKind: 'set' | 'calculated' | 'default' | '';
+  /** When there is no value yet: what the step still needs, as text, for its tooltip. */
+  needsText: string;
+};
+
+export type CalculationTableViewProps = {
+  rows: CalculationRow[];
+  showEventColumn: boolean;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  onEditField: (row: CalculationRow) => void;
+};
+
+/** Presentational: the calculations and defaults that feed the explored field's logic, inputs first, each with the value it came to. */
+export function CalculationTableView(props: CalculationTableViewProps) {
+  const workedOut = (): number => props.rows.filter((row) => row.formula !== '' && row.valueKind !== '').length;
+  const pending = (): number => props.rows.filter((row) => row.formula !== '' && row.valueKind === '').length;
+  return (
+    <div class="wi-section">
+      <button class="wi-fold" aria-expanded={props.collapsed ? 'false' : 'true'} onClick={() => props.onToggleCollapsed()}>
+        <h4>Calculations</h4>
+        <span class={{ 'wi-fold-mark': true, collapsed: props.collapsed }} aria-hidden="true" />
+        <span class="small muted">Worked out ({workedOut()}) · Not yet ({pending()})</span>
+      </button>
+      <Show when={!props.collapsed}>
+        <table class="wi-table">
+          <thead><tr>
+            <th>Field</th><Show when={props.showEventColumn}><th>Event</th></Show><th>Label</th><th>Calculation</th><th>Value</th>
+          </tr></thead>
+          <tbody>
+            <For each={props.rows} keyed={(row) => row.key}>
+              {(row) => (
+                <tr>
+                  <td><button class="link" title="Edit this field" onClick={() => props.onEditField(row())}>{row().id}</button></td>
+                  <Show when={props.showEventColumn}><td>{row().eventLabel}</td></Show>
+                  <td>{row().label}</td>
+                  <td class="expr wi-derivation">
+                    <Show when={row().formula} fallback={<span class="muted small">input</span>}>{row().formula}</Show>
+                  </td>
+                  <td>
+                    <Show
+                      when={row().valueKind !== ''}
+                      fallback={<span class="muted small" title={row().needsText}>{row().formula ? 'not yet' : '(not set)'}</span>}
+                    >
+                      <span class={'wi-value-' + row().valueKind} title={VALUE_TITLES[row().valueKind as 'set' | 'calculated' | 'default']}>
+                        {row().valueKind === 'set' ? '' : '= '}
+                        <Show when={row().value !== ''} fallback={<span class="muted">(blank)</span>}><code>{row().value}</code></Show>
+                      </span>
+                    </Show>
+                  </td>
+                </tr>
+              )}
+            </For>
+          </tbody>
+        </table>
       </Show>
     </div>
   );

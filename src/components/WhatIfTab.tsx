@@ -1,7 +1,7 @@
 /* What if tab: one editable table of the values set (fields and smart variables, each with the event its value is for), then the explored field's state, what decides whether it is shown and what it affects. */
 import { Show, createMemo, createSignal } from 'solid-js';
 import type { Accessor } from 'solid-js';
-import { ANY_EVENT, controllersOf, dependentsOf, derivedValue, eventForField, eventsForField, eventsToEvaluate, isSmartKey, valueIsIgnored } from '../lib/whatIf';
+import { ANY_EVENT, calculationChainOf, controllersOf, dependentsOf, derivedValue, eventForField, eventsForField, eventsToEvaluate, isSmartKey, valueIsIgnored } from '../lib/whatIf';
 import type { MissingInput, Visibility, VisibilityInfo } from '../lib/whatIf';
 import type { Field, Model, WhatIfEngine } from '../lib/types';
 import { computeVisibilityLogic, chooserMatches, derivationOf, displayRows, nextExploredRow, rowKeyOf, setValueText, smartVariableNames } from '../lib/whatIfRows';
@@ -9,10 +9,11 @@ import type { ChooserMatch, TableRow } from '../lib/whatIfRows';
 import { need, model, selection, whatIf, visibilityIn, formLabel } from '../store';
 import { IgnoredValueHintView } from './whatIfViews';
 import { LogicText, SmartValueInput, StateBadge, ValueInput, editField, eventLabel, missingText } from './whatIfParts';
-import { FieldEditorView, ValuesTableView, VisibilityTableView } from './WhatIfTabViews';
-import type { ValuesRow, VisibilityRow } from './WhatIfTabViews';
+import { CalculationTableView, FieldEditorView, ValuesTableView, VisibilityTableView } from './WhatIfTabViews';
+import type { CalculationRow, ValuesRow, VisibilityRow } from './WhatIfTabViews';
 
 const FORM_PREFIX = 'form:';
+const CALCULATIONS_TITLE = 'Calculations';
 const MAX_MATCHES = 20;
 
 const loadedEvents = () => need(model()).parsed.events || [];
@@ -174,11 +175,7 @@ interface AffectedRow {
   id: string;
   event: string | null;
   info: VisibilityInfo | undefined;
-  /** The value worked out for a calculated or defaulted field in this row's event, when there is one. */
-  derived: string | undefined;
   state: Visibility;
-  /** Distance upstream of the chosen field in "Shown when" (0 = the field or its form); unused in "Affects". */
-  step: number;
 }
 
 const rowKey = (row: AffectedRow): string => row.id + '|' + (row.event ?? '');
@@ -190,15 +187,14 @@ const formOf = (id: string): string | undefined => {
 const isDefined = (id: string): boolean => formOf(id) !== undefined;
 
 /** Rows for the given ids in the order given, each id expanded over the events it is judged in. Repeated ids are listed once. */
-function rowsFor(entries: { id: string; step: number }[]): AffectedRow[] {
+function rowsFor(ids: string[]): AffectedRow[] {
   const loadedModel = need(model());
   const seen = new Set<string>();
-  return entries
-    .filter((entry) => !seen.has(entry.id) && !!seen.add(entry.id))
-    .flatMap((entry) => eventsToEvaluate(loadedModel, entry.id, whatIf.event()).map((event): AffectedRow => {
-      const results = visibilityIn(event, true);
-      const info = results?.get(entry.id);
-      return { id: entry.id, event, info, derived: derivedValue(results, entry.id), state: info?.state ?? 'unknown', step: entry.step };
+  return ids
+    .filter((id) => !seen.has(id) && !!seen.add(id))
+    .flatMap((id) => eventsToEvaluate(loadedModel, id, whatIf.event()).map((event): AffectedRow => {
+      const info = visibilityIn(event, true)?.get(id);
+      return { id, event, info, state: info?.state ?? 'unknown' };
     }));
 }
 /** A control for one value a row still needs: its variable (and event when different from the row's), then the input. */
@@ -217,7 +213,7 @@ function NeedControl(props: { input: MissingInput; rowEvent: string | null }) {
 }
 
 /** A table of fields/forms with their state under the current values. Rows stay in the order given, so none jump when a value changes. */
-function VisibilityTable(props: { title: string; emptyText: string; rows: AffectedRow[]; excludedInput: Field; showStep?: boolean }) {
+function VisibilityTable(props: { title: string; emptyText: string; rows: AffectedRow[]; excludedInput: Field }) {
   /** The inputs a row still needs, minus the edited field itself in its own event, which has its input above. */
   const needsOf = (row: AffectedRow): MissingInput[] =>
     (row.info?.missing ?? []).filter((input) => !(input.variable === props.excludedInput.variable && input.event === whatIf.event()));
@@ -225,9 +221,6 @@ function VisibilityTable(props: { title: string; emptyText: string; rows: Affect
     const isForm = row.id.startsWith(FORM_PREFIX);
     const formId = formOf(row.id);
     const logic = visibilityLogic(row.id, row.event);
-    const how = whatIf.derive() ? derivationOf(fieldFor(row.id)) : { kind: '' as const, text: '' };
-    // a value you set wins over one worked out, as it does in the evaluation
-    const setValue = isForm ? undefined : setValueText(whatIf.values()[row.event ?? ANY_EVENT]?.[row.id] ?? whatIf.values()[ANY_EVENT]?.[row.id]);
     return {
       key: rowKey(row),
       id: row.id,
@@ -235,7 +228,6 @@ function VisibilityTable(props: { title: string; emptyText: string; rows: Affect
       eventLabel: row.event === null ? '' : eventLabel(row.event),
       state: row.state,
       info: row.info,
-      step: row.step,
       formId,
       formLabel: formId === undefined ? '' : formLabel(isForm ? row.id.slice(FORM_PREFIX.length) : formId),
       kind: isForm ? 'form' : isDefined(row.id) ? 'field' : 'undefined',
@@ -244,9 +236,6 @@ function VisibilityTable(props: { title: string; emptyText: string; rows: Affect
       logicTexts: logic.main,
       logicNote: logic.note,
       needs: needsOf(row),
-      value: setValue ?? row.derived ?? '',
-      valueKind: setValue !== undefined ? 'set' : row.derived !== undefined && how.kind !== '' ? how.kind : '',
-      derivation: how.text,
     };
   }));
   const editRow = function editRow(row: VisibilityRow): void {
@@ -263,7 +252,6 @@ function VisibilityTable(props: { title: string; emptyText: string; rows: Affect
       title={props.title}
       emptyText={props.emptyText}
       rows={viewRows()}
-      showStep={props.showStep}
       showEventColumn={loadedEvents().length > 0}
       collapsed={!!whatIf.collapsed()[props.title]}
       onToggleCollapsed={toggleCollapsed}
@@ -281,7 +269,7 @@ function AffectedTable(props: { field: Field }) {
     const loadedModel = need(model());
     const order = new Map<string, number>([...loadedModel.byVar.keys(), ...loadedModel.formNodes.keys()].map((id, index) => [id, index]));
     const ids = [...dependentsOf(loadedModel, props.field.variable)].sort((left, right) => (order.get(left) ?? 0) - (order.get(right) ?? 0));
-    return rowsFor(ids.map((id) => ({ id, step: 0 })));
+    return rowsFor(ids);
   });
   return <VisibilityTable title="Affects" emptyText="No field or form depends on this field." rows={rows()} excludedInput={props.field} />;
 }
@@ -291,13 +279,12 @@ function ShownWhenTable(props: { field: Field }) {
   const rows = createMemo<AffectedRow[]>(() => {
     const loadedModel = need(model());
     const formNode = 'form:' + props.field.form;
-    const entries = [
-      { id: props.field.variable, step: 0 },
-      ...(loadedModel.formNodes.has(formNode) ? [{ id: formNode, step: 0 }] : []),
-      // with Calculate on, a calculated controller is followed into its inputs, so the steps of a chain show
-      ...controllersOf(loadedModel, props.field.variable, whatIf.derive()).map((controller) => ({ id: controller.variable, step: controller.depth })),
+    const ids = [
+      props.field.variable,
+      ...(loadedModel.formNodes.has(formNode) ? [formNode] : []),
+      ...controllersOf(loadedModel, props.field.variable).map((controller) => controller.variable),
     ];
-    return rowsFor(entries);
+    return rowsFor(ids);
   });
   // a field with no logic of its own, no form display logic and no controllers is always shown
   const hasLogic = () => rows().some((row) => { const logic = visibilityLogic(row.id, row.event); return logic.main.length > 0 || logic.note !== ''; });
@@ -307,8 +294,58 @@ function ShownWhenTable(props: { field: Field }) {
       emptyText="Always shown: no branching logic, action tags or form display logic decide this field."
       rows={hasLogic() ? rows() : []}
       excludedInput={props.field}
-      showStep
     />
+  );
+}
+
+/**
+ * The calculations and defaults behind the field's visibility, inputs first, each with the value it came to in the event it is judged
+ * in. Shown only with Calculate on, and only when something in the chain can be worked out.
+ */
+function CalculationsTable(props: { field: Field }) {
+  const rows = createMemo((): CalculationRow[] => {
+    const loadedModel = need(model());
+    const needsText = (info: VisibilityInfo | undefined): string =>
+      info && info.missing.length ? 'needs: ' + info.missing.map((input) => missingText(input, whatIf.event())).join(', ') : '';
+    return calculationChainOf(loadedModel, props.field.variable).flatMap((id) => {
+      const field = fieldFor(id);
+      const how = derivationOf(field);
+      return eventsToEvaluate(loadedModel, id, whatIf.event()).map((event): CalculationRow => {
+        const results = visibilityIn(event, true);
+        // a value you set wins over one worked out, as it does in the evaluation
+        const setValue = setValueText(whatIf.values()[event ?? ANY_EVENT]?.[id] ?? whatIf.values()[ANY_EVENT]?.[id]);
+        const derived = derivedValue(results, id);
+        const kind = setValue !== undefined ? 'set' : derived !== undefined && how.kind !== '' ? how.kind : '';
+        return {
+          key: id + '|' + (event ?? ''),
+          id,
+          event,
+          eventLabel: event === null ? '' : eventLabel(event),
+          label: field?.label ?? '',
+          formula: how.text,
+          value: setValue ?? derived ?? '',
+          valueKind: kind,
+          needsText: kind === '' ? needsText(results?.get(id)) : '',
+        };
+      });
+    });
+  });
+  const editRow = function editRow(row: CalculationRow): void {
+    editField(row.id, row.event);
+  };
+  const toggleCollapsed = function toggleCollapsed(): void {
+    whatIf.toggleSection(CALCULATIONS_TITLE);
+  };
+  return (
+    <Show when={whatIf.derive() && rows().length > 0}>
+      <CalculationTableView
+        rows={rows()}
+        showEventColumn={loadedEvents().length > 0}
+        collapsed={!!whatIf.collapsed()[CALCULATIONS_TITLE]}
+        onToggleCollapsed={toggleCollapsed}
+        onEditField={editRow}
+      />
+    </Show>
   );
 }
 
@@ -322,6 +359,7 @@ export default function WhatIfTab() {
           <>
             <FieldEditor field={field} />
             <ShownWhenTable field={field} />
+            <CalculationsTable field={field} />
             <AffectedTable field={field} />
           </>
         )}

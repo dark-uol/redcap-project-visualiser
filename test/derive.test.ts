@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { buildModel } from '../src/lib/graph';
 import { pipedTextExpression } from '../src/lib/logic';
 import type { EventDef, Field, ParsedODM } from '../src/lib/types';
-import { ANY_EVENT, controllersOf, derivedValue, derivedValues, evaluateVisibility, topLevelDefault } from '../src/lib/whatIf';
+import { ANY_EVENT, calculationChainOf, controllersOf, derivedValue, derivedValues, evaluateVisibility, isDerivable, topLevelDefault } from '../src/lib/whatIf';
 import type { WhatIfContext, WhatIfValue } from '../src/lib/whatIf';
 
 const field = (variable: string, form: string, over: Partial<Field> = {}): Field => ({
@@ -171,6 +171,51 @@ describe('controllersOf following calculations', () => {
 
   it('does not follow the explored field\'s own calculation, which says nothing about whether it is shown', () => {
     expect(controllersOf(model, 'nhs_valid', true).map((item) => item.variable)).not.toContain('nhs_check');
+  });
+});
+
+describe('calculationChainOf', () => {
+  const FULL_CHAIN = ['nhs_entered', 'nhs_copy', 'nhs_sum', 'nhs_quotient', 'nhs_remainder', 'nhs_check', 'nhs_last', 'nhs_valid'];
+
+  it('lists the calculations behind a field\'s visibility with the fields they read, inputs first', () => {
+    expect(calculationChainOf(model, 'nhs_warning')).toEqual(FULL_CHAIN);
+  });
+
+  it('starts from what you enter and ends at the result, so every step comes after its inputs', () => {
+    const chain = calculationChainOf(model, 'nhs_warning');
+    const position = (variable: string) => chain.indexOf(variable);
+    expect(position('nhs_entered')).toBeLessThan(position('nhs_copy'));
+    expect(position('nhs_sum')).toBeLessThan(position('nhs_quotient'));
+    expect(position('nhs_quotient')).toBeLessThan(position('nhs_remainder'));
+    expect(position('nhs_remainder')).toBeLessThan(position('nhs_check'));
+    expect(position('nhs_check')).toBeLessThan(position('nhs_valid'));
+  });
+
+  it('includes the explored field\'s own calculation, which is the last step', () => {
+    expect(calculationChainOf(model, 'nhs_valid')).toEqual(FULL_CHAIN);
+  });
+
+  it('lists a default with nothing to read as just itself, and each field once', () => {
+    expect(calculationChainOf(model, 'reads_plain_default')).toEqual(['plain_default']);
+  });
+
+  it('is empty when nothing in the chain can be worked out', () => {
+    expect(calculationChainOf(model, 'nhs_entered')).toEqual([]);
+    expect(calculationChainOf(model, 'score')).toEqual([]);
+  });
+
+  it('terminates on a calculation that depends on itself', () => {
+    expect(calculationChainOf(model, 'loop_gate').sort()).toEqual(['loop_a', 'loop_b']);
+  });
+});
+
+describe('isDerivable', () => {
+  it('is true for a calculated field and for one with a top-level default, false for anything else', () => {
+    expect(isDerivable(fields.find((item) => item.variable === 'nhs_sum'))).toBe(true);
+    expect(isDerivable(fields.find((item) => item.variable === 'plain_default'))).toBe(true);
+    expect(isDerivable(fields.find((item) => item.variable === 'conditional_default'))).toBe(false);
+    expect(isDerivable(fields.find((item) => item.variable === 'nhs_entered'))).toBe(false);
+    expect(isDerivable(undefined)).toBe(false);
   });
 });
 

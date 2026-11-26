@@ -1,6 +1,7 @@
 /* What-if visibility: given values for some fields, decide which fields and forms are shown, hidden or unknown. Pure: no Solid, no DOM. */
 
 import { evaluateCondition, evaluateValue, pipedTextExpression, splitLogicParts } from './logic';
+import { extractRefs } from './parser';
 import type { LogicFieldRef, LogicLookup, LogicPart } from './logic';
 import type { EventDef, Field, ModelBase } from './types';
 
@@ -516,6 +517,42 @@ export function controllersOf(model: ModelBase, nodeId: string, calculations = f
   }
   found.delete(nodeId);
   return [...found].map(([variable, depth]) => ({ variable, depth }));
+}
+
+/** True for a calculated field, and for a field with a top-level `@DEFAULT`: the fields whose value can be worked out from other fields. */
+export function isDerivable(field: Field | undefined): boolean {
+  return !!field && ((!!field.calc && field.calc.trim() !== '') || topLevelDefault(field.annotation || '') !== undefined);
+}
+
+/** The fields a derivable field's value is worked out from: those its calculation, or its `@DEFAULT` text, refers to (defined fields only). */
+function derivationInputsOf(model: ModelBase, field: Field): string[] {
+  const text = field.calc && field.calc.trim() ? field.calc : topLevelDefault(field.annotation || '') ?? '';
+  const names = extractRefs(text)
+    .filter((ref) => !(ref.adjNext && !model.byVar.has(ref.name))) // `[event][field]`: the first is an event prefix
+    .map((ref) => ref.name)
+    .filter((name) => model.byVar.has(name));
+  return unique(names);
+}
+
+/**
+ * The calculations and defaults behind a field's visibility, inputs first: every calculated or defaulted field that can decide whether
+ * `nodeId` is shown (or is `nodeId`), after the fields it is worked out from, each listed once. Reading down the list follows the
+ * chain from what you enter to what it comes to. Empty when nothing in the chain is derivable.
+ */
+export function calculationChainOf(model: ModelBase, nodeId: string): string[] {
+  const roots = [...controllersOf(model, nodeId, true).map((controller) => controller.variable), nodeId]
+    .filter((variable) => isDerivable(model.byVar.get(variable)));
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  const visit = function visit(variable: string): void {
+    if (seen.has(variable)) return;
+    seen.add(variable);
+    const field = model.byVar.get(variable);
+    if (field && isDerivable(field)) derivationInputsOf(model, field).forEach(visit);
+    ordered.push(variable);
+  };
+  roots.forEach(visit);
+  return ordered;
 }
 
 /** The events whose forms include the field's form, in project order (empty for a non-longitudinal project). */

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { FieldEditorView, ValuesTableView, VisibilityTableView } from '../src/components/WhatIfTabViews';
-import type { ChooserMatch, ValuesRow, ValuesTableViewProps, VisibilityRow, VisibilityTableViewProps } from '../src/components/WhatIfTabViews';
+import { CalculationTableView, FieldEditorView, ValuesTableView, VisibilityTableView } from '../src/components/WhatIfTabViews';
+import type { CalculationRow, CalculationTableViewProps, ChooserMatch, ValuesRow, ValuesTableViewProps, VisibilityRow, VisibilityTableViewProps } from '../src/components/WhatIfTabViews';
 import { fireChange, renderComponent, tick } from './renderComponent';
 
 const valuesRow = (over: Partial<ValuesRow> = {}): ValuesRow => ({
@@ -180,8 +180,8 @@ describe('FieldEditorView', () => {
 });
 
 const visibilityRow = (over: Partial<VisibilityRow> = {}): VisibilityRow => ({
-  key: 'a|', id: 'a', event: null, eventLabel: '', state: 'shown', info: undefined, step: 0, formId: 'f1', formLabel: 'Form One',
-  kind: 'field', label: 'Field A', defined: true, logicTexts: [], logicNote: '', needs: [], value: '', valueKind: '', derivation: '', ...over,
+  key: 'a|', id: 'a', event: null, eventLabel: '', state: 'shown', info: undefined, formId: 'f1', formLabel: 'Form One',
+  kind: 'field', label: 'Field A', defined: true, logicTexts: [], logicNote: '', needs: [], ...over,
 });
 
 function visibilityProps(over: Partial<VisibilityTableViewProps> = {}): VisibilityTableViewProps {
@@ -195,36 +195,65 @@ function visibilityProps(over: Partial<VisibilityTableViewProps> = {}): Visibili
   };
 }
 
-describe('VisibilityTableView values', () => {
+const calculationRow = (over: Partial<CalculationRow> = {}): CalculationRow => ({
+  key: 'a|', id: 'a', event: null, eventLabel: '', label: 'Field A', formula: '= b * 2', value: '', valueKind: '', needsText: '', ...over,
+});
+
+function calculationProps(over: Partial<CalculationTableViewProps> = {}): CalculationTableViewProps {
+  return { rows: [calculationRow()], showEventColumn: false, collapsed: false, onToggleCollapsed: vi.fn(), onEditField: vi.fn(), ...over };
+}
+
+describe('CalculationTableView', () => {
   const headers = (container: HTMLElement) => [...container.querySelectorAll('th')].map((cell) => cell.textContent);
 
-  it('has no Value column when no row has a value', () => {
-    expect(headers(renderComponent(() => <VisibilityTableView {...visibilityProps()} />))).not.toContain('Value');
+  it('has no Step column and shows the calculation and its value', () => {
+    expect(headers(renderComponent(() => <CalculationTableView {...calculationProps()} />))).toEqual(['Field', 'Label', 'Calculation', 'Value']);
+    expect(headers(renderComponent(() => <CalculationTableView {...calculationProps({ showEventColumn: true })} />))).toEqual(['Field', 'Event', 'Label', 'Calculation', 'Value']);
   });
 
-  it('shows a Value column when a row has one, marking calculated and default values with "=" and set ones plainly', () => {
+  it('marks calculated and default values with "=", set values plainly, and undecided steps as not yet', () => {
     const rows = [
-      visibilityRow({ key: 'a|', id: 'a', value: '299', valueKind: 'calculated', derivation: '= (a * 2)' }),
-      visibilityRow({ key: 'b|', id: 'b', value: 'x', valueKind: 'default', derivation: "default '[ev][z]'" }),
-      visibilityRow({ key: 'c|', id: 'c', value: '17', valueKind: 'set' }),
-      visibilityRow({ key: 'd|', id: 'd' }),
+      calculationRow({ key: 'a|', id: 'a', value: '299', valueKind: 'calculated' }),
+      calculationRow({ key: 'b|', id: 'b', formula: "default '[ev][z]'", value: 'x', valueKind: 'default' }),
+      calculationRow({ key: 'c|', id: 'c', formula: '', value: '17', valueKind: 'set' }),
+      calculationRow({ key: 'd|', id: 'd', needsText: 'needs: z' }),
+      calculationRow({ key: 'e|', id: 'e', formula: '' }),
     ];
-    const container = renderComponent(() => <VisibilityTableView {...visibilityProps({ rows })} />);
-    expect(headers(container)).toContain('Value');
-    const cells = [...container.querySelectorAll('tbody tr')].map((row) => row.querySelector('[class^="wi-value-"]'));
-    expect(cells.map((cell) => cell?.className ?? null)).toEqual(['wi-value-calculated', 'wi-value-default', 'wi-value-set', null]);
-    expect(cells.map((cell) => cell?.textContent?.trim() ?? null)).toEqual(['= 299', '= x', '17', null]);
-    expect(cells[0]!.getAttribute('title')).toBe('Calculated from its inputs');
+    const container = renderComponent(() => <CalculationTableView {...calculationProps({ rows })} />);
+    const valueCells = [...container.querySelectorAll('tbody tr')].map((row) => row.querySelector('td:last-child')!);
+    expect(valueCells.map((cell) => cell.textContent?.trim())).toEqual(['= 299', '= x', '17', 'not yet', '(not set)']);
+    expect(valueCells[0]!.querySelector('.wi-value-calculated')!.getAttribute('title')).toBe('Calculated from its inputs');
+    expect(valueCells[1]!.querySelector('.wi-value-default')).not.toBeNull();
+    expect(valueCells[2]!.querySelector('.wi-value-set')).not.toBeNull();
+    expect(valueCells[3]!.querySelector('[title]')!.getAttribute('title')).toBe('needs: z');
   });
 
-  it('shows a blank result as "(blank)", not as nothing', () => {
-    const container = renderComponent(() => <VisibilityTableView {...visibilityProps({ rows: [visibilityRow({ value: '', valueKind: 'calculated' })] })} />);
-    expect(container.querySelector('.wi-value-calculated')!.textContent).toContain('(blank)');
+  it('shows an input as "input" in the Calculation column, and a blank result as "(blank)"', () => {
+    const container = renderComponent(() => <CalculationTableView {...calculationProps({ rows: [calculationRow({ formula: '', value: '1', valueKind: 'set' }), calculationRow({ key: 'b|', value: '', valueKind: 'calculated' })] })} />);
+    const rows = [...container.querySelectorAll('tbody tr')];
+    expect(rows[0]!.querySelector('td.wi-derivation')!.textContent).toBe('input');
+    expect(rows[1]!.querySelector('td.wi-derivation')!.textContent).toBe('= b * 2');
+    expect(rows[1]!.querySelector('.wi-value-calculated')!.textContent).toContain('(blank)');
   });
 
-  it('shows the formula under the logic, with or without a value yet', () => {
-    const container = renderComponent(() => <VisibilityTableView {...visibilityProps({ rows: [visibilityRow({ derivation: '= a + b' })] })} />);
-    expect(container.querySelector('.wi-derivation')!.textContent).toBe('= a + b');
+  it('counts the steps worked out and not yet, leaving inputs out', () => {
+    const rows = [
+      calculationRow({ key: 'a|', value: '1', valueKind: 'calculated' }),
+      calculationRow({ key: 'b|', id: 'b' }),
+      calculationRow({ key: 'c|', id: 'c', formula: '', value: '5', valueKind: 'set' }),
+    ];
+    expect(renderComponent(() => <CalculationTableView {...calculationProps({ rows })} />).querySelector('.wi-fold')!.textContent).toContain('Worked out (1) · Not yet (1)');
+  });
+
+  it('collapses behind the heading, and reports a field being edited', () => {
+    const props = calculationProps({ collapsed: true });
+    const container = renderComponent(() => <CalculationTableView {...props} />);
+    expect(container.querySelector('table')).toBeNull();
+    (container.querySelector('.wi-fold') as HTMLElement).click();
+    expect(props.onToggleCollapsed).toHaveBeenCalledOnce();
+    const open = calculationProps();
+    (renderComponent(() => <CalculationTableView {...open} />).querySelector('button.link') as HTMLElement).click();
+    expect(open.onEditField).toHaveBeenCalledWith(open.rows[0]);
   });
 });
 
@@ -271,9 +300,9 @@ describe('VisibilityTableView', () => {
     expect(props.onEditField).toHaveBeenCalledWith(props.rows[0]);
   });
 
-  it('shows the step column only when asked', () => {
-    expect(renderComponent(() => <VisibilityTableView {...visibilityProps({ showStep: true, rows: [visibilityRow({ step: 2 })] })} />).querySelector('thead')!.textContent).toContain('Step');
-    expect(renderComponent(() => <VisibilityTableView {...visibilityProps()} />).querySelector('thead')!.textContent).not.toContain('Step');
+  it('has no Step or Value column', () => {
+    const headers = [...renderComponent(() => <VisibilityTableView {...visibilityProps()} />).querySelectorAll('th')].map((cell) => cell.textContent);
+    expect(headers).toEqual(['Field', 'Label', 'State', 'Logic', 'Needs']);
   });
 
   it('renders the logic, the note and the needs through the slots', () => {
