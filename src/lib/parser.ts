@@ -244,10 +244,20 @@ export function parseODM(text: string): ParsedODM {
   }
   const redcapVersion = attr(root, 'RedcapVersion') || attr(root, 'SourceSystemVersion');
 
+  function parseCheckboxChoices(raw: string): Choice[] {
+    if (!raw) return [];
+    return raw.split('|').map((x) => {
+      const i = x.indexOf(',');
+      return { code: x.slice(0, i).trim(), label: x.slice(i + 1).trim() };
+    });
+  }
+
   // Code lists (choices)
   const codeLists: Record<string, Choice[]> = {};
   all(doc, 'CodeList').forEach((cl) => {
-    codeLists[attr(cl, 'OID')] = all(cl, 'CodeListItem').map((ci) => {
+    // Checkbox code lists only hold Checked/Unchecked; the real options are in CheckboxChoices.
+    const checkboxChoices = parseCheckboxChoices(attr(cl, 'CheckboxChoices'));
+    codeLists[attr(cl, 'OID')] = checkboxChoices.length ? checkboxChoices : all(cl, 'CodeListItem').map((ci) => {
       const t = all(ci, 'TranslatedText')[0];
       return { code: attr(ci, 'CodedValue'), label: t ? (t.textContent ?? '').trim() : '' };
     });
@@ -317,12 +327,7 @@ export function parseODM(text: string): ParsedODM {
     if (seenVars.has(variable)) return;
     seenVars.add(variable);
     const cc = attr(it, 'CheckboxChoices');
-    if (cc && !f.choices.length) {
-      f.choices = cc.split('|').map((x) => {
-        const i = x.indexOf(',');
-        return { code: x.slice(0, i).trim(), label: x.slice(i + 1).trim() };
-      });
-    }
+    if (cc && !f.choices.length) f.choices = parseCheckboxChoices(cc);
     const form = itemForm[oid] || noForm;
     f.form = form.id;
     form.fields.push(variable);
