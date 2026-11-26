@@ -342,3 +342,19 @@ describe('effectiveRenderer', () => {
     expect(store.effectiveRenderer()).toBe('elk');
   });
 });
+
+describe('switching renderer', () => {
+  it('never changes the view, the selection or the exploration, only how the view is drawn', () => {
+    settle(() => { store.selection.setLevel('form'); store.setInstances(true); });
+    const nodeIds = store.view()!.nodes.map((n) => n.id);
+    settle(() => store.selection.setSelected(nodeIds[0]!));
+    const before = { selected: store.selection.selected(), nodes: nodeIds, expanded: [...store.expanded()], instances: store.instances() };
+    for (const renderer of ['elk', 'swimlane', 'mermaid', 'graphviz'] as const) {
+      settle(() => store.presentation.setRenderer(renderer));
+      expect(store.selection.selected()).toBe(before.selected);
+      expect(store.view()!.nodes.map((n) => n.id)).toEqual(before.nodes);
+      expect([...store.expanded()]).toEqual(before.expanded);
+      expect(store.instances()).toBe(before.instances);
+    }
+  });
+});
