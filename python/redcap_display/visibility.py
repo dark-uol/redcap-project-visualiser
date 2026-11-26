@@ -507,6 +507,14 @@ def _make_evaluate(model: Model, context: Context, blank_fields: Set[str]) -> Ev
 
 def evaluate_visibility(model: Model, context: Context) -> Dict[str, VisibilityInfo]:
     """Keys: every field variable in the model, plus every form node id (``form:<form id>``)."""
+    return evaluate_visibility_with_blank(model, context)[0]
+
+
+def evaluate_visibility_with_blank(model: Model, context: Context) -> Tuple[Dict[str, VisibilityInfo], Set[str]]:
+    """The visibility of every field and form node, and the fields it treated as blank (hidden by branching logic or a hidden form).
+
+    The blank set lets a caller judge a piece of logic again exactly as it was judged here (TypeScript ``explainLogic``).
+    """
     current: Dict[str, VisibilityInfo] = {}
     for variable in model.fields:
         current[variable] = VisibilityInfo("unknown")
@@ -531,4 +539,4 @@ def evaluate_visibility(model: Model, context: Context) -> Dict[str, VisibilityI
         blank_fields = next_blank
         if not changed:
             break
-    return current
+    return current, blank_fields

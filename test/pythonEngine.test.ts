@@ -11,7 +11,7 @@ import sampleXml from '../public/sample/sample.xml?raw';
 import { buildModel } from '../src/lib/graph';
 import { parseODM } from '../src/lib/parser';
 import { createPythonVisibility, loadPythonRuntime } from '../src/lib/pythonEngine';
-import { ANY_EVENT, evaluateVisibility } from '../src/lib/whatIf';
+import { ANY_EVENT, evaluateVisibility, explainLogic } from '../src/lib/whatIf';
 import type { WhatIfContext } from '../src/lib/whatIf';
 
 const TEST_DIRECTORY = join(process.cwd(), 'python', 'tests');
@@ -51,6 +51,26 @@ describe('Python core on Pyodide', () => {
       expect([...actual.keys()]).toEqual([...expected.keys()]);
       expect(Object.fromEntries(actual)).toEqual(Object.fromEntries(expected));
     });
+    engine.destroy();
+  }, SLOW);
+
+  it('explains each part of a field\'s logic the same under both engines, including reads of hidden fields as blank', async () => {
+    const parsed = parseODM(sampleXml);
+    const model = buildModel(parsed);
+    const engine = await createPythonVisibility(parsed);
+    // consent is hidden at age 17, so it reads blank in pack_years' logic ([smoker] = '1' and [consent] = '1')
+    const context: WhatIfContext = { values: { [ANY_EVENT]: { age: '17', smoker: '1', consent: '1' } }, mode: 'form', event: null };
+    const expected = evaluateVisibility(model, context);
+    const actual = engine.evaluate(context);
+    let compared = 0;
+    model.byVar.forEach((field) => {
+      if (!field.branching) return;
+      expect(explainLogic(model, context, actual, field.branching), field.variable).toEqual(explainLogic(model, context, expected, field.branching));
+      compared++;
+    });
+    expect(compared).toBeGreaterThan(5);
+    const packYears = explainLogic(model, context, actual, "[smoker] = '1' and [consent] = '1'");
+    expect(packYears.map((part) => part.result)).toEqual([true, false]);
     engine.destroy();
   }, SLOW);
 });

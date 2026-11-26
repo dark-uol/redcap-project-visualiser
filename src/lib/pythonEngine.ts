@@ -1,5 +1,6 @@
 /* The Python evaluation core (python/redcap_display) running in the browser through Pyodide. Pure: no Solid, no DOM. */
 import type { ParsedODM } from './types';
+import { rememberBlankFields } from './whatIf';
 import type { VisibilityInfo, WhatIfContext } from './whatIf';
 
 /**
@@ -75,8 +76,10 @@ export async function createPythonVisibility(parsed: ParsedODM, options: PythonR
   return {
     pythonVersion,
     evaluate: function evaluate(context: WhatIfContext): Map<string, VisibilityInfo> {
-      const result = JSON.parse(proxy.evaluate_json(JSON.stringify(context))) as Record<string, VisibilityInfo>;
-      return new Map(Object.entries(result));
+      const outcome = JSON.parse(proxy.evaluate_json(JSON.stringify(context))) as { results: Record<string, VisibilityInfo>; blank: string[] };
+      const results = new Map(Object.entries(outcome.results));
+      rememberBlankFields(results, outcome.blank);
+      return results;
     },
     destroy: function destroy(): void { proxy.destroy(); },
   };

@@ -322,6 +322,11 @@ export function evaluateVisibility(model: ModelBase, context: WhatIfContext): Ma
 /** The fields each evaluateVisibility result treated as blank, so a piece of logic can be judged again exactly as it was. */
 const blankFieldsOf = new WeakMap<Map<string, VisibilityInfo>, ReadonlySet<string>>();
 
+/** For results that did not come from evaluateVisibility (the Python engine's): record the fields they treated as blank, so explainLogic agrees. */
+export function rememberBlankFields(results: Map<string, VisibilityInfo>, blankFields: Iterable<string>): void {
+  blankFieldsOf.set(results, new Set(blankFields));
+}
+
 /** One top-level operand of a condition and how it came out: true, false, or undefined when it cannot be decided yet. */
 export interface ExplainedPart extends LogicPart { result: boolean | undefined }
 
