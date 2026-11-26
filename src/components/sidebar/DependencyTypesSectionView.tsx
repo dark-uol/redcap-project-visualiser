@@ -3,17 +3,6 @@ import { TYPES } from '../../lib/graph';
 import type { DepType, TypeMeta } from '../../lib/types';
 import { createHint, HintToggle, HintText } from '../controls';
 
-/** CSS border-top-style used for each dependency type's legend swatch. */
-const DEPENDENCY_BORDER_STYLE: Record<DepType, string> = {
-  branching: 'solid',
-  calc: 'double',
-  piping: 'dashed',
-  embedding: 'dotted',
-  actiontag: 'dashed',
-  formlogic: 'dashed',
-  logicsrc: 'dashed',
-};
-
 const typeEntries = Object.entries(TYPES) as [DepType, TypeMeta][];
 
 export type DependencyTypesSectionViewProps = {
@@ -28,7 +17,7 @@ export function DependencyTypesSectionView(props: DependencyTypesSectionViewProp
   return (
     <details class="sec">
       <summary><h2>Dependency types <HintToggle help={help} title="Dependency types" /></h2></summary>
-      <HintText help={help}>Which kinds of link are drawn. Untick a type to hide those edges everywhere; the line style shows which type is which.</HintText>
+      <HintText help={help}>Which kinds of link are drawn. Untick a type to hide those edges everywhere; the line colour shows which type is which.</HintText>
       <For each={typeEntries}>
         {([kind, meta]) => <TypeRow kind={kind} meta={meta} checked={props.typesOn[kind]} onTypeChange={props.onTypeChange} />}
       </For>
@@ -43,6 +32,6 @@ function TypeRow(props: { kind: DepType; meta: TypeMeta; checked: boolean; onTyp
 
   return (
     <label class="typerow"><input type="checkbox" checked={props.checked} onChange={onTypeChange} />
-      <span class="sw" style={`border-color:${props.meta.color};border-top-style:${DEPENDENCY_BORDER_STYLE[props.kind]}`}></span>{props.meta.label}</label>
+      <span class="sw" style={`border-color:${props.meta.color}`}></span>{props.meta.label}</label>
   );
 }

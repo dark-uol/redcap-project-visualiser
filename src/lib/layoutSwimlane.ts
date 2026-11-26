@@ -1,13 +1,21 @@
 /* Swimlane layout of the form-instance view: one lane per arm, one column per event, time running left to right.
+ * Edges are right-angle polylines routed through the gutters and gaps between the nodes (see swimlaneRouting.ts); where more
+ * edges run side by side than a gutter, gap, footer or node side holds, it grows.
  * Pure and deterministic; no Solid, no DOM. */
-import type { EventDef, View, ViewEdge, ViewNode } from './types';
+import type { EventDef, View, ViewNode } from './types';
 import type { Layout, LayoutEdge, LayoutNode, LayoutRegion, Point } from './layout';
-import { NODE_BOX_MINIMUM_HEIGHT, NODE_BOX_WIDTH, nodeBoxHeight, type NodeBoxOptions } from './nodeBox';
+import { NODE_BOX_WIDTH, nodeBoxHeight, nodeBoxHeightWithPorts, type NodeBoxOptions } from './nodeBox';
+import {
+  BAND_MARGIN, GAP_MARGIN, SIDE_CLEARANCE, TRACK_SPACING, assignTracks, isGrowthEmpty, routeChannels,
+  type ChannelGeometry, type ChannelStructure, type Growth, type RoutedEdge,
+} from './swimlaneRouting';
 
 const NODE_WIDTH = NODE_BOX_WIDTH;
 const NODE_GAP = 18;
 const COLUMN_GAP = 40;
 const COLUMN_PITCH = NODE_WIDTH + COLUMN_GAP;
+/** Free width of a gutter before it grows: the column gap less the clearance beside the nodes on both sides. */
+const BASE_GUTTER_FREE = COLUMN_GAP - 2 * SIDE_CLEARANCE;
 const PIXELS_PER_DAY = 10;
 /** Longest day span drawn at full scale; longer studies are compressed so the graph stays a sensible width. */
 const MAX_DAY_SPAN_PIXELS = 900;
@@ -24,9 +32,10 @@ const CLUSTER_BOTTOM = 6;
 const CLUSTER_LABEL_CHARACTERS = 20;
 const LANE_FOOTER = 30;
 const LANE_GAP = 20;
-const BACKWARD_BOW = 40;
 const FIRST_CENTER = MARGIN + LANE_LABEL_WIDTH + COLUMN_PITCH / 2;
 const NO_EVENT_ARM = '(no event)';
+/** Rounds of growing what did not fit and assigning the tracks again. */
+const MAX_GROWTH_ROUNDS = 25;
 /** An event column holds at most this many stacked nodes; more flow into side-by-side sub-columns, so a big project
  * stays a sensible height. */
 export const MAX_COLUMN_ROWS = 25;
@@ -35,29 +44,53 @@ interface ColumnPlan {
   id: string;
   event?: EventDef;
   nodes: ViewNode[];
-  /** Centre of the whole column region (all its sub-columns). */
+  /** Centre of the column's sub-columns (without the extra width of its outer gutters). */
   centerX: number;
-  /** Number of side-by-side sub-columns, each COLUMN_PITCH wide; the region is `subColumns * COLUMN_PITCH` wide. */
+  /** Number of side-by-side sub-columns, each COLUMN_PITCH wide plus the extra width of the gutters between them. */
   subColumns: number;
   /** Stacked nodes per sub-column (the last may hold fewer). */
   rowsPerSubColumn: number;
+  /** Node ids of every sub-column, top to bottom. */
+  stacks: string[][];
   /** Top-left y of each node, relative to the lane's top, by node id. */
   topById: Map<string, number>;
   /** Index of the sub-column each node sits in, by node id. */
   subColumnById: Map<string, number>;
   /** Height of the tallest sub-column's stacked nodes, including cluster padding. */
   contentHeight: number;
+  /** Extra width of the gutter right of every sub-column but the last. */
+  innerGutterExtra: number[];
+  /** Extra width of the gutter left of the column (the first of its lane only) and right of it. */
+  leftExtra: number;
+  rightExtra: number;
+  /** Per sub-column, extra height of each gap: index i > 0 is the gap above its i-th node, the stack length the space below
+   * the last node. */
+  gapExtra: number[][];
+  /** Per sub-column, the space of each gap relative to the lane's top, same indexes (the space below the last node starts
+   * at `top`; its bottom is the lane's content bottom). */
+  gapRanges: { top: number; bottom: number }[][];
 }
 
 const newColumnPlan = (id: string, nodes: ViewNode[], event?: EventDef): ColumnPlan => {
   const subColumns = Math.max(1, Math.ceil(nodes.length / MAX_COLUMN_ROWS));
   return {
     id, event, nodes, centerX: 0, subColumns, rowsPerSubColumn: Math.max(1, Math.ceil(nodes.length / subColumns)),
-    topById: new Map(), subColumnById: new Map(), contentHeight: 0,
+    stacks: [], topById: new Map(), subColumnById: new Map(), contentHeight: 0,
+    innerGutterExtra: new Array(subColumns - 1).fill(0), leftExtra: 0, rightExtra: 0, gapExtra: [], gapRanges: [],
   };
 };
 
-const columnWidth = (column: ColumnPlan): number => column.subColumns * COLUMN_PITCH;
+/** Width of the sub-columns and the gutters between them. */
+const coreWidth = (column: ColumnPlan): number =>
+  column.subColumns * COLUMN_PITCH + column.innerGutterExtra.reduce((sum, extra) => sum + extra, 0);
+const leftReach = (column: ColumnPlan): number => coreWidth(column) / 2 + column.leftExtra;
+const rightReach = (column: ColumnPlan): number => coreWidth(column) / 2 + column.rightExtra;
+/** Left x of the nodes of a sub-column. */
+const subColumnLeft = (column: ColumnPlan, subColumn: number): number => {
+  let left = column.centerX - coreWidth(column) / 2 + COLUMN_GAP / 2 + subColumn * COLUMN_PITCH;
+  for (let index = 0; index < subColumn; index++) left += column.innerGutterExtra[index];
+  return left;
+};
 
 interface LanePlan {
   id: string;
@@ -65,6 +98,10 @@ interface LanePlan {
   columns: ColumnPlan[];
   y: number;
   height: number;
+  /** y of the bottom of the lowest node (or form box); the footer band below it carries routes. */
+  contentBottom: number;
+  /** Extra height of the footer band. */
+  bandExtra: number;
 }
 
 /** "day 30 (±7)", "day 30", "(-3/+7)", "(±7)": parts that are missing are omitted. */
@@ -106,9 +143,10 @@ export const wrapLabel = (text: string, maxCharacters: number, maxLines: number 
 };
 
 /** Assigns each drawn event column a centre x: scaled by day when every event has one, else by order; then keeps columns apart.
- * A column is `columnWidth` wide (one pitch per sub-column) and centred on its desired x, but never starts left of the first
- * column's left edge and never overlaps what precedes it: it is pushed right until its left edge clears the right edge of the
- * previous column, or, when columns share an x (equal days in different arms), of the widest column in that shared group. */
+ * A column reaches `leftReach` left and `rightReach` right of its centre (one pitch per sub-column, plus any grown gutters) and
+ * is centred on its desired x, but never starts left of the first column's left edge and never overlaps what precedes it: it
+ * is pushed right until its left edge clears the right edge of the previous column, or, when columns share an x (equal days in
+ * different arms), of the widest column in that shared group. */
 const placeColumns = (columns: ColumnPlan[]): void => {
   const timed = columns.length > 0 && columns.every((column) => column.event?.dayOffset !== undefined);
   if (timed) {
@@ -126,25 +164,25 @@ const placeColumns = (columns: ColumnPlan[]): void => {
   let groupRight = firstLeft;
   const armRight = new Map<string, number>();
   columns.forEach((column, index) => {
-    const halfWidth = columnWidth(column) / 2;
+    const left = leftReach(column);
     const desired = timed
       ? firstCenter + ((column.event!.dayOffset as number) - firstDay) * pixelsPerDay
       : firstCenter + index * COLUMN_PITCH;
     const arm = column.event!.arm;
     const sameDay = timed && previous !== undefined && previous.event!.dayOffset === column.event!.dayOffset;
     // what the column's own lane already holds: a wide column sharing an x must still start right of its own lane's last column
-    const ownLaneClearance = (armRight.get(arm) ?? firstLeft) + halfWidth;
+    const ownLaneClearance = (armRight.get(arm) ?? firstLeft) + left;
     if (previous && sameDay && !sharedArms.has(arm)) {
       // Equal days in different arms may share an x: their lanes keep them apart.
-      column.centerX = Math.max(previous.centerX, firstLeft + halfWidth, ownLaneClearance);
+      column.centerX = Math.max(previous.centerX, firstLeft + left, ownLaneClearance);
       sharedArms.add(arm);
-      groupRight = Math.max(groupRight, column.centerX + halfWidth);
+      groupRight = Math.max(groupRight, column.centerX + rightReach(column));
     } else {
-      column.centerX = Math.max(desired, firstLeft + halfWidth, previous ? groupRight + halfWidth : 0);
+      column.centerX = Math.max(desired, firstLeft + left, previous ? groupRight + left : 0);
       sharedArms = new Set([arm]);
-      groupRight = column.centerX + halfWidth;
+      groupRight = column.centerX + rightReach(column);
     }
-    armRight.set(arm, column.centerX + halfWidth);
+    armRight.set(arm, column.centerX + rightReach(column));
     previous = column;
   });
 };
@@ -160,8 +198,42 @@ const initialOrder = (column: ColumnPlan, viewOrder: Map<string, number>): ViewN
     formRank(first) - formRank(second) || (viewOrder.get(first.id) as number) - (viewOrder.get(second.id) as number));
 };
 
+/** Stacks every sub-column of the column from the header down: nodes NODE_GAP apart (plus any grown gap), a form box's
+ * padding around the fields of one cluster. Each sub-column starts again at the header, and a form box cut by a sub-column
+ * boundary is closed and reopened (CLUSTER_TOP again). Records the tops, the gaps and the content height. */
+const stackColumn = (column: ColumnPlan, headerHeight: number, heightById: Map<string, number>, clusterOf: Map<string, string>): void => {
+  let tallest = 0;
+  column.gapRanges = column.stacks.map((ids, subColumn) => {
+    const extra = column.gapExtra[subColumn];
+    const ranges: { top: number; bottom: number }[] = [];
+    let top = headerHeight;
+    let previousCluster: string | undefined;
+    let previousBottom = headerHeight;
+    ids.forEach((id, position) => {
+      const cluster = clusterOf.get(id);
+      const closes = previousCluster !== undefined && previousCluster !== cluster;
+      const opens = cluster !== undefined && cluster !== previousCluster;
+      if (position > 0) top += NODE_GAP + extra[position];
+      if (closes) top += CLUSTER_BOTTOM;
+      if (opens) top += CLUSTER_TOP;
+      if (position > 0) ranges[position] = { top: previousBottom + (closes ? CLUSTER_BOTTOM : 0), bottom: top - (opens ? CLUSTER_TOP : 0) };
+      column.topById.set(id, top);
+      column.subColumnById.set(id, subColumn);
+      top += heightById.get(id) as number;
+      previousBottom = top;
+      previousCluster = cluster;
+    });
+    const end = ids.length ? top + (previousCluster ? CLUSTER_BOTTOM : 0) : headerHeight;
+    ranges[ids.length] = { top: end, bottom: end + extra[ids.length] };
+    if (ids.length) tallest = Math.max(tallest, end + extra[ids.length] - headerHeight);
+    return ranges;
+  });
+  column.contentHeight = tallest;
+};
+
 /** One barycentre sweep left to right: order by the mean y of already-placed neighbours in earlier columns of the lane.
- * The fields of a zoomed-in form stay together, ordered as one unit, with padding around them for the cluster box. */
+ * The fields of a zoomed-in form stay together, ordered as one unit. Fills column-major: the sorted nodes run down the first
+ * sub-column, then the next, so a form's fields stay contiguous. */
 const orderLane = (
   lane: LanePlan, neighbours: Map<string, string[]>, viewOrder: Map<string, number>, headerHeight: number, clusterOf: Map<string, string>,
   heightById: Map<string, number>,
@@ -192,165 +264,17 @@ const orderLane = (
       return cluster ? (clusterMeans.get(cluster) as number) : entry.barycentre;
     };
     keyed.sort((first, second) => sortKey(first) - sortKey(second) || first.slot - second.slot);
-    // Fill column-major: the sorted nodes run down the first sub-column, then the next, so a form's fields stay contiguous.
-    // Each sub-column starts again at the header, and a form box cut by a boundary is closed and reopened (CLUSTER_TOP again).
-    let top = headerHeight;
-    let previousCluster: string | undefined;
-    let tallest = 0;
-    keyed.forEach(({ node }, position) => {
-      const subColumn = Math.floor(position / column.rowsPerSubColumn);
-      const startsSubColumn = position % column.rowsPerSubColumn === 0;
-      if (startsSubColumn && position > 0) {
-        tallest = Math.max(tallest, top - headerHeight + (previousCluster ? CLUSTER_BOTTOM : 0));
-        top = headerHeight;
-        previousCluster = undefined;
-      }
-      const cluster = clusterOf.get(node.id);
-      if (!startsSubColumn) top += NODE_GAP;
-      if (previousCluster && previousCluster !== cluster) top += CLUSTER_BOTTOM;
-      if (cluster && cluster !== previousCluster) top += CLUSTER_TOP;
-      column.topById.set(node.id, top);
-      column.subColumnById.set(node.id, subColumn);
-      placedTop.set(node.id, top);
-      top += heightById.get(node.id) as number;
-      previousCluster = cluster;
-    });
-    column.contentHeight = keyed.length ? Math.max(tallest, top - headerHeight + (previousCluster ? CLUSTER_BOTTOM : 0)) : 0;
+    column.stacks = Array.from({ length: column.subColumns }, () => []);
+    keyed.forEach(({ node }, position) => column.stacks[Math.floor(position / column.rowsPerSubColumn)].push(node.id));
+    column.gapExtra = column.stacks.map((ids) => new Array(ids.length + 1).fill(0));
+    stackColumn(column, headerHeight, heightById, clusterOf);
+    column.topById.forEach((top, id) => placedTop.set(id, top));
   });
 };
 
 export type Curve = [Point, Point, Point, Point];
-/** Vertical shifts tried, in order, for a left-to-right or backward edge until one clears every other node. */
-const ROUTE_OFFSETS = [0, -40, 40, -80, 80, -120, 120];
-/** Horizontal bows tried, in order, for a same-column edge that cannot run straight. */
-const SIDE_BOWS = [70, -70, 24, -24, 110, -110, 160, -160];
-export const NODE_CLEARANCE = 4;
-const RECIPROCAL_NUDGE = 8;
-const CURVE_SAMPLES = 32;
-const GRID_CELL = NODE_WIDTH;
 
-export const curvePoint = (curve: Curve, t: number): Point => {
-  const u = 1 - t;
-  const weights = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t];
-  return {
-    x: curve.reduce((sum, point, index) => sum + point.x * weights[index], 0),
-    y: curve.reduce((sum, point, index) => sum + point.y * weights[index], 0),
-  };
-};
-
-/** Uniform grid of node boxes (each node listed in every cell its clearance-inflated box touches), so a point query looks at
- * a handful of nodes instead of all of them. */
-export type NodeGrid = Map<string, LayoutNode[]>;
-
-const cellKey = (column: number, row: number): string => `${column},${row}`;
-
-export const buildNodeGrid = (nodes: LayoutNode[]): NodeGrid => {
-  const grid: NodeGrid = new Map();
-  nodes.forEach((node) => {
-    const firstColumn = Math.floor((node.x - NODE_CLEARANCE) / GRID_CELL);
-    const lastColumn = Math.floor((node.x + node.width + NODE_CLEARANCE) / GRID_CELL);
-    const firstRow = Math.floor((node.y - NODE_CLEARANCE) / GRID_CELL);
-    const lastRow = Math.floor((node.y + node.height + NODE_CLEARANCE) / GRID_CELL);
-    for (let column = firstColumn; column <= lastColumn; column++) {
-      for (let row = firstRow; row <= lastRow; row++) {
-        const key = cellKey(column, row);
-        const cell = grid.get(key);
-        if (cell) cell.push(node); else grid.set(key, [node]);
-      }
-    }
-  });
-  return grid;
-};
-
-/** Whether the curve passes through any node other than the ignored ones (its own endpoints): samples the curve and checks
- * only the nodes in the grid cell of each sample. Same result as testing every node. */
-export const curveHitsNode = (curve: Curve, grid: NodeGrid, ignored: Set<string>): boolean => {
-  for (let step = 1; step < CURVE_SAMPLES; step++) {
-    const point = curvePoint(curve, step / CURVE_SAMPLES);
-    const cell = grid.get(cellKey(Math.floor(point.x / GRID_CELL), Math.floor(point.y / GRID_CELL)));
-    if (!cell) continue;
-    const hit = cell.some((node) => !ignored.has(node.id)
-      && point.x > node.x - NODE_CLEARANCE && point.x < node.x + node.width + NODE_CLEARANCE
-      && point.y > node.y - NODE_CLEARANCE && point.y < node.y + node.height + NODE_CLEARANCE);
-    if (hit) return true;
-  }
-  return false;
-};
-
-/** The ids of the nodes (other than the ignored ones) that the curve passes through, found like `curveHitsNode` but without stopping at the first. */
-export const curveHitIds = (curve: Curve, grid: NodeGrid, ignored: Set<string>): Set<string> => {
-  const hits = new Set<string>();
-  for (let step = 1; step < CURVE_SAMPLES; step++) {
-    const point = curvePoint(curve, step / CURVE_SAMPLES);
-    const cell = grid.get(cellKey(Math.floor(point.x / GRID_CELL), Math.floor(point.y / GRID_CELL)));
-    if (!cell) continue;
-    cell.forEach((node) => {
-      if (!ignored.has(node.id)
-        && point.x > node.x - NODE_CLEARANCE && point.x < node.x + node.width + NODE_CLEARANCE
-        && point.y > node.y - NODE_CLEARANCE && point.y < node.y + node.height + NODE_CLEARANCE) hits.add(node.id);
-    });
-  }
-  return hits;
-};
-
-/** The ids of the nodes (other than the ignored ones) that an axis-aligned polyline passes through. Every segment of a gutter
- * route is horizontal or vertical, so a segment is its own bounding box and is tested exactly against the grid cells it spans. */
-export const polylineHitIds = (points: Point[], grid: NodeGrid, ignored: Set<string>): Set<string> => {
-  const hits = new Set<string>();
-  for (let index = 1; index < points.length; index++) {
-    const left = Math.min(points[index - 1].x, points[index].x);
-    const right = Math.max(points[index - 1].x, points[index].x);
-    const top = Math.min(points[index - 1].y, points[index].y);
-    const bottom = Math.max(points[index - 1].y, points[index].y);
-    for (let column = Math.floor(left / GRID_CELL); column <= Math.floor(right / GRID_CELL); column++) {
-      for (let row = Math.floor(top / GRID_CELL); row <= Math.floor(bottom / GRID_CELL); row++) {
-        grid.get(cellKey(column, row))?.forEach((node) => {
-          if (!ignored.has(node.id) && left < node.x + node.width + NODE_CLEARANCE && right > node.x - NODE_CLEARANCE
-            && top < node.y + node.height + NODE_CLEARANCE && bottom > node.y - NODE_CLEARANCE) hits.add(node.id);
-        });
-      }
-    }
-  }
-  return hits;
-};
-
-/** Free vertical lane beside a node's side: the middle of the COLUMN_GAP between this sub-column and its neighbour. */
-const GUTTER_OFFSET = (COLUMN_PITCH - NODE_WIDTH) / 2;
-/** Extra channels tried above and below the nearest gaps, one row (a node and its gap) at a time. */
-const CHANNEL_ROWS = 6;
 const ARROW_MARGIN = 10;
-
-/** Gutter-channel polylines for an edge, in the order they are tried: out of the source's side into the gutter, along a
- * horizontal channel in a gap between rows, and into the target's side through its gutter. */
-const gutterRoutes = (source: LayoutNode, target: LayoutNode, leftward: boolean, rightward: boolean, nudge: number): Point[][] => {
-  const sourceMiddle = source.y + source.height / 2;
-  const targetMiddle = target.y + target.height / 2;
-  const routes: Point[][] = [];
-  if (!leftward && !rightward) {
-    // overlapping x (one sub-column, or equal-day columns of different lanes): out of the right gutter and back, then the left
-    [1, -1].forEach((side) => {
-      const sourceEdge = side > 0 ? source.x + source.width : source.x;
-      const targetEdge = side > 0 ? target.x + target.width : target.x;
-      const gutter = side > 0 ? Math.max(sourceEdge, targetEdge) + GUTTER_OFFSET + nudge : Math.min(sourceEdge, targetEdge) - GUTTER_OFFSET + nudge;
-      routes.push([{ x: sourceEdge, y: sourceMiddle }, { x: gutter, y: sourceMiddle }, { x: gutter, y: targetMiddle }, { x: targetEdge, y: targetMiddle }]);
-    });
-    return routes;
-  }
-  const direction = rightward ? 1 : -1;
-  const start = { x: direction > 0 ? source.x + source.width : source.x, y: sourceMiddle };
-  const end = { x: direction > 0 ? target.x : target.x + target.width, y: targetMiddle };
-  const sourceGutter = start.x + direction * GUTTER_OFFSET;
-  const targetGutter = end.x - direction * GUTTER_OFFSET;
-  const row = NODE_BOX_MINIMUM_HEIGHT + NODE_GAP;
-  const below = (node: LayoutNode): number => node.y + node.height + NODE_GAP / 2;
-  const above = (node: LayoutNode): number => node.y - NODE_GAP / 2;
-  const channels: number[] = [below(source), above(source), below(target), above(target)];
-  for (let step = 1; step <= CHANNEL_ROWS; step++) channels.push(below(source) + step * row, above(source) - step * row, below(target) + step * row, above(target) - step * row);
-  [...new Set(channels)].forEach((channel) => {
-    routes.push([start, { x: sourceGutter, y: sourceMiddle }, { x: sourceGutter, y: channel }, { x: targetGutter, y: channel }, { x: targetGutter, y: targetMiddle }, end]);
-  });
-  return routes;
-};
 
 /** The shift that brings every route at least ARROW_MARGIN inside the origin: right for a route left of it, down for one above. */
 export const originShift = (routeLeft: number, routeTop: number): Point => ({
@@ -374,7 +298,11 @@ export const shiftLayoutContents = (
   });
 };
 
+/** What a gutter's extra width belongs to: the left of a lane's first column, the right of a column, or a gutter inside one. */
+interface GutterOwner { column: ColumnPlan; kind: 'left' | 'right' | 'inner'; subColumn: number }
+
 export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxOptions = {}): Layout {
+  const viewNodeById = new Map(view.nodes.map((viewNode) => [viewNode.id, viewNode] as const));
   const heightById = new Map(view.nodes.map((viewNode) => [viewNode.id, nodeBoxHeight(viewNode, options)] as const));
   const eventById = new Map(events.map((event) => [event.id, event]));
   const viewOrder = new Map(view.nodes.map((node, index) => [node.id, index]));
@@ -410,21 +338,23 @@ export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxO
 
   const lanes: LanePlan[] = [];
   const laneByArm = new Map<string, LanePlan>();
+  const newLane = (id: string, label: string): LanePlan => ({ id, label, columns: [], y: 0, height: 0, contentBottom: 0, bandExtra: 0 });
   columns.forEach((column) => {
     const event = column.event!;
     let lane = laneByArm.get(event.arm);
     if (!lane) {
-      lane = { id: `lane:${event.arm}`, label: `Arm ${event.arm}: ${event.armName}`, columns: [], y: 0, height: 0 };
+      lane = newLane(`lane:${event.arm}`, `Arm ${event.arm}: ${event.armName}`);
       laneByArm.set(event.arm, lane);
       lanes.push(lane);
     }
     lane.columns.push(column);
   });
+  let noEventColumn: ColumnPlan | undefined;
   if (unplaced.length) {
-    const column = newColumnPlan(`column:${NO_EVENT_ARM}`, unplaced);
-    // left-aligned with the first event column
-    column.centerX = FIRST_CENTER - COLUMN_PITCH / 2 + columnWidth(column) / 2;
-    lanes.push({ id: `lane:${NO_EVENT_ARM}`, label: NO_EVENT_ARM, columns: [column], y: 0, height: 0 });
+    noEventColumn = newColumnPlan(`column:${NO_EVENT_ARM}`, unplaced);
+    const lane = newLane(`lane:${NO_EVENT_ARM}`, NO_EVENT_ARM);
+    lane.columns.push(noEventColumn);
+    lanes.push(lane);
   }
 
   // Undirected neighbours for the barycentre sweep.
@@ -452,23 +382,157 @@ export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxO
   const hasSublabel = lanes.some((lane) => lane.columns.some((column) => column.event && formatSublabel(column.event)));
   const headerHeight = HEADER_PADDING + tallestLabel * HEADER_LINE_HEIGHT + (hasSublabel ? HEADER_LINE_HEIGHT : 0);
 
-  // Vertical placement.
-  let cursorY = MARGIN;
-  lanes.forEach((lane) => {
-    orderLane(lane, neighbours, viewOrder, headerHeight, clusterOf, heightById);
-    const tallest = Math.max(...lane.columns.map((column) => column.contentHeight));
-    lane.y = cursorY;
-    lane.height = headerHeight + tallest + LANE_FOOTER;
-    cursorY += lane.height + LANE_GAP;
+  lanes.forEach((lane) => orderLane(lane, neighbours, viewOrder, headerHeight, clusterOf, heightById));
+
+  // Placement for the current sizes: lanes top to bottom, columns left to right, every node at its stacked top.
+  const nodeById = new Map<string, LayoutNode>();
+  const nodeColumn = new Map<string, ColumnPlan>();
+  let contentEnd = MARGIN;
+  const place = (): void => {
+    let cursorY = MARGIN;
+    lanes.forEach((lane) => {
+      lane.columns.forEach((column) => stackColumn(column, headerHeight, heightById, clusterOf));
+      const tallest = Math.max(...lane.columns.map((column) => column.contentHeight));
+      lane.y = cursorY;
+      lane.contentBottom = lane.y + headerHeight + tallest;
+      lane.height = headerHeight + tallest + LANE_FOOTER + lane.bandExtra;
+      cursorY += lane.height + LANE_GAP;
+    });
+    contentEnd = cursorY;
+    placeColumns(columns);
+    // left-aligned with the first event column
+    if (noEventColumn) noEventColumn.centerX = FIRST_CENTER - COLUMN_PITCH / 2 + leftReach(noEventColumn);
+    lanes.forEach((lane) => lane.columns.forEach((column) => column.stacks.forEach((ids, subColumn) => ids.forEach((id) => {
+      const placed: LayoutNode = {
+        id, x: subColumnLeft(column, subColumn), y: lane.y + (column.topById.get(id) as number), width: NODE_WIDTH, height: heightById.get(id) as number,
+      };
+      nodeById.set(id, placed);
+      nodeColumn.set(id, column);
+    }))));
+  };
+  place();
+
+  // Edges whose two ends are laid out, routed through the channels.
+  const routedNodeIds: string[] = [];
+  const nodeIndexById = new Map<string, number>();
+  const structure: ChannelStructure = { channelLane: [], gaps: [], bands: [], nodeChannels: [], nodeParity: [], gapParity: [] };
+  const gutterOwners: GutterOwner[] = [];
+  const gapOwners: { lane: LanePlan; column: ColumnPlan; subColumn: number; position: number }[] = [];
+  const laneEntries = lanes.map((lane) => lane.columns.flatMap((column) => column.stacks.map((_, subColumn) => ({ column, subColumn }))));
+  const laneChannels: number[][] = [];
+  lanes.forEach((lane, laneIndex) => {
+    const entries = laneEntries[laneIndex];
+    const start = structure.channelLane.length;
+    laneChannels.push(entries.map((_, index) => start + index).concat(start + entries.length));
+    for (let index = 0; index <= entries.length; index++) {
+      structure.channelLane.push(laneIndex);
+      if (index === 0) gutterOwners.push({ column: entries[0].column, kind: 'left', subColumn: 0 });
+      else if (index < entries.length && entries[index - 1].column === entries[index].column) {
+        gutterOwners.push({ column: entries[index].column, kind: 'inner', subColumn: entries[index - 1].subColumn });
+      } else gutterOwners.push({ column: entries[index - 1].column, kind: 'right', subColumn: 0 });
+    }
+    entries.forEach(({ column, subColumn }, entryIndex) => {
+      const channels = { left: start + entryIndex, right: start + entryIndex + 1 };
+      const ids = column.stacks[subColumn];
+      ids.forEach((id) => {
+        nodeIndexById.set(id, routedNodeIds.length);
+        routedNodeIds.push(id);
+        structure.nodeChannels.push(channels);
+        structure.nodeParity.push(entryIndex % 2);
+      });
+      for (let position = 1; position <= ids.length; position++) {
+        structure.gaps.push(channels);
+        structure.gapParity.push(entryIndex % 2);
+        gapOwners.push({ lane, column, subColumn, position });
+      }
+    });
   });
+  lanes.forEach((_, laneIndex) => structure.bands.push({ above: laneChannels[laneIndex], below: laneChannels[laneIndex + 1] ?? [] }));
+
+  const channelGeometry = (): ChannelGeometry => {
+    const entryBounds = laneEntries.map((entries) => entries.map(({ column, subColumn }) => subColumnLeft(column, subColumn)));
+    const channels: ChannelGeometry['channels'] = [];
+    laneEntries.forEach((entries, laneIndex) => {
+      const lefts = entryBounds[laneIndex];
+      for (let index = 0; index <= entries.length; index++) {
+        if (index === 0) {
+          const right = lefts[0] - SIDE_CLEARANCE;
+          channels.push({ left: right - BASE_GUTTER_FREE - entries[0].column.leftExtra, right });
+        } else if (index === entries.length) {
+          const left = lefts[index - 1] + NODE_WIDTH + SIDE_CLEARANCE;
+          channels.push({ left, right: left + BASE_GUTTER_FREE + entries[index - 1].column.rightExtra });
+        } else channels.push({ left: lefts[index - 1] + NODE_WIDTH + SIDE_CLEARANCE, right: lefts[index] - SIDE_CLEARANCE });
+      }
+    });
+    const gaps = gapOwners.map(({ lane, column, subColumn, position }) => {
+      const range = column.gapRanges[subColumn][position];
+      const isBelowLast = position === column.stacks[subColumn].length;
+      return {
+        top: lane.y + range.top + GAP_MARGIN,
+        bottom: isBelowLast ? lane.contentBottom + BAND_MARGIN - TRACK_SPACING : lane.y + range.bottom - GAP_MARGIN,
+      };
+    });
+    const bands = lanes.map((lane) => ({ top: lane.contentBottom + BAND_MARGIN, bottom: lane.y + lane.height - BAND_MARGIN }));
+    return { channels, gaps, bands, nodes: routedNodeIds.map((id) => nodeById.get(id) as LayoutNode) };
+  };
+
+  const routedViewEdges = view.edges.filter((edge) => nodeIndexById.has(edge.from) && nodeIndexById.has(edge.to));
+  const routedEdges: RoutedEdge[] = routedViewEdges.map((edge) => ({ source: nodeIndexById.get(edge.from) as number, target: nodeIndexById.get(edge.to) as number }));
+  let routePoints: Point[][] = [];
+  if (routedEdges.length) {
+    const routes = routeChannels(structure, channelGeometry(), routedEdges);
+    // every node tall enough for the ports on its busiest side
+    const portsBySide = new Map<string, number>();
+    const countPort = (nodeIndex: number, side: string): void => {
+      const key = `${nodeIndex}:${side}`;
+      portsBySide.set(key, (portsBySide.get(key) ?? 0) + 1);
+    };
+    routes.forEach((route, edgeIndex) => {
+      countPort(routedEdges[edgeIndex].source, route.sourceSide);
+      countPort(routedEdges[edgeIndex].target, route.targetSide);
+    });
+    routedNodeIds.forEach((id, nodeIndex) => {
+      const ports = Math.max(portsBySide.get(`${nodeIndex}:left`) ?? 0, portsBySide.get(`${nodeIndex}:right`) ?? 0);
+      heightById.set(id, nodeBoxHeightWithPorts(viewNodeById.get(id) as ViewNode, options, ports));
+    });
+    const grow = (growth: Growth): void => {
+      growth.nodes.forEach((amount, nodeIndex) => {
+        const id = routedNodeIds[nodeIndex];
+        heightById.set(id, (heightById.get(id) as number) + amount);
+      });
+      growth.gaps.forEach((amount, gapIndex) => {
+        const { lane, column, subColumn, position } = gapOwners[gapIndex];
+        const extras = column.gapExtra[subColumn];
+        if (position < column.stacks[subColumn].length) extras[position] += amount;
+        else {
+          // the space below the last node reaches down to the lane's content bottom: grow past it
+          const range = column.gapRanges[subColumn][position];
+          extras[position] = Math.max(extras[position], lane.contentBottom - lane.y - range.top + amount);
+        }
+      });
+      growth.bands.forEach((amount, bandIndex) => { lanes[bandIndex].bandExtra += amount; });
+      growth.channels.forEach((freeWidth, channel) => {
+        const owner = gutterOwners[channel];
+        const extra = Math.max(0, freeWidth - BASE_GUTTER_FREE);
+        if (owner.kind === 'inner') owner.column.innerGutterExtra[owner.subColumn] = Math.max(owner.column.innerGutterExtra[owner.subColumn], extra);
+        else if (owner.kind === 'left') owner.column.leftExtra = Math.max(owner.column.leftExtra, extra);
+        else owner.column.rightExtra = Math.max(owner.column.rightExtra, extra);
+      });
+    };
+    for (let round = 0; ; round++) {
+      place();
+      const assigned = assignTracks(structure, channelGeometry(), routedEdges, routes);
+      routePoints = assigned.points;
+      if (isGrowthEmpty(assigned.growth) || round === MAX_GROWTH_ROUNDS) break;
+      grow(assigned.growth);
+    }
+  }
 
   // Nodes, regions.
   const nodes: LayoutNode[] = [];
-  const nodeColumn = new Map<string, ColumnPlan>();
-  const nodeById = new Map<string, LayoutNode>();
-  const maxRight = Math.max(FIRST_CENTER + COLUMN_PITCH / 2, ...lanes.flatMap((lane) => lane.columns.map((column) => column.centerX + columnWidth(column) / 2)));
+  const maxRight = Math.max(FIRST_CENTER + COLUMN_PITCH / 2, ...lanes.flatMap((lane) => lane.columns.map((column) => column.centerX + rightReach(column))));
   const width = maxRight + MARGIN;
-  const height = Math.max(cursorY - LANE_GAP, MARGIN) + MARGIN;
+  const height = Math.max(contentEnd - LANE_GAP, MARGIN) + MARGIN;
   const regions: LayoutRegion[] = [];
   lanes.forEach((lane) => {
     regions.push({ id: lane.id, kind: 'lane', label: lane.label, labelLines: wrapLabel(lane.label, LANE_LABEL_CHARACTERS, 4), x: 0, y: lane.y, width, height: lane.height });
@@ -476,7 +540,7 @@ export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxO
       const event = column.event;
       const region: LayoutRegion = {
         id: column.id, kind: 'column', label: event ? event.label : NO_EVENT_ARM, labelLines: columnLines.get(column.id),
-        x: column.centerX - columnWidth(column) / 2, y: lane.y, width: columnWidth(column), height: lane.height,
+        x: column.centerX - leftReach(column), y: lane.y, width: leftReach(column) + rightReach(column), height: lane.height,
       };
       const sublabel = event ? formatSublabel(event) : undefined;
       if (sublabel !== undefined) region.sublabel = sublabel;
@@ -488,17 +552,7 @@ export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxO
       column.nodes
         .slice()
         .sort((first, second) => (column.topById.get(first.id) as number) - (column.topById.get(second.id) as number))
-        .forEach((node) => {
-          const subColumn = column.subColumnById.get(node.id) as number;
-          const placed: LayoutNode = {
-            id: node.id, x: column.centerX - columnWidth(column) / 2 + (COLUMN_PITCH - NODE_WIDTH) / 2 + subColumn * COLUMN_PITCH,
-            y: lane.y + (column.topById.get(node.id) as number),
-            width: NODE_WIDTH, height: heightById.get(node.id) as number,
-          };
-          nodes.push(placed);
-          nodeById.set(node.id, placed);
-          nodeColumn.set(node.id, column);
-        });
+        .forEach((node) => nodes.push(nodeById.get(node.id) as LayoutNode));
     });
   });
 
@@ -526,93 +580,19 @@ export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxO
     });
   });
 
-  const edges: LayoutEdge[] = [];
-  const edgeKeys = new Set(view.edges.map((edge) => `${edge.from}\u0000${edge.to}`));
-  const grid = buildNodeGrid(nodes);
-  // the labelled top strip of every form box: a soft obstacle for gutter channels
-  const headerGrid = buildNodeGrid(regions.filter((region) => region.kind === 'cluster')
-    .map((region) => ({ id: region.id, x: region.x, y: region.y, width: region.width, height: CLUSTER_TOP })));
-  const noneIgnored = new Set<string>();
-  view.edges.forEach((edge: ViewEdge) => {
-    const source = nodeById.get(edge.from);
-    const target = nodeById.get(edge.to);
-    if (!source || !target) return;
-    // "backward" is about time (an earlier event), the route's direction is about where the two boxes are: side by side
-    // (including neighbouring sub-columns of one column), or overlapping in x, which runs vertically.
-    const backward = nodeColumn.get(edge.to)!.centerX < nodeColumn.get(edge.from)!.centerX;
-    const leftward = target.x + target.width <= source.x;
-    const rightward = target.x >= source.x + source.width;
-    const middleY = (node: LayoutNode): number => node.y + node.height / 2;
-    const ignored = new Set([edge.from, edge.to]);
-    const candidates: Curve[] = [];
-    // A reciprocal same-column pair would otherwise overlap exactly, so each direction is nudged to its own side of the centre line.
-    const reciprocal = edgeKeys.has(`${edge.to}\u0000${edge.from}`);
-    const sameXNudge = reciprocal ? (edge.from < edge.to ? -RECIPROCAL_NUDGE : RECIPROCAL_NUDGE) : 0;
-    if (leftward) {
-      const start = { x: source.x, y: middleY(source) };
-      const end = { x: target.x + target.width, y: middleY(target) };
-      const reach = Math.abs(start.x - end.x) / 2;
-      ROUTE_OFFSETS.forEach((offset) => {
-        const bowY = Math.max(start.y, end.y) + BACKWARD_BOW + Math.abs(offset);
-        candidates.push([start, { x: start.x - reach, y: bowY }, { x: end.x + reach, y: bowY }, end]);
-      });
-    } else if (rightward) {
-      const start = { x: source.x + source.width, y: middleY(source) };
-      const end = { x: target.x, y: middleY(target) };
-      const reach = (end.x - start.x) / 2;
-      ROUTE_OFFSETS.forEach((offset) => {
-        candidates.push([start, { x: start.x + reach, y: start.y + offset }, { x: end.x - reach, y: end.y + offset }, end]);
-      });
-    } else {
-      // Same x (same column, or equal-day columns of different lanes): straight between top and bottom edges when nothing is in
-      // the way, otherwise attached to the side edges and bowed out, so it never has to cross the gap between stacked nodes.
-      const downward = target.y >= source.y;
-      const nudge = sameXNudge;
-      const start = { x: source.x + source.width / 2 + nudge, y: downward ? source.y + source.height : source.y };
-      const end = { x: target.x + target.width / 2 + nudge, y: downward ? target.y : target.y + target.height };
-      const reach = (end.y - start.y) / 2;
-      candidates.push([start, { x: start.x, y: start.y + reach }, { x: end.x, y: end.y - reach }, end]);
-      SIDE_BOWS.forEach((bow) => {
-        const sideStart = { x: bow > 0 ? source.x + source.width : source.x, y: middleY(source) };
-        const sideEnd = { x: bow > 0 ? target.x + target.width : target.x, y: middleY(target) };
-        candidates.push([sideStart, { x: sideStart.x + bow, y: sideStart.y }, { x: sideEnd.x + bow, y: sideEnd.y }, sideEnd]);
-      });
-    }
-    // The curves are prettier: the first that clears every node wins. When none does, gutter polylines are tried; the first that
-    // clears every node and every form-box header wins, then the first that clears every node; else the route with the fewest hits.
-    const clearCurve = candidates.find((candidate) => !curveHitsNode(candidate, grid, ignored));
-    if (clearCurve) { edges.push({ from: edge.from, to: edge.to, curve: clearCurve, backward }); return; }
-    let best: { curve?: Curve; points?: Point[]; hits: number } = { curve: candidates[0], hits: Infinity };
-    candidates.forEach((candidate) => {
-      const hits = curveHitIds(candidate, grid, ignored).size;
-      if (hits < best.hits) best = { curve: candidate, hits };
-    });
-    let clearOfNodes: Point[] | undefined;
-    let clear: Point[] | undefined;
-    for (const route of gutterRoutes(source, target, leftward, rightward, sameXNudge)) {
-      const hits = polylineHitIds(route, grid, ignored).size;
-      if (hits < best.hits) best = { points: route, hits };
-      if (hits > 0) continue;
-      clearOfNodes ??= route;
-      if (polylineHitIds(route, headerGrid, noneIgnored).size === 0) { clear = route; break; }
-    }
-    const chosenPoints = clear ?? clearOfNodes;
-    if (chosenPoints) edges.push({ from: edge.from, to: edge.to, points: chosenPoints, backward });
-    else if (best.points) edges.push({ from: edge.from, to: edge.to, points: best.points, backward });
-    else edges.push({ from: edge.from, to: edge.to, curve: best.curve, backward });
-  });
+  // "backward" is about time: the target sits in an earlier event column than the source.
+  const edges: LayoutEdge[] = routedViewEdges.map((edge, edgeIndex) => ({
+    from: edge.from, to: edge.to, points: routePoints[edgeIndex],
+    backward: (nodeColumn.get(edge.to) as ColumnPlan).centerX < (nodeColumn.get(edge.from) as ColumnPlan).centerX,
+  }));
 
-  // The drawing must contain every route: a bow or channel can leave the columns' extent. Anything left of or above the origin
+  // The drawing must contain every route: a gutter can leave the columns' extent. Anything left of or above the origin
   // shifts everything right or down; anything beyond the right or bottom edge grows the layout.
   let routeLeft = Infinity, routeTop = Infinity, routeRight = -Infinity, routeBottom = -Infinity;
-  const include = (point: Point): void => {
+  edges.forEach((edge) => edge.points?.forEach((point) => {
     routeLeft = Math.min(routeLeft, point.x); routeRight = Math.max(routeRight, point.x);
     routeTop = Math.min(routeTop, point.y); routeBottom = Math.max(routeBottom, point.y);
-  };
-  edges.forEach((edge) => {
-    if (edge.curve) for (let step = 0; step <= CURVE_SAMPLES; step++) include(curvePoint(edge.curve, step / CURVE_SAMPLES));
-    edge.points?.forEach(include);
-  });
+  }));
   let totalWidth = width;
   let totalHeight = height;
   const shift = originShift(routeLeft, routeTop);

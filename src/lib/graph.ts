@@ -9,13 +9,15 @@ import type {
 export type { Model } from './types';
 
 export const TYPES: Record<DepType, TypeMeta> = {
-  branching: { label: 'Branching logic', color: '#2563eb' },
-  calc: { label: 'Calculation', color: '#ea580c' },
-  piping: { label: 'Piping (labels/notes)', color: '#16a34a' },
-  embedding: { label: 'Field embedding ({field})', color: '#ca8a04' },
-  actiontag: { label: 'Action tags', color: '#9333ea' },
-  formlogic: { label: 'Form display logic', color: '#0891b2' },
-  logicsrc: { label: 'Other logic sources (alerts, queue…)', color: '#be185d' },
+  // Colour is the only type cue. Picked with a Lab/CIEDE2000 search seeded from Okabe-Ito so the seven (and the
+  // instance cross-arm red #dc2626) stay apart under normal vision and protan/deutan/tritan simulation; see test/palette.test.ts.
+  branching: { label: 'Branching logic', color: '#0e6da2' },
+  calc: { label: 'Calculation', color: '#ea7412' },
+  piping: { label: 'Piping (labels/notes)', color: '#16957e' },
+  embedding: { label: 'Field embedding ({field})', color: '#9e9663' },
+  actiontag: { label: 'Action tags', color: '#c97aac' },
+  formlogic: { label: 'Form display logic', color: '#2492ff' },
+  logicsrc: { label: 'Other logic sources (alerts, queue…)', color: '#374151' },
 };
 
 const LOGIC_TYPES = new Set<DepType>(['branching', 'calc', 'actiontag']); // used for cycle detection

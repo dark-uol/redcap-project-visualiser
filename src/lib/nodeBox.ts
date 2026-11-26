@@ -22,5 +22,15 @@ export const nodeLineCount = (node: ViewNode, options: NodeBoxOptions = {}): num
 export const nodeBoxHeight = (node: ViewNode, options: NodeBoxOptions = {}): number =>
   Math.max(NODE_BOX_MINIMUM_HEIGHT, nodeLineCount(node, options) * TEXT_LINE_HEIGHT + NODE_BOX_PADDING);
 
-export const nodeBoxSize = (node: ViewNode, options: NodeBoxOptions = {}): { width: number; height: number } =>
+/** Edges attach to a node side at ports this far apart: every other row of the swimlane engine's 4 px routing lattice, the
+ * rows between being left to the nodes across the gutter... */
+export const PORT_SPACING = 8;
+/** ...and at least this far from the side's corners. */
+export const PORT_MARGIN = 4;
+
+/** Height of a node box that also fits `ports` ports on one side. The text is centred vertically, so it stays inside. */
+export const nodeBoxHeightWithPorts = (node: ViewNode, options: NodeBoxOptions, ports: number): number =>
+  Math.max(nodeBoxHeight(node, options), ports * PORT_SPACING + 2 * PORT_MARGIN);
+
+export const nodeBoxSize =(node: ViewNode, options: NodeBoxOptions = {}): { width: number; height: number } =>
   ({ width: NODE_BOX_WIDTH, height: nodeBoxHeight(node, options) });

@@ -35,7 +35,7 @@ export const nodesWithOverflowingText = (svg: string): string[] => {
   const overflowing: string[] = [];
   const ascent = 9;
   const descent = 3;
-  for (const match of svg.matchAll(/<g class="node" data-key="([^"]*)">(.*?)<\/g>/g)) {
+  for (const match of svg.matchAll(/<g class="node[^"]*" data-key="([^"]*)">(.*?)<\/g>/g)) {
     const rect = /<rect x="[^"]*" y="([^"]*)" width="[^"]*" height="([^"]*)"/.exec(match[2]);
     const baselines = [...match[2].matchAll(/<text [^>]*? y="([^"]*)"/g)].map((textMatch) => Number(textMatch[1]));
     if (!rect || baselines.length === 0) continue;

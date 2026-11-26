@@ -58,6 +58,7 @@ export const widenEdgeHits = (s: SVGSVGElement): void => {
     if (!p) return;
     const hitPath = p.cloneNode() as SVGPathElement;
     hitPath.removeAttribute('marker-end');
+    hitPath.removeAttribute('class'); // layout-engine svgs style the visible line by class; the hit copy must not inherit that
     hitPath.setAttribute('stroke', 'transparent');
     hitPath.setAttribute('stroke-width', '14');
     hitPath.setAttribute('fill', 'none');

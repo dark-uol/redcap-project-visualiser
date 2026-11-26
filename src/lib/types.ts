@@ -238,6 +238,8 @@ export interface ViewPresentation {
   group: boolean;
   groupBy: GroupBy;
   edgeLabels: boolean;
+  /** Aggregated (form and event) edges get a thickness that grows with the number of dependent fields. */
+  lineWidths: boolean;
 }
 
 export type ViewOptions = ViewFilter & ViewPresentation;

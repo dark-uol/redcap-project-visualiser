@@ -1,5 +1,5 @@
 /* Graph tab: connector that reads the store and renders GraphViewView with the detail panel beside it. */
-import { model, view, selection, svgEl, svgView, busy, renderMsg, tooBig, setForcedFor, dotSrc, setAnchorCapture } from '../store';
+import { model, view, selection, presentation,svgEl, svgView, busy, renderMsg, tooBig, setForcedFor, dotSrc, setAnchorCapture } from '../store';
 import type { ClickAction } from './hitTest';
 import Detail from './Detail';
 import { GraphViewView } from './GraphViewView';
@@ -24,7 +24,7 @@ export default function GraphView() {
       busy={busy()}
       renderMessage={renderMsg()}
       tooBig={tooBig()}
-      formLevel={level() === 'form'}
+      lineWidths={presentation.lineWidths() && level() !== 'field'}
       isForm={isForm}
       onClickAction={applyClickAction}
       onRenderAnyway={renderAnyway}

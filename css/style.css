@@ -76,6 +76,9 @@ code{background:var(--code);padding:0 4px;border-radius:3px}
 button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;font:inherit;padding:0}
 @media (max-width:800px){main{flex-direction:column}#side{width:auto;position:static;max-height:none}}
 
+/* ELK/Swimlane svgs (svg.layout) carry their own <style>, driven by custom properties on the svg (--type-calc, --kind-field-fill,
+ * --cross-arm, --lane-fill, --text, --font …). Theme them here, e.g. `#canvas svg.layout{--type-calc:#c2410c}`: the id makes
+ * this beat the embedded rule, and the downloaded svg keeps its own defaults. */
 /* highlight: dim everything except the hovered/selected node and its direct links */
 #canvas svg.hl g.node:not(.on),#canvas svg.hl g.edge:not(.on),#canvas svg.hl path.flowchart-link:not(.on){opacity:.1}
 #canvas g.cluster.on>:is(rect,polygon,path){stroke:#2563eb;stroke-width:2.5px}

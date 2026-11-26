@@ -34,7 +34,7 @@ const options = (types: DepType[], over: Partial<ViewOptions> = {}): ViewOptions
   level: 'field', eventSet: null, types: new Set(types), forms: null, formsNone: false, crossOnly: false, instOnly: false,
   instances: false, expanded: null, expandedEvents: null, explore: null, pair: null, focus: '', focusDir: 'both', focusDepth: 1,
   showMissing: false, hideIsolated: true, hideIsolatedNodes: false,
-  dir: 'LR', labelMode: 'label', group: false, groupBy: 'none', edgeLabels: false, ...over,
+  dir: 'LR', labelMode: 'label', group: false, groupBy: 'none', edgeLabels: false, lineWidths: true, ...over,
 });
 
 describe('event and context smart variables keep fields visible', () => {

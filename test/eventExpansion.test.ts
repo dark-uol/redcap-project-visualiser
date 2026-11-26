@@ -12,7 +12,7 @@ const options = (over: Partial<ViewOptions> = {}): ViewOptions => ({
   level: 'event', eventSet: null, types: new Set(ALL_TYPES), forms: null, formsNone: false, crossOnly: false, instOnly: false,
   instances: false, expanded: null, expandedEvents: null, explore: null, pair: null, focus: '', focusDir: 'both', focusDepth: 1,
   showMissing: true, hideIsolated: true, hideIsolatedNodes: true,
-  dir: 'LR', labelMode: 'label', group: false, groupBy: 'none', edgeLabels: false, ...over,
+  dir: 'LR', labelMode: 'label', group: false, groupBy: 'none', edgeLabels: false, lineWidths: true, ...over,
 });
 
 // sample: `baseline` is collected in two events, so its nodes are `baseline@<event>`; `screening` is in one, so it keeps its plain id.

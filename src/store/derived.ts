@@ -15,7 +15,7 @@ export function createDerived(state: State) {
   } = state;
   const { level } = state.selection;
   const { focus, focusDir, focusDepth, pair } = state.focusing;
-  const { dir, labelMode, groupBy, edgeLabels, renderer } = state.presentation;
+  const { dir, labelMode, groupBy, edgeLabels, lineWidths, renderer } = state.presentation;
   const { formsOn, eventsOn, typesOn, crossOnly, instanceOnly, hideIso, hideIsoNodes, showMissing } = state.filters;
 
   const formIds = createMemo<string[]>(() => {
@@ -81,6 +81,7 @@ export function createDerived(state: State) {
       group: groupBy() !== 'none' && level() === 'field',
       groupBy: groupBy(),
       edgeLabels: edgeLabels(),
+      lineWidths: lineWidths(),
     };
   });
   const opts = createMemo<ViewOptions | null>(() => {

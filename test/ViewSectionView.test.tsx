@@ -12,6 +12,7 @@ const BASE_PROPS = {
   hasEvents: false,
   instances: false,
   edgeLabels: false,
+  lineWidths: true,
   hideIsolatedNodes: true,
   hideIsolatedFields: true,
   showMissing: true,
@@ -26,6 +27,7 @@ function makeHandlers() {
     onGroupByChange: vi.fn(),
     onInstancesChange: vi.fn(),
     onEdgeLabelsChange: vi.fn(),
+    onLineWidthsChange: vi.fn(),
     onHideIsolatedNodesChange: vi.fn(),
     onHideIsolatedFieldsChange: vi.fn(),
     onShowMissingChange: vi.fn(),
@@ -79,14 +81,25 @@ describe('ViewSectionView checkboxes', () => {
     const { checkboxIn, handlers } = renderView({ level: 'form', hasEvents: true, instances: false });
     changeCheckbox(checkboxIn('Instances'), true);
     changeCheckbox(checkboxIn('Edge labels'), true);
+    changeCheckbox(checkboxIn('Line thickness shows dependent fields'), false);
     changeCheckbox(checkboxIn('Hide forms with no dependencies'), false);
     changeCheckbox(checkboxIn('Hide fields with no dependencies'), false);
     changeCheckbox(checkboxIn('Show undefined references'), false);
     expect(handlers.onInstancesChange).toHaveBeenCalledWith(true);
     expect(handlers.onEdgeLabelsChange).toHaveBeenCalledWith(true);
+    expect(handlers.onLineWidthsChange).toHaveBeenCalledWith(false);
     expect(handlers.onHideIsolatedNodesChange).toHaveBeenCalledWith(false);
     expect(handlers.onHideIsolatedFieldsChange).toHaveBeenCalledWith(false);
     expect(handlers.onShowMissingChange).toHaveBeenCalledWith(false);
+  });
+
+  it('shows the edge labels option at every level and the line thickness option only at form and event level', () => {
+    for (const level of ['field', 'form', 'event'] as const) {
+      expect(renderView({ level }).container.textContent).toContain('Edge labels');
+    }
+    expect(renderView({ level: 'field' }).container.textContent).not.toContain('Line thickness shows dependent fields');
+    expect(renderView({ level: 'form' }).container.textContent).toContain('Line thickness shows dependent fields');
+    expect(renderView({ level: 'event' }).container.textContent).toContain('Line thickness shows dependent fields');
   });
 
   it('shows the instances option only at form level in a project with events', () => {

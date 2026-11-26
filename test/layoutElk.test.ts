@@ -5,6 +5,7 @@ import type { Layout, LayoutNode, Point } from '../src/lib/layout';
 import type { EventDef, View, ViewEdge, ViewGroup } from '../src/lib/types';
 import { layoutToSvg } from '../src/lib/layoutToSvg';
 import { nodeBoxHeight } from '../src/lib/nodeBox';
+import { countEdgesThroughNodes, countOverlappingSegments, isAxisAligned } from '../src/lib/layoutMetrics';
 import type { ViewOptions } from '../src/lib/types';
 import { makeView, node, nodesWithOverflowingText } from './fixtures';
 
@@ -171,7 +172,7 @@ describe('layoutElk', () => {
       level: 'form', eventSet: null, types: new Set(), forms: null, formsNone: false, crossOnly: false, instOnly: false,
       instances: false, expanded: null, expandedEvents: null, explore: null, pair: null, focus: '', focusDir: 'both',
       focusDepth: 0, showMissing: false, hideIsolated: false, hideIsolatedNodes: false,
-      dir: 'LR', labelMode: 'label', group: false, groupBy: 'none', edgeLabels: false,
+      dir: 'LR', labelMode: 'label', group: false, groupBy: 'none', edgeLabels: false, lineWidths: true,
     };
     const tall = node('undef', { kind: 'missing', extra: ['alpha', 'beta', 'gamma', 'delta'] });
     const described = node('described', { sub: 'A longer description' });
@@ -195,5 +196,32 @@ describe('layoutElk', () => {
     const layout = await layoutOf(view, 'LR', events);
     expect(placed(layout, 'a').x).toBe(placed(layout, 'b').x);
     expect(placed(layout, 'c').x).toBeGreaterThan(placed(layout, 'a').x);
+  });
+
+  it('gives every edge end its own port, so edges of one node never run on top of each other, also in groups', async () => {
+    let state = 21;
+    const random = (): number => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
+    const ids = Array.from({ length: 30 }, (_, index) => `n${index}`);
+    const edges: ViewEdge[] = [...ids.slice(1, 13).map((id) => link('n0', id)), ...ids.slice(13, 25).map((id) => link(id, 'n29')), link('n1', 'n0'), link('n29', 'n13')];
+    const seen = new Set(edges.map((edge) => `${edge.from}>${edge.to}`));
+    while (edges.length < 70) {
+      const from = ids[Math.floor(random() * ids.length)];
+      const to = ids[Math.floor(random() * ids.length)];
+      if (from !== to && !seen.has(`${from}>${to}`)) { seen.add(`${from}>${to}`); edges.push(link(from, to)); }
+    }
+    const groups = [group('g1', ids.slice(0, 10)), group('g2', ids.slice(10, 20))];
+    for (const dir of ['LR', 'TD'] as const) {
+      const layout = await layoutOf(makeView({ nodes: ids.map((id) => node(id)), edges, groups }), dir);
+      expect(layout.edges).toHaveLength(edges.length);
+      layout.edges.forEach((edge) => expect(isAxisAligned(edge.points!)).toBe(true));
+      expect(countOverlappingSegments(layout)).toBe(0);
+      expect(countEdgesThroughNodes(layout)).toBe(0);
+      const starts = layout.edges.map((edge) => `${edge.points![0].x},${edge.points![0].y}`);
+      expect(new Set(starts).size).toBe(starts.length);
+      layout.nodes.forEach((placedNode) => {
+        expect(placedNode.width).toBeGreaterThanOrEqual(120);
+        expect(placedNode.height).toBeGreaterThanOrEqual(28);
+      });
+    }
   });
 });

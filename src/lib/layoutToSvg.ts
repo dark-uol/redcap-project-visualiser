@@ -1,30 +1,113 @@
 /* Serialises a Layout as an SVG string shaped like Graphviz output (g.node / g.edge / g.cluster keyed by data-key), so the
  * graph stage can highlight and resolve clicks on it unchanged. Pure: no Solid, no DOM. */
-import { KIND_FILL, KIND_STROKE, edgeAppearance, nodeLines } from './exporters';
+import { KIND_FILL, KIND_STROKE, edgeAppearance, nodeLines, primary } from './exporters';
+import { TYPES } from './graph';
 import { TEXT_LINE_HEIGHT } from './nodeBox';
 import type { Layout, LayoutEdge, LayoutNode, LayoutRegion, Point } from './layout';
-import type { View, ViewEdge, ViewNode, ViewOptions } from './types';
+import type { DepType, NodeKind, View, ViewEdge, ViewNode, ViewOptions } from './types';
 
 const CHARACTER_WIDTH = 6.5;
 const NODE_TEXT_PADDING = 12;
 const LINE_HEIGHT = TEXT_LINE_HEIGHT;
 const LABEL_FONT_SIZE = 12;
 const EDGE_LABEL_FONT_SIZE = 9;
-const BASE_WIDTH = 1.2;
-const BOLD_WIDTH = 2.5;
-const DASHED_PATTERN = '5 3';
-const DOTTED_PATTERN = '1.5 3';
-const BACKWARD_PATTERN = '8 3 2 3';
 const MARKER_SIZE = 8;
 const REPEAT_MARK = ' ↻';
-const FONT = 'Helvetica, Arial, sans-serif';
-const REGION_STYLE: Record<'lane' | 'column', { fill: string; stroke: string }> = {
-  lane: { fill: '#f9fafb', stroke: '#d1d5db' },
-  column: { fill: 'none', stroke: '#d1d5db' },
+
+/* Styling lives in one <style> element inside the svg (see layoutStyleSheet): the elements below carry semantic classes
+ * only. Everything is scoped under the root class so the rules cannot leak into the page or into Graphviz/Mermaid svgs,
+ * and every colour is a custom property on that root class so css/style.css (`#canvas svg.layout { --type-calc: … }`)
+ * can re-theme it, while a downloaded svg stays self-contained. */
+export const ROOT_CLASS = 'layout';
+const TYPE_NAMES = Object.keys(TYPES) as DepType[];
+const KIND_NAMES = Object.keys(KIND_FILL) as NodeKind[];
+const WIDTH_STEP = 0.5;
+const MIN_WIDTH = 1;
+const MAX_WIDTH = 10;
+/** The widths an aggregated edge can be drawn at: 1 to 10 in half-pixel steps. */
+const WIDTH_STEPS = Array.from({ length: Math.round((MAX_WIDTH - MIN_WIDTH) / WIDTH_STEP) + 1 }, (_, step) => MIN_WIDTH + step * WIDTH_STEP);
+/** Class for a data-driven line width, quantised to WIDTH_STEP: 3.5 -> `w-3-5`. */
+export const widthClass = (width: number): string => {
+  const quantised = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(width / WIDTH_STEP) * WIDTH_STEP));
+  return `w-${String(quantised).replace('.', '-')}`;
 };
-const CLUSTER_STROKE = '#9ca3af';
-const CLUSTER_TEXT = '#374151';
-const TEXT_FILL = '#111111';
+/** Edge colour classes: one per dependency type, plus the cross-arm colour used in instance views. */
+const COLOR_NAMES: string[] = [...TYPE_NAMES, 'cross-arm'];
+/** Classes the writer emits only as theming hooks (no rule of their own): modifiers whose effect comes from a dash class. */
+export const HOOK_CLASSES: readonly string[] = ['mismatch', 'relative'];
+const DASH_NAMES = ['bold', 'dashed', 'dotted'] as const;
+
+/** Every class the writer can emit, for the tests that keep the style sheet and the markup in step. */
+export const EMITTABLE_CLASSES: readonly string[] = [
+  ROOT_CLASS, 'node', 'edge', 'edge-line', 'cluster', 'region', 'lane', 'column', 'repeating', 'focus', 'backward', 'cross-arm', ...HOOK_CLASSES,
+  'node-label', 'node-sublabel', 'region-label', 'region-sublabel', 'edge-label',
+  ...KIND_NAMES.map((kind) => `kind-${kind}`),
+  ...TYPE_NAMES.map((type) => `type-${type}`),
+  ...TYPE_NAMES.map((type) => `arrow-${type}`), 'arrow-cross-arm',
+  ...DASH_NAMES.map((dash) => `dash-${dash}`),
+  ...WIDTH_STEPS.map(widthClass),
+];
+
+/** The css for a layout svg, generated from the colour exports so it follows palette changes. `crossArmColor` is the
+ * colour edgeAppearance gives a cross-arm edge. */
+export function layoutStyleSheet(crossArmColor: string): string {
+  const scope = `svg.${ROOT_CLASS}`;
+  const variables = [
+    ['font', 'Helvetica, Arial, sans-serif'],
+    ['text', '#111111'],
+    ['region-text', '#374151'],
+    ['font-size', `${LABEL_FONT_SIZE}px`],
+    ['edge-font-size', `${EDGE_LABEL_FONT_SIZE}px`],
+    ['lane-fill', '#f9fafb'],
+    ['lane-stroke', '#d1d5db'],
+    ['column-stroke', '#d1d5db'],
+    ['cluster-stroke', '#9ca3af'],
+    ['node-width', '1px'],
+    ['focus-width', '3px'],
+    ['edge-width', '1.2px'],
+    ['bold-width', '2.5px'],
+    ['dash-missing', '4 3'],
+    ['dash-repeating', '6 4'],
+    ['dash-dashed', '5 3'],
+    ['dash-dotted', '1.5 3'],
+    ['dash-backward', '8 3 2 3'],
+    ['cross-arm', crossArmColor],
+    ...TYPE_NAMES.map((type) => [`type-${type}`, TYPES[type].color]),
+    ...KIND_NAMES.flatMap((kind) => [[`kind-${kind}-fill`, KIND_FILL[kind]], [`kind-${kind}-stroke`, KIND_STROKE[kind]]]),
+  ];
+  const rules = [
+    `${scope}{${variables.map(([name, value]) => `--${name}:${value}`).join(';')};font-family:var(--font)}`,
+    `${scope} text{fill:var(--text);font-size:var(--font-size)}`,
+    // nodes
+    `${scope} g.node>rect{fill:var(--node-fill);stroke:var(--node-stroke);stroke-width:var(--node-width)}`,
+    ...KIND_NAMES.map((kind) => `${scope} g.node.kind-${kind}{--node-fill:var(--kind-${kind}-fill);--node-stroke:var(--kind-${kind}-stroke)}`),
+    `${scope} g.node.kind-missing>rect{stroke-dasharray:var(--dash-missing)}`,
+    `${scope} g.node.focus>rect{stroke-width:var(--focus-width)}`,
+    `${scope} text.node-label,${scope} text.node-sublabel{text-anchor:middle}`,
+    // regions: lanes and columns (a column can also be a cluster), then plain clusters
+    `${scope} g.region.lane>rect{fill:var(--lane-fill);stroke:var(--lane-stroke)}`,
+    `${scope} g.region.column>rect{fill:none;stroke:var(--column-stroke)}`,
+    `${scope} g.region.column.repeating>rect{stroke-dasharray:var(--dash-repeating)}`,
+    `${scope} g.cluster:not(.region)>rect{fill:none;stroke:var(--cluster-stroke)}`,
+    `${scope} text.region-label,${scope} text.region-sublabel{fill:var(--region-text);text-anchor:start}`,
+    `${scope} g.column>text.region-label,${scope} g.column>text.region-sublabel{text-anchor:middle}`,
+    // edges: the colour is one variable that the line, the label and (through the arrow class) the head share
+    `${scope} g.edge{--edge-color:var(--text);--edge-line-width:var(--edge-width);--edge-dash:none}`,
+    ...TYPE_NAMES.map((type) => `${scope} g.edge.type-${type}{--edge-color:var(--type-${type})}`),
+    `${scope} g.edge.cross-arm{--edge-color:var(--cross-arm)}`,
+    `${scope} g.edge.backward{--edge-dash:var(--dash-backward)}`,
+    `${scope} g.edge.dash-bold{--edge-line-width:var(--bold-width)}`,
+    `${scope} g.edge.dash-dashed{--edge-dash:var(--dash-dashed)}`,
+    `${scope} g.edge.dash-dotted{--edge-dash:var(--dash-dotted)}`,
+    ...WIDTH_STEPS.map((width) => `${scope} g.edge.${widthClass(width)}{--edge-line-width:${width}px}`),
+    `${scope} g.edge>path.edge-line{fill:none;stroke:var(--edge-color);stroke-width:var(--edge-line-width);stroke-dasharray:var(--edge-dash)}`,
+    `${scope} g.edge>text.edge-label{fill:var(--edge-color);font-size:var(--edge-font-size);text-anchor:middle}`,
+    // the arrow head: a marker per colour, picked by the edge's colour class and filled from the same variable
+    ...COLOR_NAMES.map((color) => `${scope} g.edge.${color === 'cross-arm' ? color : `type-${color}`}>path.edge-line{marker-end:url(#arrow-${color})}`),
+    ...COLOR_NAMES.map((color) => `${scope} marker.arrow-${color}>path{fill:var(--${color === 'cross-arm' ? color : `type-${color}`})}`),
+  ];
+  return rules.join('\n');
+}
 
 const EDGE_LABEL_PADDING = 4;
 const MAX_EDGE_LABEL_WIDTH = 260;
@@ -61,40 +144,42 @@ const formatPoint = (point: Point): string => `${formatNumber(point.x)} ${format
 const fitText = (text: string, maxCharacters: number): string =>
   (text.length > maxCharacters ? text.slice(0, Math.max(1, maxCharacters - 1)) + '…' : text);
 
+/** One line of text and the class that styles it. */
+interface TextLine { text: string; className: string }
+
 /** One <text> per line, starting at `firstY` and stepping by LINE_HEIGHT. */
-function textLines(lines: string[], x: number, firstY: number, anchor: 'start' | 'middle', fontSize: number, fill: string): string {
+function textLines(lines: TextLine[], x: number, firstY: number): string {
   return lines
-    .map((line, index) => `<text x="${formatNumber(x)}" y="${formatNumber(firstY + index * LINE_HEIGHT)}" text-anchor="${anchor}" font-size="${fontSize}" fill="${fill}">${escapeXml(line)}</text>`)
+    .map((line, index) => `<text class="${line.className}" x="${formatNumber(x)}" y="${formatNumber(firstY + index * LINE_HEIGHT)}">${escapeXml(line.text)}</text>`)
     .join('');
 }
 
 /** Region label lines: the wrapped label, a repeat mark on the last label line, then the sublabel. */
-function regionLines(region: LayoutRegion): string[] {
-  const lines = [...(region.labelLines ?? [region.label])];
-  if (region.kind === 'column' && region.repeating && lines.length > 0) lines[lines.length - 1] += REPEAT_MARK;
-  if (region.sublabel) lines.push(region.sublabel);
+function regionLines(region: LayoutRegion): TextLine[] {
+  const labels = [...(region.labelLines ?? [region.label])];
+  if (region.kind === 'column' && region.repeating && labels.length > 0) labels[labels.length - 1] += REPEAT_MARK;
+  const lines = labels.map((text): TextLine => ({ text, className: 'region-label' }));
+  if (region.sublabel) lines.push({ text: region.sublabel, className: 'region-sublabel' });
   return lines;
 }
 
 function regionMarkup(region: LayoutRegion): string {
   const kind = region.kind === 'column' ? 'column' : 'lane';
-  const style = REGION_STYLE[kind];
-  const dashed = kind === 'column' && region.repeating ? ' stroke-dasharray="6 4"' : '';
-  const rect = `<rect x="${formatNumber(region.x)}" y="${formatNumber(region.y)}" width="${formatNumber(region.width)}" height="${formatNumber(region.height)}" fill="${style.fill}" stroke="${style.stroke}"${dashed}/>`;
+  const rect = `<rect x="${formatNumber(region.x)}" y="${formatNumber(region.y)}" width="${formatNumber(region.width)}" height="${formatNumber(region.height)}"/>`;
   const label = kind === 'column'
-    ? textLines(regionLines(region), region.x + region.width / 2, region.y + 16, 'middle', LABEL_FONT_SIZE, CLUSTER_TEXT)
-    : textLines(regionLines(region), region.x + 8, region.y + 16, 'start', LABEL_FONT_SIZE, CLUSTER_TEXT);
+    ? textLines(regionLines(region), region.x + region.width / 2, region.y + 16)
+    : textLines(regionLines(region), region.x + 8, region.y + 16);
   // a column that draws an expanded event is also that event's box: Graphviz-shaped, so it highlights and clicks like one
   const boxed = kind === 'column' && region.groupIndex !== undefined;
-  const classes = boxed ? 'cluster region column' : `region ${kind}`;
+  const classes = [boxed ? 'cluster' : '', 'region', kind, kind === 'column' && region.repeating ? 'repeating' : ''].filter(Boolean).join(' ');
   const key = boxed ? ` data-key="cluster_${region.groupIndex}"` : '';
   return `<g class="${classes}"${key} data-region-id="${escapeXml(region.id)}">${rect}${label}</g>`;
 }
 
 function clusterMarkup(region: LayoutRegion): string {
   const key = region.groupIndex === undefined ? '' : ` data-key="cluster_${region.groupIndex}"`;
-  const rect = `<rect x="${formatNumber(region.x)}" y="${formatNumber(region.y)}" width="${formatNumber(region.width)}" height="${formatNumber(region.height)}" rx="6" fill="none" stroke="${CLUSTER_STROKE}"/>`;
-  const label = textLines(region.labelLines ?? [region.label], region.x + 6, region.y + 13, 'start', LABEL_FONT_SIZE, CLUSTER_TEXT);
+  const rect = `<rect x="${formatNumber(region.x)}" y="${formatNumber(region.y)}" width="${formatNumber(region.width)}" height="${formatNumber(region.height)}" rx="6"/>`;
+  const label = textLines((region.labelLines ?? [region.label]).map((text): TextLine => ({ text, className: 'region-label' })), region.x + 6, region.y + 13);
   return `<g class="cluster"${key}>${rect}${label}</g>`;
 }
 
@@ -102,12 +187,11 @@ function nodeMarkup(placed: LayoutNode, viewNode: ViewNode, index: number, optio
   const lines = nodeLines(viewNode, options);
   const maxCharacters = Math.floor((placed.width - NODE_TEXT_PADDING) / CHARACTER_WIDTH);
   const fitted = lines.map((line) => fitText(line, maxCharacters));
-  const dashed = viewNode.kind === 'missing' ? ' stroke-dasharray="4 3"' : '';
-  const strokeWidth = viewNode.focus ? 3 : 1;
-  const rect = `<rect x="${formatNumber(placed.x)}" y="${formatNumber(placed.y)}" width="${formatNumber(placed.width)}" height="${formatNumber(placed.height)}" rx="4" fill="${KIND_FILL[viewNode.kind]}" stroke="${KIND_STROKE[viewNode.kind]}" stroke-width="${strokeWidth}"${dashed}/>`;
+  const rect = `<rect x="${formatNumber(placed.x)}" y="${formatNumber(placed.y)}" width="${formatNumber(placed.width)}" height="${formatNumber(placed.height)}" rx="4"/>`;
   const firstY = placed.y + placed.height / 2 - ((fitted.length - 1) * LINE_HEIGHT) / 2 + LABEL_FONT_SIZE / 3;
-  const label = textLines(fitted, placed.x + placed.width / 2, firstY, 'middle', LABEL_FONT_SIZE, TEXT_FILL);
-  return `<g class="node" data-key="n${index}"><title>${escapeXml(lines.join(' · '))}</title>${rect}${label}</g>`;
+  const label = textLines(fitted.map((text, line): TextLine => ({ text, className: line === 0 ? 'node-label' : 'node-sublabel' })), placed.x + placed.width / 2, firstY);
+  const classes = `node kind-${viewNode.kind}${viewNode.focus ? ' focus' : ''}`;
+  return `<g class="${classes}" data-key="n${index}"><title>${escapeXml(lines.join(' · '))}</title>${rect}${label}</g>`;
 }
 
 /** Cubic Bezier midpoint at t = 0.5. */
@@ -159,7 +243,6 @@ function edgeMarkup(
   toIndex: number,
   view: View,
   options: ViewOptions,
-  arrowIdFor: (color: string) => string,
   bounds: Bounds,
 ): string | null {
   const route = routeOf(layoutEdge);
@@ -169,20 +252,29 @@ function edgeMarkup(
     : layoutEdge.points ?? [];
   routePoints.forEach((point) => includeBox(bounds, point.x, point.y, point.x, point.y));
   const look = edgeAppearance(view, viewEdge, options);
-  const width = look.width ?? (look.dash === 'bold' ? BOLD_WIDTH : BASE_WIDTH);
-  const pattern = look.dash === 'dashed' ? DASHED_PATTERN : look.dash === 'dotted' ? DOTTED_PATTERN : layoutEdge.backward ? BACKWARD_PATTERN : null;
-  const dashed = pattern ? ` stroke-dasharray="${pattern}"` : '';
-  const path = `<path d="${route.d}" fill="none" stroke="${look.color}" stroke-width="${formatNumber(width)}"${dashed} marker-end="url(#${arrowIdFor(look.color)})"/>`;
+  const primaryType = primary(viewEdge);
+  // the colour class is the primary type's, unless edgeAppearance gave the edge another colour (the cross-arm red)
+  const crossArm = look.color !== TYPES[primaryType].color;
+  const classes = [
+    'edge', `type-${primaryType}`,
+    crossArm ? 'cross-arm' : '',
+    view.instances && viewEdge.mismatch ? 'mismatch' : '',
+    view.instances && !viewEdge.mismatch && viewEdge.relative ? 'relative' : '',
+    layoutEdge.backward ? 'backward' : '',
+    look.dash === 'solid' ? '' : `dash-${look.dash}`,
+    look.width === null ? '' : widthClass(look.width),
+  ].filter(Boolean).join(' ');
+  const path = `<path class="edge-line" d="${route.d}"/>`;
   let label = '';
   if (look.label) {
     const text = fitText(look.label, MAX_EDGE_LABEL_CHARACTERS);
     const halfWidth = (text.length * CHARACTER_WIDTH) / 2 + EDGE_LABEL_PADDING;
     const baseline = route.middle.y - 3;
     includeBox(bounds, route.middle.x - halfWidth, baseline - EDGE_LABEL_FONT_SIZE - EDGE_LABEL_PADDING, route.middle.x + halfWidth, baseline + EDGE_LABEL_PADDING);
-    label = textLines([text], route.middle.x, baseline, 'middle', EDGE_LABEL_FONT_SIZE, look.color);
+    label = textLines([{ text, className: 'edge-label' }], route.middle.x, baseline);
   }
   const title = `<title>${escapeXml(fromNode.label)} -> ${escapeXml(toNode.label)}</title>`;
-  return `<g class="edge" data-key="n${fromIndex}->n${toIndex}">${title}${path}${label}</g>`;
+  return `<g class="${classes}" data-key="n${fromIndex}->n${toIndex}">${title}${path}${label}</g>`;
 }
 
 /** Lay the layout out as an SVG string; nodes and edges carry the View's indexes in their data-key. */
@@ -190,16 +282,6 @@ export function layoutToSvg(layout: Layout, view: View, options: ViewOptions): s
   const indexById = new Map(view.nodes.map((viewNode, index) => [viewNode.id, index] as const));
   const viewNodeById = new Map(view.nodes.map((viewNode) => [viewNode.id, viewNode] as const));
   const viewEdgeByKey = new Map(view.edges.map((viewEdge) => [`${viewEdge.from}\n${viewEdge.to}`, viewEdge] as const));
-
-  const arrowColors: string[] = [];
-  const arrowIdFor = (color: string): string => {
-    let position = arrowColors.indexOf(color);
-    if (position < 0) {
-      arrowColors.push(color);
-      position = arrowColors.length - 1;
-    }
-    return `arrow-${position}`;
-  };
 
   const bounds: Bounds = { minX: 0, minY: 0, maxX: layout.width, maxY: layout.height };
   layout.regions.forEach((region) => includeBox(bounds, region.x, region.y, region.x + region.width, region.y + region.height));
@@ -211,7 +293,7 @@ export function layoutToSvg(layout: Layout, view: View, options: ViewOptions): s
     const toIndex = indexById.get(layoutEdge.to);
     const viewEdge = viewEdgeByKey.get(`${layoutEdge.from}\n${layoutEdge.to}`);
     if (fromIndex === undefined || toIndex === undefined || !viewEdge) return;
-    const markup = edgeMarkup(layoutEdge, viewEdge, viewNodeById.get(layoutEdge.from)!, viewNodeById.get(layoutEdge.to)!, fromIndex, toIndex, view, options, arrowIdFor, bounds);
+    const markup = edgeMarkup(layoutEdge, viewEdge, viewNodeById.get(layoutEdge.from)!, viewNodeById.get(layoutEdge.to)!, fromIndex, toIndex, view, options, bounds);
     if (markup) edgeParts.push(markup);
   });
 
@@ -224,14 +306,18 @@ export function layoutToSvg(layout: Layout, view: View, options: ViewOptions): s
 
   const regionParts = layout.regions.filter((region) => region.kind !== 'cluster').map(regionMarkup);
   const clusterParts = layout.regions.filter((region) => region.kind === 'cluster').map(clusterMarkup);
-  const markers = arrowColors.map((color, index) =>
-    `<marker id="arrow-${index}" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="${MARKER_SIZE}" markerHeight="${MARKER_SIZE}" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${color}"/></marker>`);
+  // one arrow head per edge colour, always all of them: the edge rules in the style sheet pick one by class
+  const markers = COLOR_NAMES.map((color) =>
+    `<marker id="arrow-${color}" class="arrow-${color}" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="${MARKER_SIZE}" markerHeight="${MARKER_SIZE}" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>`);
+  // what edgeAppearance colours a cross-arm edge, read from it rather than repeated here
+  const crossArmProbe: ViewEdge = { from: '', to: '', types: ['branching'], count: 1, byType: { branching: 1 }, crossArm: true };
+  const crossArmColor = edgeAppearance({ ...view, instances: true }, crossArmProbe, options).color;
 
   const boxWidth = bounds.maxX - bounds.minX;
   const boxHeight = bounds.maxY - bounds.minY;
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${formatNumber(bounds.minX)} ${formatNumber(bounds.minY)} ${formatNumber(boxWidth)} ${formatNumber(boxHeight)}" width="${formatNumber(boxWidth)}" height="${formatNumber(boxHeight)}" font-family="${FONT}">`,
-    `<defs>${markers.join('')}</defs>`,
+    `<svg xmlns="http://www.w3.org/2000/svg" class="${ROOT_CLASS}" viewBox="${formatNumber(bounds.minX)} ${formatNumber(bounds.minY)} ${formatNumber(boxWidth)} ${formatNumber(boxHeight)}" width="${formatNumber(boxWidth)}" height="${formatNumber(boxHeight)}">`,
+    `<defs><style>${layoutStyleSheet(crossArmColor)}</style>${markers.join('')}</defs>`,
     ...regionParts,
     ...clusterParts,
     ...edgeParts,

@@ -4,6 +4,7 @@ import type { DepType, Direction, EventDef, FormPair, Level, Renderer, View, Vie
 
 export const MAX_AUTO_EDGES = 700;
 export const DEFAULT_DIRECTION: Direction = 'LR';
+export const DEFAULT_LINE_WIDTHS = true;
 export const DEFAULT_RENDERER: Renderer = 'swimlane';
 export const TYPE_KEYS = Object.keys(TYPES) as DepType[];
 export const clampDepth = (v: unknown): number => Math.min(50, Math.max(1, Math.round(Number(v)) || 1));

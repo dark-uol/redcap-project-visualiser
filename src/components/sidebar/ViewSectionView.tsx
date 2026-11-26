@@ -12,6 +12,7 @@ export type ViewSectionViewProps = {
   hasEvents: boolean;
   instances: boolean;
   edgeLabels: boolean;
+  lineWidths: boolean;
   hideIsolatedNodes: boolean;
   hideIsolatedFields: boolean;
   showMissing: boolean;
@@ -22,6 +23,7 @@ export type ViewSectionViewProps = {
   onGroupByChange: (groupBy: GroupBy) => void;
   onInstancesChange: (value: boolean) => void;
   onEdgeLabelsChange: (value: boolean) => void;
+  onLineWidthsChange: (value: boolean) => void;
   onHideIsolatedNodesChange: (value: boolean) => void;
   onHideIsolatedFieldsChange: (value: boolean) => void;
   onShowMissingChange: (value: boolean) => void;
@@ -52,7 +54,10 @@ export function ViewSectionView(props: ViewSectionViewProps) {
       <Show when={props.level === 'form' && props.hasEvents}>
         <Check checked={props.instances} onChange={props.onInstancesChange} label="Instances (one node per form per event)" hint="A form collected in several events gets one node per event, banded by event (or by arm via Group by). Select a node to add its links or zoom into its fields." />
       </Show>
-      <Check checked={props.edgeLabels} onChange={props.onEdgeLabelsChange} label="Edge labels" hint="Writes the dependency type (branching, calc and so on) on each edge." />
+      <Check checked={props.edgeLabels} onChange={props.onEdgeLabelsChange} label="Edge labels" hint="Writes a label on every edge, in every renderer: the dependency types (branching, calc and so on) at field level, the counts per type and the number of fields at form and event level. Off by default, so form and event edges carry no text." />
+      <Show when={props.level !== 'field'}>
+        <Check checked={props.lineWidths} onChange={props.onLineWidthsChange} label="Line thickness shows dependent fields" hint="Draws form and event edges thicker the more fields depend on the link (log scale, 1 to 10 px). Off draws them all the same thickness." />
+      </Show>
       <Show when={props.level !== 'field'}>
         <Check checked={props.hideIsolatedNodes} onChange={props.onHideIsolatedNodesChange} label={(props.level === 'event' ? 'Hide events' : 'Hide forms') + ' with no dependencies'} hint="Leaves out nodes that have no links to anything else." />
       </Show>

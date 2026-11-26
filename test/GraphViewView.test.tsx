@@ -14,7 +14,7 @@ function baseProps(over: Partial<GraphViewViewProps> = {}): GraphViewViewProps {
     busy: false,
     renderMessage: '',
     tooBig: false,
-    formLevel: false,
+    lineWidths: false,
     isForm: () => false,
     onClickAction: vi.fn(),
     onRenderAnyway: vi.fn(),
@@ -64,8 +64,8 @@ describe('GraphViewView', () => {
     expect(onRenderAnyway).toHaveBeenCalledOnce();
   });
 
-  it('shows the form-level legend note only when formLevel is set', () => {
-    expect(renderComponent(() => <GraphViewView {...baseProps({ formLevel: true })} />).querySelector('.legend')!.textContent).toContain('Line thickness');
+  it('shows the line-thickness legend note only when lineWidths is set', () => {
+    expect(renderComponent(() => <GraphViewView {...baseProps({ lineWidths: true })} />).querySelector('.legend')!.textContent).toContain('Line thickness');
     expect(renderComponent(() => <GraphViewView {...baseProps()} />).querySelector('.legend')!.textContent).not.toContain('Line thickness');
   });
 

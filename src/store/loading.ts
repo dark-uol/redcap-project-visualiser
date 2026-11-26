@@ -1,5 +1,5 @@
 /* Loading a project: from pasted or dropped text, the bundled sample, or a File. */
-import { allTypesOn, DEFAULT_DIRECTION, DEFAULT_RENDERER, errorMessage } from './common';
+import { allTypesOn, DEFAULT_DIRECTION, DEFAULT_LINE_WIDTHS, DEFAULT_RENDERER, errorMessage } from './common';
 import type { createNavigation } from './navigation';
 import type { State } from './state';
 import { parseODM } from '../lib/parser';
@@ -10,7 +10,7 @@ export function createLoading(state: State, navigation: ReturnType<typeof create
     setModel, setFileBase, setLoadError, setExplore, setExpanded, nextModelSequence,
   } = state;
   const { setFormQ, setFormsOn, setEventsOn, setCrossOnly, setInstanceOnly, setTypesOn } = state.rawFilters;
-  const { setDir, setRenderer } = state.presentation;
+  const { setDir, setRenderer, setLineWidths } = state.presentation;
   const { rawSetInstances: setInstances } = state;
   const { resetNav } = navigation;
   const { clearValues, setMode, setEvent, setField } = state.whatIf;
@@ -27,6 +27,7 @@ export function createLoading(state: State, navigation: ReturnType<typeof create
       setTypesOn(allTypesOn());
       // View settings reset with a new project too, so they do not leak from one file to the next.
       setDir(DEFAULT_DIRECTION); setRenderer(DEFAULT_RENDERER); setInstances(false);
+      setLineWidths(DEFAULT_LINE_WIDTHS);
       clearValues(); setMode('form'); setEvent(null); setField(null);
       setModel(builtModel);
     } catch (e) {

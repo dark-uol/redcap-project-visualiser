@@ -24,7 +24,8 @@ export type GraphViewViewProps = {
   renderMessage: string;
   tooBig: boolean;
   /** Whether the selection level is forms, which adds a line-thickness note to the legend. */
-  formLevel: boolean;
+  /** Whether edge thickness shows dependent fields (aggregated level with the option on), for the legend note. */
+  lineWidths: boolean;
   isForm: (id: string) => boolean;
   /** Called with what a click on the graph means; the connector turns it into selection changes. */
   onClickAction: (action: ClickAction) => void;
@@ -194,7 +195,7 @@ export function GraphViewView(props: GraphViewViewProps) {
         </div>
         {props.children}
       </div>
-      <LegendView formLevel={props.formLevel} />
+      <LegendView lineWidths={props.lineWidths} />
     </div>
   );
 }

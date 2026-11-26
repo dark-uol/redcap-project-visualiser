@@ -25,7 +25,7 @@ const options = (over: Partial<ViewOptions> = {}): ViewOptions => ({
   level: 'form', eventSet: null, types: new Set(ALL_TYPES), forms: null, formsNone: false, crossOnly: false, instOnly: false,
   instances: false, expanded: null, expandedEvents: null, explore: null, pair: null, focus: '', focusDir: 'both', focusDepth: 10,
   showMissing: false, hideIsolated: true, hideIsolatedNodes: false,
-  dir: 'LR', labelMode: 'label', group: false, groupBy: 'none', edgeLabels: false, ...over,
+  dir: 'LR', labelMode: 'label', group: false, groupBy: 'none', edgeLabels: false, lineWidths: true, ...over,
 });
 
 describe('focus on a field at form level', () => {

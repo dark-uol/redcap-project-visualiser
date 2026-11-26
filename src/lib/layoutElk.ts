@@ -11,6 +11,14 @@ const ROOT_ID = 'root';
 /** Room above the members for the group label. */
 const GROUP_PADDING = '[top=36,left=16,bottom=16,right=16]';
 
+/** Leaf node options: ports anywhere on the sides ELK picks, kept apart, and the box grown beyond the text's size (its
+ * minimum) when they do not fit. */
+const NODE_OPTIONS: Record<string, string> = {
+  'elk.portConstraints': 'FREE',
+  'elk.spacing.portPort': '8',
+  'elk.nodeSize.constraints': 'PORTS MINIMUM_SIZE',
+};
+
 interface ElkLayoutEngine { layout(graph: ElkNode): Promise<ElkNode> }
 
 interface Box { x: number; y: number; width: number; height: number }
@@ -130,13 +138,20 @@ export async function layoutElk(view: View, options: Pick<ViewOptions, 'dir'> & 
     const parentIndex = parentIndexes[groupIndex];
     (parentIndex === -1 ? rootChildren : (groupElkNodes.get(parentIndex) as ElkNode).children as ElkNode[]).push(groupElk);
   }
-  view.nodes.forEach((viewNode, nodeIndex) => {
-    const leaf: ElkNode = { id: nodeElkId(nodeIndex), ...nodeBoxSize(viewNode, options) };
-    if (partitions) leaf.layoutOptions = { 'elk.partitioning.partition': String(partitions[nodeIndex]) };
+  const leaves = view.nodes.map((viewNode, nodeIndex) => {
+    const size = nodeBoxSize(viewNode, options);
+    const leaf: ElkNode = {
+      id: nodeElkId(nodeIndex), ...size, ports: [],
+      layoutOptions: { ...NODE_OPTIONS, 'elk.nodeSize.minimum': `(${size.width}, ${size.height})` },
+    };
+    if (partitions) leaf.layoutOptions!['elk.partitioning.partition'] = String(partitions[nodeIndex]);
     const groupIndex = groupOfNodeIndex[nodeIndex];
     (groupIndex === -1 ? rootChildren : (groupElkNodes.get(groupIndex) as ElkNode).children as ElkNode[]).push(leaf);
+    return leaf;
   });
 
+  // Every edge end gets a port of its own, so ELK spreads the edges of a node along its side instead of starting them all
+  // at one point (where they would run on top of each other until they part).
   const elkEdges: ElkExtendedEdge[] = [];
   const edgeMetaByElkId = new Map<string, { edgeIndex: number; sourceIndex: number; targetIndex: number; containerId: string }>();
   view.edges.forEach((edge, edgeIndex) => {
@@ -144,7 +159,11 @@ export async function layoutElk(view: View, options: Pick<ViewOptions, 'dir'> & 
     const targetIndex = nodeIndexById.get(edge.to);
     if (sourceIndex === undefined || targetIndex === undefined) return;
     const elkId = edgeElkId(edgeIndex);
-    elkEdges.push({ id: elkId, sources: [nodeElkId(sourceIndex)], targets: [nodeElkId(targetIndex)] });
+    const sourcePort = `${elkId}s`;
+    const targetPort = `${elkId}t`;
+    leaves[sourceIndex].ports!.push({ id: sourcePort, width: 0, height: 0 });
+    leaves[targetIndex].ports!.push({ id: targetPort, width: 0, height: 0 });
+    elkEdges.push({ id: elkId, sources: [sourcePort], targets: [targetPort] });
     edgeMetaByElkId.set(elkId, {
       edgeIndex, sourceIndex, targetIndex, containerId: containerElkId(lowestCommonContainer(sourceIndex, targetIndex)),
     });
@@ -159,8 +178,7 @@ export async function layoutElk(view: View, options: Pick<ViewOptions, 'dir'> & 
       'elk.edgeRouting': 'ORTHOGONAL',
       'elk.spacing.nodeNode': '24',
       'elk.layered.spacing.nodeNodeBetweenLayers': '48',
-      ...(partitions ? { 'elk.partitioning.activate': 'true' } : {}),
-    },
+      ...(partitions ? { 'elk.partitioning.activate': 'true' } : {}),    },
     children: rootChildren,
     edges: elkEdges,
   };
