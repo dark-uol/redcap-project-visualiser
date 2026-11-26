@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_COLUMN_ROWS, layoutSwimlane, originShift, shiftLayoutContents, wrapLabel } from '../src/lib/layoutSwimlane';
+import sampleXml from '../public/sample/sample.xml?raw';
+import { buildModel, buildView } from '../src/lib/graph';
+import { parseODM } from '../src/lib/parser';
+import {
+  CLUSTER_MAX_COLUMNS, CLUSTER_SMALL_FIELD_COUNT, MAX_COLUMN_ROWS, clusterColumnCount, clusterColumnSizes, layoutSwimlane, originShift,
+  shiftLayoutContents, wrapLabel,
+} from '../src/lib/layoutSwimlane';
 import { layoutToSvg } from '../src/lib/layoutToSvg';
 import { countEdgesThroughNodes, countNodeOverlaps, countOverlappingSegments, isAxisAligned } from '../src/lib/layoutMetrics';
 import { TRACK_SPACING } from '../src/lib/swimlaneRouting';
@@ -480,7 +486,7 @@ describe('layoutSwimlane tall columns', () => {
     expect(svg).toContain(`x="${column.x + column.width / 2}"`);
   });
 
-  it('fills column-major and draws one box per sub-column for a form, enclosing its members, with one group index', () => {
+  it('fills column-major and draws one box per form spanning its columns, enclosing its members, with one group index', () => {
     const groups = [
       { id: 'f1', label: 'Form 1', nodes: Array.from({ length: 40 }, (_, index) => `n${index}`) },
       { id: 'f2', label: 'Form 2', nodes: Array.from({ length: 20 }, (_, index) => `n${40 + index}`) },
@@ -488,16 +494,18 @@ describe('layoutSwimlane tall columns', () => {
     const layout = layoutSwimlane(tallView(groups), events);
     const boxes = layout.regions.filter((region) => region.kind === 'cluster');
     expect(new Set(boxes.map((box) => box.id)).size).toBe(boxes.length);
-    expect(boxes.filter((box) => box.groupIndex === 0).length).toBeGreaterThan(1);
+    expect(boxes).toHaveLength(2);
     groups.forEach((group, groupIndex) => {
       const own = boxes.filter((box) => box.groupIndex === groupIndex);
+      expect(own).toHaveLength(1);
       group.nodes.forEach((id) => {
         const member = findNode(layout, id);
-        expect(own.some((box) => member.x >= box.x && member.x + member.width <= box.x + box.width && member.y >= box.y && member.y + member.height <= box.y + box.height)).toBe(true);
+        expect(member.x >= own[0].x && member.x + member.width <= own[0].x + own[0].width && member.y >= own[0].y && member.y + member.height <= own[0].y + own[0].height).toBe(true);
       });
     });
-    // contiguity: within a sub-column the nodes run in order, and the next sub-column continues the sequence
-    const order = layout.nodes.filter((placed) => placed.id.startsWith('n')).sort((first, second) => first.x - second.x || first.y - second.y).map((placed) => placed.id);
+    // contiguity: within a column the nodes run in order, and the next column continues the sequence
+    const form = layout.nodes.filter((placed) => Number(placed.id.slice(1)) < 40);
+    const order = form.slice().sort((first, second) => first.x - second.x || first.y - second.y).map((placed) => placed.id);
     expect(order).toEqual(order.slice().sort((first, second) => Number(first.slice(1)) - Number(second.slice(1))));
   });
 
@@ -891,5 +899,165 @@ describe('layoutSwimlane shift into the drawing bounds', () => {
       expect(region.x - before.regions[index].x).toBe(region.kind === 'lane' ? 0 : shift.x);
       expect(region.y - before.regions[index].y).toBe(shift.y);
     });
+  });
+});
+
+describe('layoutSwimlane form boxes in several columns', () => {
+  const events = [eventDef('e1', { dayOffset: 0, forms: ['f1', 'f2'] }), eventDef('e2', { dayOffset: 1, forms: ['f3'] })];
+  const fieldNodes = (formId: string, count: number) => Array.from({ length: count }, (_, index) => node(`${formId}_${index}`, { form: formId, field: `${formId}_${index}` }));
+  const groupOf = (formId: string, nodes: { id: string }[]) => ({ id: formId, label: formId, nodes: nodes.map((placed) => placed.id) });
+  const singleForm = (count: number, edges: ViewEdge[] = [], formId = 'f1') => {
+    const fields = fieldNodes(formId, count);
+    return makeView({ level: 'field', nodes: fields, groups: [groupOf(formId, fields)], edges });
+  };
+  const columnXs = (layout: SwimlaneLayout, ids: string[]) =>
+    [...new Set(ids.map((id) => findNode(layout, id).x))].sort((first, second) => first - second);
+  const seededRandom = (seed: number): (() => number) => {
+    let state = seed;
+    return function nextRandom(): number {
+      state = (state + 0x6d2b79f5) | 0;
+      let mixed = Math.imul(state ^ (state >>> 15), 1 | state);
+      mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
+      return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+  const randomLinks = (ids: string[], count: number, seed: number): ViewEdge[] => {
+    const random = seededRandom(seed);
+    const seen = new Set<string>();
+    const edges: ViewEdge[] = [];
+    while (edges.length < count) {
+      const from = ids[Math.floor(random() * ids.length)];
+      const to = ids[Math.floor(random() * ids.length)];
+      if (from === to || seen.has(`${from}>${to}`)) continue;
+      seen.add(`${from}>${to}`);
+      edges.push(link(from, to));
+    }
+    return edges;
+  };
+
+  it('chooses the number of columns from the aspect ratio, one for a small form, at most the cap', () => {
+    expect([1, 5, CLUSTER_SMALL_FIELD_COUNT].map(clusterColumnCount)).toEqual([1, 1, 1]);
+    expect(clusterColumnCount(9)).toBe(2);
+    expect(clusterColumnCount(34)).toBe(4);
+    expect(clusterColumnCount(100)).toBe(7);
+    expect(clusterColumnCount(300)).toBe(12);
+    expect(clusterColumnCount(5000)).toBe(CLUSTER_MAX_COLUMNS);
+    expect(clusterColumnSizes(8, 3)).toEqual([3, 3, 2]);
+  });
+
+  it('lays a form of 34 fields out in 4 even columns, column-major, much shorter than one stack, in one box', () => {
+    const layout = layoutSwimlane(singleForm(34), events);
+    const ids = Array.from({ length: 34 }, (_, index) => `f1_${index}`);
+    const xs = columnXs(layout, ids);
+    expect(xs).toHaveLength(4);
+    const sizes = xs.map((x) => ids.filter((id) => findNode(layout, id).x === x).length);
+    expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(1);
+    expect(sizes).toEqual([9, 9, 8, 8]);
+    // column-major: the ids run down the first column, then the next
+    const order = layout.nodes.slice().sort((first, second) => first.x - second.x || first.y - second.y).map((placed) => placed.id);
+    expect(order).toEqual(ids);
+    const boxes = layout.regions.filter((region) => region.kind === 'cluster');
+    expect(boxes).toHaveLength(1);
+    layout.nodes.forEach((placed) => {
+      expect(placed.x).toBeGreaterThanOrEqual(boxes[0].x);
+      expect(placed.x + placed.width).toBeLessThanOrEqual(boxes[0].x + boxes[0].width);
+      expect(placed.y).toBeGreaterThanOrEqual(boxes[0].y);
+      expect(placed.y + placed.height).toBeLessThanOrEqual(boxes[0].y + boxes[0].height);
+    });
+    expect(boxes[0].width).toBeGreaterThan(boxes[0].height);
+    const stacked = layoutSwimlane(singleForm(8), events);
+    expect(layout.height).toBeLessThan(stacked.height + 34 * 46 / 2);
+    expect(layout.height).toBeLessThan(20 + 26 + 34 * 46);
+  });
+
+  it('draws 300 fields in at most 12 columns of compact chips, and keeps 8 or fewer in one column', () => {
+    const view = singleForm(300);
+    const layout = layoutSwimlane(view, events);
+    const xs = columnXs(layout, view.nodes.map((placed) => placed.id));
+    expect(xs.length).toBeLessThanOrEqual(CLUSTER_MAX_COLUMNS);
+    expect(xs.length).toBe(12);
+    layout.nodes.forEach((placed) => { expect(placed.width).toBe(72); expect(placed.height).toBe(22); });
+    expect(layout.height).toBeLessThan(1500);
+    const svg = layoutToSvg(layout, view, drawOptions());
+    expect(nodesWithOverflowingText(svg)).toEqual([]);
+    expect(columnXs(layoutSwimlane(singleForm(8), events), view.nodes.slice(0, 8).map((placed) => placed.id))).toHaveLength(1);
+    expect(layoutSwimlane(singleForm(60), events).nodes[0].width).toBe(120);
+    expect(layoutSwimlane(singleForm(61), events).nodes[0].width).toBe(72);
+  });
+
+  it('keeps normal size for nodes needing more than one line in a big box', () => {
+    const fields = fieldNodes('f1', 70).map((field, index) => (index % 10 === 0 ? { ...field, extra: ['one', 'two'] } : field));
+    const view = makeView({ level: 'field', nodes: fields, groups: [groupOf('f1', fields)] });
+    const layout = layoutSwimlane(view, events, drawOptions());
+    layout.nodes.forEach((placed, index) => {
+      const tall = fields.find((field) => field.id === placed.id)!.extra !== undefined;
+      expect(placed.width, `${index}`).toBe(tall ? 120 : 72);
+      expect(placed.height).toBe(tall ? nodeBoxHeight(fields.find((field) => field.id === placed.id)!, drawOptions()) : 22);
+    });
+    expect(nodesWithOverflowingText(layoutToSvg(layout, view, drawOptions()))).toEqual([]);
+    expectCleanRoutes(layoutSwimlane({ ...view, edges: randomLinks(fields.map((field) => field.id), 90, 3) }, events, drawOptions()));
+  });
+
+  it('shifts the next event column right by the width of the wide box, without overlap', () => {
+    const fields = [...fieldNodes('f1', 34), ...fieldNodes('f3', 3)];
+    const view = makeView({ level: 'field', nodes: fields, groups: [groupOf('f1', fields.slice(0, 34))] });
+    const layout = layoutSwimlane(view, events);
+    const [first, second] = ['e1', 'e2'].map((id) => layout.regions.find((region) => region.id === `column:${id}`)!);
+    expect(first.width).toBe(4 * 160);
+    expect(second.x).toBeGreaterThanOrEqual(first.x + first.width);
+    const box = layout.regions.find((region) => region.kind === 'cluster')!;
+    layout.nodes.filter((placed) => placed.id.startsWith('f3')).forEach((placed) => expect(placed.x).toBeGreaterThan(box.x + box.width));
+    layout.nodes.forEach((placed, index) => layout.nodes.slice(index + 1).forEach((other) => expect(overlaps(placed, other)).toBe(false)));
+  });
+
+  it('stacks several boxes and lone nodes in one column with one box per form', () => {
+    const fields = [...fieldNodes('f1', 34), ...fieldNodes('f2', 5), ...fieldNodes('f2b', 12)];
+    const view = makeView({
+      level: 'field', nodes: [...fields, node('lone', { form: 'f1', field: 'lone' })],
+      groups: [groupOf('f1', fields.slice(0, 34)), groupOf('f2', fields.slice(34, 39)), groupOf('f2b', fields.slice(39))],
+    });
+    const wide = [eventDef('e1', { forms: ['f1', 'f2', 'f2b'] })];
+    const layout = layoutSwimlane(view, wide);
+    const boxes = layout.regions.filter((region) => region.kind === 'cluster');
+    expect(boxes.map((box) => box.groupIndex).sort()).toEqual([0, 1, 2]);
+    boxes.forEach((box, index) => boxes.slice(index + 1).forEach((other) => expect(overlaps(box, other)).toBe(false)));
+    expect(layout.nodes.find((placed) => placed.id === 'lone' && boxes.some((box) => overlaps(box, placed)))).toBeUndefined();
+    expect(columnXs(layout, fields.slice(34, 39).map((field) => field.id))).toHaveLength(1);
+    expect(columnXs(layout, fields.slice(39).map((field) => field.id))).toHaveLength(2);
+  });
+
+  it('routes edges inside, out of and between multi-column boxes cleanly, and reports zero metric violations', () => {
+    for (let trial = 0; trial < 4; trial++) {
+      const fields = [...fieldNodes('f1', 34 + trial * 20), ...fieldNodes('f2', 20), ...fieldNodes('f3', 70)];
+      const view = makeView({
+        level: 'field', nodes: fields,
+        groups: ['f1', 'f2', 'f3'].map((formId) => groupOf(formId, fields.filter((field) => field.form === formId))),
+        edges: randomLinks(fields.map((field) => field.id), 160, 20 + trial),
+      });
+      const layout = layoutSwimlane(view, events);
+      expectCleanRoutes(layout);
+      expect(layout.edges).toHaveLength(160);
+      expect(layout.width).toBeGreaterThan(0);
+      layout.nodes.forEach((placed) => { expect(placed.x + placed.width).toBeLessThanOrEqual(layout.width); expect(placed.y + placed.height).toBeLessThanOrEqual(layout.height); });
+      layout.regions.forEach((region) => {
+        expect(region.x + region.width).toBeLessThanOrEqual(layout.width + 0.001);
+        expect(region.y + region.height).toBeLessThanOrEqual(layout.height + 0.001);
+      });
+    }
+  });
+
+  it('keeps a form box on the sample project drawable, with clickable box and fields', () => {
+    const model = buildModel(parseODM(sampleXml));
+    const sampleOptions: ViewOptions = {
+      ...drawOptions(), level: 'field', types: new Set(['branching', 'calc', 'piping', 'embedding', 'actiontag', 'formlogic', 'logicsrc']),
+      hideIsolated: true, group: true, groupBy: 'form', focusDepth: 1,
+    };
+    const view = buildView(model, sampleOptions);
+    const layout = layoutSwimlane(view, model.parsed.events, sampleOptions);
+    expectCleanRoutes(layout);
+    const svg = layoutToSvg(layout, view, sampleOptions);
+    expect(nodesWithOverflowingText(svg)).toEqual([]);
+    expect(layout.regions.filter((region) => region.kind === 'cluster').every((region) => region.groupIndex !== undefined)).toBe(true);
+    expect(svg).toContain('data-key="cluster_0"');
   });
 });

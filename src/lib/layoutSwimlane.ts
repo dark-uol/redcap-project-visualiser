@@ -4,7 +4,7 @@
  * Pure and deterministic; no Solid, no DOM. */
 import type { EventDef, View, ViewNode } from './types';
 import type { Layout, LayoutEdge, LayoutNode, LayoutRegion, Point } from './layout';
-import { NODE_BOX_WIDTH, nodeBoxHeight, nodeBoxHeightWithPorts, type NodeBoxOptions } from './nodeBox';
+import { NODE_BOX_WIDTH, isCompactNode, nodeBoxHeight, nodeBoxHeightWithPorts, nodeBoxWidth, type NodeBoxOptions } from './nodeBox';
 import {
   BAND_MARGIN, GAP_MARGIN, SIDE_CLEARANCE, TRACK_SPACING, assignTracks, isGrowthEmpty, routeChannels,
   type ChannelGeometry, type ChannelStructure, type Growth, type RoutedEdge,
@@ -40,55 +40,100 @@ const MAX_GROWTH_ROUNDS = 25;
  * stays a sensible height. */
 export const MAX_COLUMN_ROWS = 25;
 
+/** A form box holding up to this many nodes stays one column; bigger ones flow into several. */
+export const CLUSTER_SMALL_FIELD_COUNT = 8;
+/** Wanted width over height of a form box with several columns. */
+export const CLUSTER_TARGET_ASPECT = 1.5;
+/** Nominal size of one cell of a form box's grid (a node and its share of the gaps), to judge the aspect ratio by. */
+export const CLUSTER_CELL_WIDTH = 100;
+export const CLUSTER_CELL_HEIGHT = 32;
+/** A form box has at most this many columns; beyond it the rows grow instead. */
+export const CLUSTER_MAX_COLUMNS = 12;
+
+/** Columns of a form box holding `fieldCount` nodes: its width about CLUSTER_TARGET_ASPECT times its height
+ * (sqrt(aspect * count * cell height / cell width), rounded), one column for a small form, at most CLUSTER_MAX_COLUMNS. */
+export const clusterColumnCount = (fieldCount: number): number => {
+  if (fieldCount <= CLUSTER_SMALL_FIELD_COUNT) return 1;
+  const wanted = Math.round(Math.sqrt((CLUSTER_TARGET_ASPECT * fieldCount * CLUSTER_CELL_HEIGHT) / CLUSTER_CELL_WIDTH));
+  return Math.min(CLUSTER_MAX_COLUMNS, Math.max(1, Math.min(fieldCount, wanted)));
+};
+
+/** How many of `fieldCount` nodes fill each of `columnCount` columns when divided evenly, column-major (8 in 3: 3, 3, 2). */
+export const clusterColumnSizes = (fieldCount: number, columnCount: number): number[] => {
+  const base = Math.floor(fieldCount / columnCount);
+  const larger = fieldCount % columnCount;
+  return Array.from({ length: columnCount }, (_, column) => base + (column < larger ? 1 : 0));
+};
+
+/** One row of a column's stack: the nodes sitting side by side at one height (a row of a form box's grid, or a lone node). */
+interface Band {
+  cells: { id: string; subColumn: number }[];
+  /** The form box the row belongs to, if any. */
+  cluster?: string;
+}
+
+/** A stack of bands over a run of sub-columns, from the header down. A column holds several chunks side by side only when its
+ * stack is taller than MAX_COLUMN_ROWS rows. Chunks grow and shift independently. */
+interface Chunk {
+  /** Index of the chunk's first sub-column in its column, and how many sub-columns it spans. */
+  offset: number;
+  width: number;
+  bands: Band[];
+  /** Extra height of the gap above every band (index 0 unused). */
+  bandExtra: number[];
+}
+
+/** What stands in a column's stack: a form box (a grid of its nodes) or a lone node. */
+interface StackItem { ids: string[]; cluster?: string; columns: number; rows: number }
+
 interface ColumnPlan {
   id: string;
   event?: EventDef;
   nodes: ViewNode[];
   /** Centre of the column's sub-columns (without the extra width of its outer gutters). */
   centerX: number;
-  /** Number of side-by-side sub-columns, each COLUMN_PITCH wide plus the extra width of the gutters between them. */
+  /** Number of side-by-side sub-columns, each as wide as its widest node plus the gutters between them. */
   subColumns: number;
-  /** Stacked nodes per sub-column (the last may hold fewer). */
-  rowsPerSubColumn: number;
+  /** Width of the nodes of every sub-column (its widest node). */
+  subWidths: number[];
+  chunks: Chunk[];
   /** Node ids of every sub-column, top to bottom. */
   stacks: string[][];
   /** Top-left y of each node, relative to the lane's top, by node id. */
   topById: Map<string, number>;
   /** Index of the sub-column each node sits in, by node id. */
   subColumnById: Map<string, number>;
-  /** Height of the tallest sub-column's stacked nodes, including cluster padding. */
+  /** Chunk and band index of every node. */
+  bandOf: Map<string, { chunk: Chunk; band: number }>;
+  /** Height of the tallest chunk's stacked bands, including cluster padding. */
   contentHeight: number;
+  /** The content is at least this tall (grown so that tracks below the last nodes fit). */
+  minimumContentHeight: number;
   /** Extra width of the gutter right of every sub-column but the last. */
   innerGutterExtra: number[];
   /** Extra width of the gutter left of the column (the first of its lane only) and right of it. */
   leftExtra: number;
   rightExtra: number;
-  /** Per sub-column, extra height of each gap: index i > 0 is the gap above its i-th node, the stack length the space below
-   * the last node. */
-  gapExtra: number[][];
-  /** Per sub-column, the space of each gap relative to the lane's top, same indexes (the space below the last node starts
-   * at `top`; its bottom is the lane's content bottom). */
+  /** Per sub-column, the space of each gap relative to the lane's top: index i > 0 is the gap above its i-th node, the stack
+   * length the space below the last node (which starts at `top`; its bottom is the lane's content bottom). */
   gapRanges: { top: number; bottom: number }[][];
 }
 
-const newColumnPlan = (id: string, nodes: ViewNode[], event?: EventDef): ColumnPlan => {
-  const subColumns = Math.max(1, Math.ceil(nodes.length / MAX_COLUMN_ROWS));
-  return {
-    id, event, nodes, centerX: 0, subColumns, rowsPerSubColumn: Math.max(1, Math.ceil(nodes.length / subColumns)),
-    stacks: [], topById: new Map(), subColumnById: new Map(), contentHeight: 0,
-    innerGutterExtra: new Array(subColumns - 1).fill(0), leftExtra: 0, rightExtra: 0, gapExtra: [], gapRanges: [],
-  };
-};
+const newColumnPlan = (id: string, nodes: ViewNode[], event?: EventDef): ColumnPlan => ({
+  id, event, nodes, centerX: 0, subColumns: 1, subWidths: [NODE_WIDTH], chunks: [],
+  stacks: [], topById: new Map(), subColumnById: new Map(), bandOf: new Map(), contentHeight: 0, minimumContentHeight: 0,
+  innerGutterExtra: [], leftExtra: 0, rightExtra: 0, gapRanges: [],
+});
 
 /** Width of the sub-columns and the gutters between them. */
 const coreWidth = (column: ColumnPlan): number =>
-  column.subColumns * COLUMN_PITCH + column.innerGutterExtra.reduce((sum, extra) => sum + extra, 0);
+  column.subWidths.reduce((sum, width) => sum + width, 0) + column.subColumns * COLUMN_GAP + column.innerGutterExtra.reduce((sum, extra) => sum + extra, 0);
 const leftReach = (column: ColumnPlan): number => coreWidth(column) / 2 + column.leftExtra;
 const rightReach = (column: ColumnPlan): number => coreWidth(column) / 2 + column.rightExtra;
 /** Left x of the nodes of a sub-column. */
 const subColumnLeft = (column: ColumnPlan, subColumn: number): number => {
-  let left = column.centerX - coreWidth(column) / 2 + COLUMN_GAP / 2 + subColumn * COLUMN_PITCH;
-  for (let index = 0; index < subColumn; index++) left += column.innerGutterExtra[index];
+  let left = column.centerX - coreWidth(column) / 2 + COLUMN_GAP / 2;
+  for (let index = 0; index < subColumn; index++) left += column.subWidths[index] + COLUMN_GAP + (column.innerGutterExtra[index] ?? 0);
   return left;
 };
 
@@ -203,32 +248,110 @@ const initialOrder = (column: ColumnPlan, viewOrder: Map<string, number>): ViewN
  * boundary is closed and reopened (CLUSTER_TOP again). Records the tops, the gaps and the content height. */
 const stackColumn = (column: ColumnPlan, headerHeight: number, heightById: Map<string, number>, clusterOf: Map<string, string>): void => {
   let tallest = 0;
-  column.gapRanges = column.stacks.map((ids, subColumn) => {
-    const extra = column.gapExtra[subColumn];
-    const ranges: { top: number; bottom: number }[] = [];
+  column.chunks.forEach((chunk) => {
     let top = headerHeight;
     let previousCluster: string | undefined;
-    let previousBottom = headerHeight;
-    ids.forEach((id, position) => {
-      const cluster = clusterOf.get(id);
-      const closes = previousCluster !== undefined && previousCluster !== cluster;
-      const opens = cluster !== undefined && cluster !== previousCluster;
-      if (position > 0) top += NODE_GAP + extra[position];
+    chunk.bands.forEach((band, index) => {
+      const closes = index > 0 && previousCluster !== undefined && previousCluster !== band.cluster;
+      const opens = band.cluster !== undefined && band.cluster !== previousCluster;
+      if (index > 0) top += NODE_GAP + chunk.bandExtra[index];
       if (closes) top += CLUSTER_BOTTOM;
       if (opens) top += CLUSTER_TOP;
-      if (position > 0) ranges[position] = { top: previousBottom + (closes ? CLUSTER_BOTTOM : 0), bottom: top - (opens ? CLUSTER_TOP : 0) };
-      column.topById.set(id, top);
-      column.subColumnById.set(id, subColumn);
-      top += heightById.get(id) as number;
-      previousBottom = top;
-      previousCluster = cluster;
+      let rowHeight = 0;
+      band.cells.forEach(({ id, subColumn }) => {
+        column.topById.set(id, top);
+        column.subColumnById.set(id, subColumn);
+        rowHeight = Math.max(rowHeight, heightById.get(id) as number);
+      });
+      top += rowHeight;
+      previousCluster = band.cluster;
     });
-    const end = ids.length ? top + (previousCluster ? CLUSTER_BOTTOM : 0) : headerHeight;
-    ranges[ids.length] = { top: end, bottom: end + extra[ids.length] };
-    if (ids.length) tallest = Math.max(tallest, end + extra[ids.length] - headerHeight);
+    tallest = Math.max(tallest, chunk.bands.length ? top + (previousCluster ? CLUSTER_BOTTOM : 0) - headerHeight : 0);
+  });
+  // the gaps of every sub-column, from the boxes of its own nodes: a form box's padding is kept out of them
+  column.gapRanges = column.stacks.map((ids) => {
+    const ranges: { top: number; bottom: number }[] = [];
+    ids.forEach((id, position) => {
+      const cluster = clusterOf.get(id);
+      const top = column.topById.get(id) as number;
+      if (position > 0) {
+        const previousId = ids[position - 1];
+        const previousCluster = clusterOf.get(previousId);
+        const closes = previousCluster !== undefined && previousCluster !== cluster;
+        const opens = cluster !== undefined && cluster !== previousCluster;
+        const previousBottom = (column.topById.get(previousId) as number) + (heightById.get(previousId) as number);
+        ranges[position] = { top: previousBottom + (closes ? CLUSTER_BOTTOM : 0), bottom: top - (opens ? CLUSTER_TOP : 0) };
+      }
+    });
+    const lastId = ids[ids.length - 1];
+    const below = lastId === undefined ? headerHeight
+      : (column.topById.get(lastId) as number) + (heightById.get(lastId) as number) + (clusterOf.has(lastId) ? CLUSTER_BOTTOM : 0);
+    ranges[ids.length] = { top: below, bottom: below };
     return ranges;
   });
-  column.contentHeight = tallest;
+  column.contentHeight = Math.max(tallest, column.minimumContentHeight);
+};
+
+/** The stack of a column as items in sorted order: the nodes of one form box together (at its first node), the rest alone. */
+const stackItems = (sortedIds: string[], clusterOf: Map<string, string>): StackItem[] => {
+  const items: StackItem[] = [];
+  const clusterItems = new Map<string, StackItem>();
+  sortedIds.forEach((id) => {
+    const cluster = clusterOf.get(id);
+    if (cluster === undefined) { items.push({ ids: [id], columns: 1, rows: 1 }); return; }
+    let item = clusterItems.get(cluster);
+    if (!item) { item = { ids: [], cluster, columns: 1, rows: 1 }; clusterItems.set(cluster, item); items.push(item); }
+    item.ids.push(id);
+  });
+  clusterItems.forEach((item) => {
+    item.columns = clusterColumnCount(item.ids.length);
+    item.rows = Math.ceil(item.ids.length / item.columns);
+  });
+  return items;
+};
+
+/** Divides the items into chunks of about the same number of rows (at most MAX_COLUMN_ROWS unless one box is taller), in
+ * order, and each chunk into bands: a form box is a grid filled column-major with its nodes divided evenly over its columns,
+ * a lone node a band of its own at the chunk's first sub-column. Sets the column's sub-columns, stacks and widths. */
+const partitionColumn = (column: ColumnPlan, items: StackItem[], widthById: Map<string, number>): void => {
+  const totalRows = items.reduce((sum, item) => sum + item.rows, 0);
+  const targetRows = Math.ceil(totalRows / Math.max(1, Math.ceil(totalRows / MAX_COLUMN_ROWS)));
+  const groups: StackItem[][] = [];
+  let rows = 0;
+  items.forEach((item) => {
+    if (groups.length === 0 || rows + item.rows > targetRows) { groups.push([]); rows = 0; }
+    groups[groups.length - 1].push(item);
+    rows += item.rows;
+  });
+  column.chunks = [];
+  let offset = 0;
+  groups.forEach((group) => {
+    const width = Math.max(...group.map((item) => item.columns));
+    const bands: Band[] = [];
+    group.forEach((item) => {
+      const sizes = clusterColumnSizes(item.ids.length, item.columns);
+      for (let row = 0; row < item.rows; row++) {
+        const band: Band = { cells: [], cluster: item.cluster };
+        let start = 0;
+        sizes.forEach((size, itemColumn) => {
+          if (row < size) band.cells.push({ id: item.ids[start + row], subColumn: offset + itemColumn });
+          start += size;
+        });
+        bands.push(band);
+      }
+    });
+    column.chunks.push({ offset, width, bands, bandExtra: new Array(bands.length).fill(0) });
+    offset += width;
+  });
+  column.subColumns = Math.max(1, offset);
+  column.stacks = Array.from({ length: column.subColumns }, () => []);
+  column.bandOf = new Map();
+  column.chunks.forEach((chunk) => chunk.bands.forEach((band, index) => band.cells.forEach(({ id, subColumn }) => {
+    column.stacks[subColumn].push(id);
+    column.bandOf.set(id, { chunk, band: index });
+  })));
+  column.subWidths = column.stacks.map((ids) => Math.max(0, ...ids.map((id) => widthById.get(id) as number)) || NODE_WIDTH);
+  column.innerGutterExtra = new Array(column.subColumns - 1).fill(0);
 };
 
 /** One barycentre sweep left to right: order by the mean y of already-placed neighbours in earlier columns of the lane.
@@ -236,23 +359,27 @@ const stackColumn = (column: ColumnPlan, headerHeight: number, heightById: Map<s
  * sub-column, then the next, so a form's fields stay contiguous. */
 const orderLane = (
   lane: LanePlan, neighbours: Map<string, string[]>, viewOrder: Map<string, number>, headerHeight: number, clusterOf: Map<string, string>,
-  heightById: Map<string, number>,
+  heightById: Map<string, number>, widthById: Map<string, number>,
 ): void => {
   const placedTop = new Map<string, number>();
   lane.columns.forEach((column) => {
     const initial = initialOrder(column, viewOrder);
-    // a wrapped column is that many times shorter, so an unconnected node's slot (the height of the nodes before it) is scaled to its row
-    let heightBefore = 0;
-    const keyed = initial.map((node, slot) => {
-      const tops = (neighbours.get(node.id) ?? []).filter((id) => placedTop.has(id)).map((id) => placedTop.get(id) as number);
-      const barycentre = tops.length ? tops.reduce((sum, top) => sum + top, 0) / tops.length : heightBefore / column.subColumns;
-      heightBefore += (heightById.get(node.id) as number) + NODE_GAP;
-      return { node, slot, barycentre };
-    });
     const clusterSizes = new Map<string, number>();
     initial.forEach((node) => {
       const cluster = clusterOf.get(node.id);
       if (cluster) clusterSizes.set(cluster, (clusterSizes.get(cluster) ?? 0) + 1);
+    });
+    // a wrapped column is that many times shorter, and a form box that many columns, so an unconnected node's slot (the height
+    // of the nodes before it) is scaled to its row
+    const clusterColumns = (id: string): number => clusterColumnCount(clusterSizes.get(clusterOf.get(id) as string) ?? 1);
+    const totalRows = initial.reduce((sum, node) => sum + 1 / (clusterOf.has(node.id) ? clusterColumns(node.id) : 1), 0);
+    const chunkCount = Math.max(1, Math.ceil(totalRows / MAX_COLUMN_ROWS));
+    let heightBefore = 0;
+    const keyed = initial.map((node, slot) => {
+      const tops = (neighbours.get(node.id) ?? []).filter((id) => placedTop.has(id)).map((id) => placedTop.get(id) as number);
+      const barycentre = tops.length ? tops.reduce((sum, top) => sum + top, 0) / tops.length : heightBefore / chunkCount;
+      heightBefore += ((heightById.get(node.id) as number) + NODE_GAP) / (clusterOf.has(node.id) ? clusterColumns(node.id) : 1);
+      return { node, slot, barycentre };
     });
     const clusterMeans = new Map<string, number>();
     keyed.forEach(({ node, barycentre }) => {
@@ -264,9 +391,7 @@ const orderLane = (
       return cluster ? (clusterMeans.get(cluster) as number) : entry.barycentre;
     };
     keyed.sort((first, second) => sortKey(first) - sortKey(second) || first.slot - second.slot);
-    column.stacks = Array.from({ length: column.subColumns }, () => []);
-    keyed.forEach(({ node }, position) => column.stacks[Math.floor(position / column.rowsPerSubColumn)].push(node.id));
-    column.gapExtra = column.stacks.map((ids) => new Array(ids.length + 1).fill(0));
+    partitionColumn(column, stackItems(keyed.map(({ node }) => node.id), clusterOf), widthById);
     stackColumn(column, headerHeight, heightById, clusterOf);
     column.topById.forEach((top, id) => placedTop.set(id, top));
   });
@@ -303,7 +428,6 @@ interface GutterOwner { column: ColumnPlan; kind: 'left' | 'right' | 'inner'; su
 
 export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxOptions = {}): Layout {
   const viewNodeById = new Map(view.nodes.map((viewNode) => [viewNode.id, viewNode] as const));
-  const heightById = new Map(view.nodes.map((viewNode) => [viewNode.id, nodeBoxHeight(viewNode, options)] as const));
   const eventById = new Map(events.map((event) => [event.id, event]));
   const viewOrder = new Map(view.nodes.map((node, index) => [node.id, index]));
 
@@ -373,6 +497,24 @@ export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxO
     : view.groups.filter((group) => (view.expandedNodes ?? []).some((expanded) => expanded.id === group.id));
   clusterGroups.forEach((group) => group.nodes.forEach((id) => clusterOf.set(id, group.id)));
 
+  // Node sizes: a node in a big form box (counted per event column) is a compact chip when it has a single text line.
+  const compactIds = new Set<string>();
+  const clusterSizeInColumn = new Map<string, number>();
+  const allColumns = noEventColumn ? [...columns, noEventColumn] : columns;
+  allColumns.forEach((column) => {
+    clusterSizeInColumn.clear();
+    column.nodes.forEach((node) => {
+      const cluster = clusterOf.get(node.id);
+      if (cluster !== undefined) clusterSizeInColumn.set(cluster, (clusterSizeInColumn.get(cluster) ?? 0) + 1);
+    });
+    column.nodes.forEach((node) => {
+      const cluster = clusterOf.get(node.id);
+      if (cluster !== undefined && isCompactNode(node, clusterSizeInColumn.get(cluster) as number, options)) compactIds.add(node.id);
+    });
+  });
+  const heightById = new Map(view.nodes.map((viewNode) => [viewNode.id, nodeBoxHeight(viewNode, options, compactIds.has(viewNode.id))] as const));
+  const widthById = new Map(view.nodes.map((viewNode) => [viewNode.id, nodeBoxWidth(compactIds.has(viewNode.id))] as const));
+
   // Header: tall enough for the longest wrapped event name, plus the day line when any column has one.
   const columnLines = new Map<string, string[]>();
   lanes.forEach((lane) => lane.columns.forEach((column) => {
@@ -382,7 +524,7 @@ export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxO
   const hasSublabel = lanes.some((lane) => lane.columns.some((column) => column.event && formatSublabel(column.event)));
   const headerHeight = HEADER_PADDING + tallestLabel * HEADER_LINE_HEIGHT + (hasSublabel ? HEADER_LINE_HEIGHT : 0);
 
-  lanes.forEach((lane) => orderLane(lane, neighbours, viewOrder, headerHeight, clusterOf, heightById));
+  lanes.forEach((lane) => orderLane(lane, neighbours, viewOrder, headerHeight, clusterOf, heightById, widthById));
 
   // Placement for the current sizes: lanes top to bottom, columns left to right, every node at its stacked top.
   const nodeById = new Map<string, LayoutNode>();
@@ -404,7 +546,7 @@ export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxO
     if (noEventColumn) noEventColumn.centerX = FIRST_CENTER - COLUMN_PITCH / 2 + leftReach(noEventColumn);
     lanes.forEach((lane) => lane.columns.forEach((column) => column.stacks.forEach((ids, subColumn) => ids.forEach((id) => {
       const placed: LayoutNode = {
-        id, x: subColumnLeft(column, subColumn), y: lane.y + (column.topById.get(id) as number), width: NODE_WIDTH, height: heightById.get(id) as number,
+        id, x: subColumnLeft(column, subColumn), y: lane.y + (column.topById.get(id) as number), width: widthById.get(id) as number, height: heightById.get(id) as number,
       };
       nodeById.set(id, placed);
       nodeColumn.set(id, column);
@@ -449,6 +591,7 @@ export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxO
   });
   lanes.forEach((_, laneIndex) => structure.bands.push({ above: laneChannels[laneIndex], below: laneChannels[laneIndex + 1] ?? [] }));
 
+  const widthOf = (entry: { column: ColumnPlan; subColumn: number }): number => entry.column.subWidths[entry.subColumn];
   const channelGeometry = (): ChannelGeometry => {
     const entryBounds = laneEntries.map((entries) => entries.map(({ column, subColumn }) => subColumnLeft(column, subColumn)));
     const channels: ChannelGeometry['channels'] = [];
@@ -459,9 +602,9 @@ export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxO
           const right = lefts[0] - SIDE_CLEARANCE;
           channels.push({ left: right - BASE_GUTTER_FREE - entries[0].column.leftExtra, right });
         } else if (index === entries.length) {
-          const left = lefts[index - 1] + NODE_WIDTH + SIDE_CLEARANCE;
+          const left = lefts[index - 1] + widthOf(entries[index - 1]) + SIDE_CLEARANCE;
           channels.push({ left, right: left + BASE_GUTTER_FREE + entries[index - 1].column.rightExtra });
-        } else channels.push({ left: lefts[index - 1] + NODE_WIDTH + SIDE_CLEARANCE, right: lefts[index] - SIDE_CLEARANCE });
+        } else channels.push({ left: lefts[index - 1] + widthOf(entries[index - 1]) + SIDE_CLEARANCE, right: lefts[index] - SIDE_CLEARANCE });
       }
     });
     const gaps = gapOwners.map(({ lane, column, subColumn, position }) => {
@@ -493,23 +636,29 @@ export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxO
     });
     routedNodeIds.forEach((id, nodeIndex) => {
       const ports = Math.max(portsBySide.get(`${nodeIndex}:left`) ?? 0, portsBySide.get(`${nodeIndex}:right`) ?? 0);
-      heightById.set(id, nodeBoxHeightWithPorts(viewNodeById.get(id) as ViewNode, options, ports));
+      heightById.set(id, nodeBoxHeightWithPorts(viewNodeById.get(id) as ViewNode, options, ports, compactIds.has(id)));
     });
     const grow = (growth: Growth): void => {
       growth.nodes.forEach((amount, nodeIndex) => {
         const id = routedNodeIds[nodeIndex];
         heightById.set(id, (heightById.get(id) as number) + amount);
       });
+      // a gap between rows grows the gap above the lower node's band: the nodes beside it move with it
+      const bandGrowth = new Map<Chunk, Map<number, number>>();
       growth.gaps.forEach((amount, gapIndex) => {
         const { lane, column, subColumn, position } = gapOwners[gapIndex];
-        const extras = column.gapExtra[subColumn];
-        if (position < column.stacks[subColumn].length) extras[position] += amount;
-        else {
+        const stack = column.stacks[subColumn];
+        if (position < stack.length) {
+          const { chunk, band } = column.bandOf.get(stack[position]) as { chunk: Chunk; band: number };
+          const amounts = bandGrowth.get(chunk) ?? new Map<number, number>();
+          amounts.set(band, Math.max(amounts.get(band) ?? 0, amount));
+          bandGrowth.set(chunk, amounts);
+        } else {
           // the space below the last node reaches down to the lane's content bottom: grow past it
-          const range = column.gapRanges[subColumn][position];
-          extras[position] = Math.max(extras[position], lane.contentBottom - lane.y - range.top + amount);
+          column.minimumContentHeight = Math.max(column.minimumContentHeight, lane.contentBottom - lane.y - headerHeight + amount);
         }
       });
+      bandGrowth.forEach((amounts, chunk) => amounts.forEach((amount, band) => { chunk.bandExtra[band] += amount; }));
       growth.bands.forEach((amount, bandIndex) => { lanes[bandIndex].bandExtra += amount; });
       growth.channels.forEach((freeWidth, channel) => {
         const owner = gutterOwners[channel];
@@ -558,23 +707,21 @@ export function layoutSwimlane(view: View, events: EventDef[], options: NodeBoxO
 
   clusterGroups.forEach((group) => {
     const members = group.nodes.map((id) => nodeById.get(id)).filter((member): member is LayoutNode => member !== undefined);
-    // one box per sub-column (of each column) the group's nodes landed in
-    const membersByColumn = new Map<string, { column: ColumnPlan; subColumn: number; members: LayoutNode[] }>();
+    // one box per event column the group's nodes landed in, spanning all the sub-columns of its grid
+    const membersByColumn = new Map<string, { column: ColumnPlan; members: LayoutNode[] }>();
     members.forEach((member) => {
       const column = nodeColumn.get(member.id) as ColumnPlan;
-      const subColumn = column.subColumnById.get(member.id) as number;
-      const key = `${column.id}\u0000${subColumn}`;
-      const entry = membersByColumn.get(key);
-      if (entry) entry.members.push(member); else membersByColumn.set(key, { column, subColumn, members: [member] });
+      const entry = membersByColumn.get(column.id);
+      if (entry) entry.members.push(member); else membersByColumn.set(column.id, { column, members: [member] });
     });
     const boxCount = membersByColumn.size;
-    membersByColumn.forEach(({ column, subColumn, members: columnMembers }) => {
+    membersByColumn.forEach(({ column, members: columnMembers }) => {
       const left = Math.min(...columnMembers.map((member) => member.x)) - CLUSTER_SIDE;
       const top = Math.min(...columnMembers.map((member) => member.y)) - CLUSTER_TOP;
       const right = Math.max(...columnMembers.map((member) => member.x + member.width)) + CLUSTER_SIDE;
       const bottom = Math.max(...columnMembers.map((member) => member.y + member.height)) + CLUSTER_BOTTOM;
       regions.push({
-        id: boxCount > 1 ? `cluster:${group.id}:${column.id}${column.subColumns > 1 ? `:${subColumn}` : ''}` : `cluster:${group.id}`, kind: 'cluster', groupIndex: view.groups.indexOf(group),
+        id: boxCount > 1 ? `cluster:${group.id}:${column.id}` : `cluster:${group.id}`, kind: 'cluster', groupIndex: view.groups.indexOf(group),
         label: group.label, labelLines: wrapLabel(group.label, CLUSTER_LABEL_CHARACTERS, 1), x: left, y: top, width: right - left, height: bottom - top,
       });
     });
