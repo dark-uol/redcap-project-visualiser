@@ -10,7 +10,14 @@ import { instanceIdFor } from '../src/lib/selection';
 import * as store from '../src/store';
 
 vi.mock('../src/lib/download', () => ({ download: vi.fn() }));
-vi.mock('../src/lib/renderers', () => ({ renderDot: vi.fn(), renderMermaid: vi.fn() }));
+vi.mock('../src/lib/renderers', () => {
+  const renderDot = vi.fn();
+  const renderMermaid = vi.fn();
+  // the store draws through renderEngine; route it to the two mocks so tests can count and fail them
+  const renderEngine = async (name: string, input: { source: string; mermaidId: string }) =>
+    name === 'mermaid' ? renderMermaid(input.mermaidId, input.source) : renderDot(input.source);
+  return { renderDot, renderMermaid, renderEngine };
+});
 
 const sampleXml: string = sampleRaw;
 

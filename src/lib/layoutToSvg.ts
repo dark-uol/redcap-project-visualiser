@@ -39,7 +39,7 @@ const DASH_NAMES = ['bold', 'dashed', 'dotted'] as const;
 
 /** Every class the writer can emit, for the tests that keep the style sheet and the markup in step. */
 export const EMITTABLE_CLASSES: readonly string[] = [
-  ROOT_CLASS, 'node', 'edge', 'edge-line', 'cluster', 'region', 'lane', 'column', 'repeating', 'focus', 'backward', 'cross-arm', ...HOOK_CLASSES,
+  ROOT_CLASS, 'node', 'edge', 'edge-line', 'cluster', 'cluster-part', 'region', 'lane', 'column', 'repeating', 'focus', 'backward', 'cross-arm', ...HOOK_CLASSES,
   'node-label', 'node-sublabel', 'region-label', 'region-sublabel', 'edge-label',
   ...KIND_NAMES.map((kind) => `kind-${kind}`),
   ...TYPE_NAMES.map((type) => `type-${type}`),
@@ -88,7 +88,7 @@ export function layoutStyleSheet(crossArmColor: string): string {
     `${scope} g.region.lane>rect{fill:var(--lane-fill);stroke:var(--lane-stroke)}`,
     `${scope} g.region.column>rect{fill:none;stroke:var(--column-stroke)}`,
     `${scope} g.region.column.repeating>rect{stroke-dasharray:var(--dash-repeating)}`,
-    `${scope} g.cluster:not(.region)>rect{fill:none;stroke:var(--cluster-stroke)}`,
+    `${scope} g:is(.cluster,.cluster-part):not(.region)>rect{fill:none;stroke:var(--cluster-stroke)}`,
     `${scope} text.region-label,${scope} text.region-sublabel{fill:var(--region-text);text-anchor:start}`,
     `${scope} g.column>text.region-label,${scope} g.column>text.region-sublabel{text-anchor:middle}`,
     // edges: the colour is one variable that the line, the label and (through the arrow class) the head share
@@ -176,11 +176,13 @@ function regionMarkup(region: LayoutRegion): string {
   return `<g class="${classes}"${key} data-region-id="${escapeXml(region.id)}">${rect}${label}</g>`;
 }
 
-function clusterMarkup(region: LayoutRegion): string {
+/** The primary box of a group is the one `g.cluster`; further boxes of the same group (a form whose fields sit in several
+ * event columns) are drawn identically as `g.cluster-part`, so the SVG has exactly one `g.cluster` per group. */
+function clusterMarkup(region: LayoutRegion, isPrimary: boolean): string {
   const key = region.groupIndex === undefined ? '' : ` data-key="cluster_${region.groupIndex}"`;
   const rect = `<rect x="${formatNumber(region.x)}" y="${formatNumber(region.y)}" width="${formatNumber(region.width)}" height="${formatNumber(region.height)}" rx="6"/>`;
   const label = textLines((region.labelLines ?? [region.label]).map((text): TextLine => ({ text, className: 'region-label' })), region.x + 6, region.y + 13);
-  return `<g class="cluster"${key}>${rect}${label}</g>`;
+  return `<g class="${isPrimary ? 'cluster' : 'cluster-part'}"${key}>${rect}${label}</g>`;
 }
 
 function nodeMarkup(placed: LayoutNode, viewNode: ViewNode, index: number, options: ViewOptions): string {
@@ -305,7 +307,14 @@ export function layoutToSvg(layout: Layout, view: View, options: ViewOptions): s
   });
 
   const regionParts = layout.regions.filter((region) => region.kind !== 'cluster').map(regionMarkup);
-  const clusterParts = layout.regions.filter((region) => region.kind === 'cluster').map(clusterMarkup);
+  // a boxed column (an expanded event) already draws its group as the g.cluster
+  const drawnGroups = new Set(layout.regions.filter((region) => region.kind === 'column' && region.groupIndex !== undefined).map((region) => region.groupIndex));
+  const drawClusterBox = (region: LayoutRegion): string => {
+    const isPrimary = region.groupIndex === undefined || !drawnGroups.has(region.groupIndex);
+    if (region.groupIndex !== undefined) drawnGroups.add(region.groupIndex);
+    return clusterMarkup(region, isPrimary);
+  };
+  const clusterParts = layout.regions.filter((region) => region.kind === 'cluster').map(drawClusterBox);
   // one arrow head per edge colour, always all of them: the edge rules in the style sheet pick one by class
   const markers = COLOR_NAMES.map((color) =>
     `<marker id="arrow-${color}" class="arrow-${color}" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="${MARKER_SIZE}" markerHeight="${MARKER_SIZE}" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>`);

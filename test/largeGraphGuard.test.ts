@@ -1,9 +1,9 @@
 /* The large-graph guard (MAX_AUTO_EDGES, tooBig, "Render anyway") with the layout-engine renderers (Swimlane, ELK) on a
-   synthetic longitudinal project big enough to exceed the limit. renderLayout is mocked so a layout run can be counted. */
+   synthetic longitudinal project big enough to exceed the limit. renderEngine is mocked so a layout run can be counted. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flush } from 'solid-js';
 import * as store from '../src/store';
-import { renderLayout } from '../src/lib/renderers';
+import { renderEngine } from '../src/lib/renderers';
 
 vi.mock('../src/lib/renderers', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/lib/renderers')>();
@@ -11,7 +11,7 @@ vi.mock('../src/lib/renderers', async (importOriginal) => {
     const document = new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg"><g/></svg>', 'image/svg+xml');
     return document.documentElement as unknown as SVGSVGElement;
   };
-  return { ...original, renderLayout: vi.fn(async () => fakeSvg()), renderDot: vi.fn(async () => fakeSvg()) };
+  return { ...original, renderEngine: vi.fn(async () => fakeSvg()) };
 });
 
 const FORM_COUNT = 30;
@@ -74,7 +74,7 @@ const letRenderSettle = async (): Promise<void> => {
   flush();
 };
 
-const renderLayoutMock = vi.mocked(renderLayout);
+const renderLayoutMock = vi.mocked(renderEngine);
 
 /** The guard expectations shared by every renderer and level. */
 async function expectGuardThenRenderAnyway(rendererName: 'swimlane' | 'elk'): Promise<void> {
