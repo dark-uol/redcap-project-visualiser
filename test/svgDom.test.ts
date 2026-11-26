@@ -104,8 +104,9 @@ describe('widenEdgeHits', () => {
     widenEdgeHits(s);
     const paths = s.querySelectorAll('g.edge')[0].querySelectorAll('path');
     expect(paths).toHaveLength(2);
-    expect(paths[1].getAttribute('stroke')).toBe('transparent');
-    expect(paths[1].getAttribute('stroke-width')).toBe('14');
+    expect(paths[1].getAttribute('class')).toBe('edge-hit'); // transparent and wide via css/style.css, not inline
+    expect(paths[1].hasAttribute('stroke')).toBe(false);
+    expect(paths[1].hasAttribute('style')).toBe(false);
     expect(paths[1].hasAttribute('marker-end')).toBe(false);
   });
 });

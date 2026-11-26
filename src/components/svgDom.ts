@@ -58,12 +58,10 @@ export const widenEdgeHits = (s: SVGSVGElement): void => {
     if (!p) return;
     const hitPath = p.cloneNode() as SVGPathElement;
     hitPath.removeAttribute('marker-end');
-    hitPath.removeAttribute('class'); // layout-engine svgs style the visible line by class; the hit copy must not inherit that
-    hitPath.setAttribute('stroke', 'transparent');
-    hitPath.setAttribute('stroke-width', '14');
-    hitPath.setAttribute('fill', 'none');
-    hitPath.style.pointerEvents = 'stroke';
-    hitPath.style.cursor = 'pointer';
+    hitPath.setAttribute('class', 'edge-hit'); // styled in css/style.css; replaces the visible line's classes so they do not apply
+    hitPath.removeAttribute('stroke'); // Graphviz and Mermaid paths carry presentation attributes; the class rule supplies the rest
+    hitPath.removeAttribute('stroke-width');
+    hitPath.removeAttribute('stroke-dasharray');
     g.appendChild(hitPath);
   });
 };
