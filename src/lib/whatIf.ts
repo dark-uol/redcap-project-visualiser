@@ -1,6 +1,7 @@
 /* What-if visibility: given values for some fields, decide which fields and forms are shown, hidden or unknown. Pure: no Solid, no DOM. */
 
-import { evaluateCondition, splitLogicParts } from './logic';
+import { evaluateCondition, evaluateValue, pipedTextExpression, splitLogicParts } from './logic';
+import { extractRefs } from './parser';
 import type { LogicFieldRef, LogicLookup, LogicPart } from './logic';
 import type { EventDef, Field, ModelBase } from './types';
 
@@ -17,6 +18,14 @@ export interface WhatIfContext {
   mode: 'survey' | 'form';
   /** Unique event name the record is viewed in, or null when not chosen. */
   event: string | null;
+  /** The date `"today"` means in logic, as `YYYY-MM-DD`. Left out, the system clock's local date: set it when results must be reproducible. */
+  today?: string;
+  /**
+   * Work out the value of a calculated field, or of a field with a top-level `@DEFAULT`, when none is set, instead of leaving it unknown.
+   * For exploring a project. Off, a value is only what was set: exported data already holds the stored calculations and defaults, and
+   * deriving them for cells that are missing would invent data.
+   */
+  derive?: boolean;
 }
 
 /** A value the evaluation needs but does not have: the variable, and the event it lives in (null when no event is chosen). */
@@ -31,6 +40,14 @@ export interface VisibilityInfo {
 }
 
 const MAX_ROUNDS = 50;
+
+/** The reasons that make a hidden field read as blank in other logic (a hidden form, branching logic that is false). Action-tag hiding is not one: it keeps the value. */
+const BLANKING_REASONS: ReadonlySet<string> = new Set(['branching logic false', 'form hidden by form display logic', 'form not used in this event']);
+
+/** True when the field is hidden in a way that makes it read as blank, so a value set for it is not used by any other logic. */
+export function valueIsIgnored(info: VisibilityInfo | undefined): boolean {
+  return info !== undefined && info.state === 'hidden' && info.reasons.some((reason) => BLANKING_REASONS.has(reason));
+}
 
 // ---------- action tags ----------
 
@@ -232,29 +249,80 @@ function eventSmartValue(event: EventDef, name: string): string | undefined {
   }
 }
 
-/** The event a reference reads from: its own prefix, else the event the record is viewed in (null when neither). */
-const targetEvent = (ref: LogicFieldRef, context: WhatIfContext): string | null => ref.event || context.event;
+/** The event a reference reads from: its own prefix, else `base`, the event it is being read in (null when neither). */
+const targetEvent = (ref: LogicFieldRef, base: string | null): string | null => ref.event || base;
 
-function makeEvaluate(model: ModelBase, context: WhatIfContext, blankFields: ReadonlySet<string>): Evaluate {
-  const lookupField = function lookupField(ref: LogicFieldRef): string | undefined {
-    const target = targetEvent(ref, context);
+const DEFAULT_TAG = /@DEFAULT(?![A-Za-z0-9_-])\s*=\s*(?:'([^']*)'|"([^"]*)"|(\S+))/gi;
+
+/**
+ * The text of a top-level `@DEFAULT=…` in an action-tag annotation, or undefined. A default inside an `@IF(…)` is not found: it
+ * depends on a condition, and is not derived yet.
+ */
+export function topLevelDefault(annotation: string): string | undefined {
+  const conditional: [number, number][] = [];
+  const ifPattern = /@IF\s*\(/gi;
+  let found: RegExpExecArray | null;
+  while ((found = ifPattern.exec(annotation))) {
+    const close = matchingParenthesis(annotation, found.index + found[0].length - 1);
+    if (close >= 0) {
+      conditional.push([found.index, close]);
+      ifPattern.lastIndex = close + 1;
+    }
+  }
+  for (const match of annotation.matchAll(DEFAULT_TAG)) {
+    if (conditional.some(([from, to]) => match.index >= from && match.index <= to)) continue;
+    return match[1] ?? match[2] ?? match[3];
+  }
+  return undefined;
+}
+
+/** What reading a field gave: its value (undefined: not known yet) and, for a derived field whose value is not known, the inputs that decide it. */
+interface FieldRead { value: string | undefined; deciding?: MissingInput[] }
+
+function makeReader(model: ModelBase, context: WhatIfContext, blankFields: ReadonlySet<string>): { evaluate: Evaluate; derivedValues: () => Map<string, string> } {
+  const derive = context.derive === true;
+  const derivations = new Map<string, FieldRead>();
+  const inProgress = new Set<string>();
+
+  /** The value of a calculated field, or of a field with a `@DEFAULT`, from the inputs it reads (in the event it is read in). */
+  const derivedRead = function derivedRead(field: Field, target: string | null): FieldRead {
+    const key = field.variable + '@' + (target ?? '\u0000');
+    const known = derivations.get(key);
+    if (known) return known;
+    if (inProgress.has(key)) return { value: undefined, deciding: [] }; // a calculation that depends on itself cannot be decided
+    const fallback = topLevelDefault(field.annotation || '');
+    const expression = field.calc && field.calc.trim() ? field.calc : fallback === undefined ? undefined : pipedTextExpression(fallback);
+    if (expression === undefined) return { value: undefined };
+    inProgress.add(key);
+    const { lookup, recorded } = tracking(target);
+    const { value } = evaluateValue(expression, lookup);
+    inProgress.delete(key);
+    const read: FieldRead = value === undefined ? { value, deciding: uniqueInputs(recorded) } : { value };
+    derivations.set(key, read);
+    return read;
+  };
+
+  /** `base` is the event unprefixed references mean: the viewed event, or, inside a derived field, the event that field is read in. */
+  const readField = function readField(ref: LogicFieldRef, base: string | null): FieldRead {
+    const target = targetEvent(ref, base);
     const field = model.byVar.get(ref.name);
     const isCheckbox = field?.type === 'checkbox';
     const blank = isCheckbox && ref.code ? '0' : '';
     // REDCap reads a field from an event it is not collected in as blank
     if (target !== null && field) {
       const definition = (model.parsed.events || []).find((candidate) => candidate.id === target);
-      if (definition && !definition.forms.includes(field.form)) return blank;
+      if (definition && !definition.forms.includes(field.form)) return { value: blank };
     }
     // a field hidden by branching or form display logic counts as blank, as a participant would experience it (an unchecked option reads '0')
-    if (target === context.event && blankFields.has(ref.name)) return blank;
+    if (target === context.event && blankFields.has(ref.name)) return { value: blank };
     const value = (target !== null ? context.values[target]?.[ref.name] : undefined) ?? context.values[ANY_EVENT]?.[ref.name];
-    if (value === undefined) return undefined;
+    // nothing set: a calculation or a default can still give it a value
+    if (value === undefined) return derive && field && !(ref.code && isCheckbox) ? derivedRead(field, target) : { value: undefined };
     if (ref.code && isCheckbox) {
       const checked = Array.isArray(value) ? value : value.split(',').map((code) => code.trim());
-      return checked.includes(ref.code) ? '1' : '0';
+      return { value: checked.includes(ref.code) ? '1' : '0' };
     }
-    return Array.isArray(value) ? value.join(',') : value;
+    return { value: Array.isArray(value) ? value.join(',') : value };
   };
   const viewedEvent = (model.parsed.events || []).find((candidate) => candidate.id === context.event);
   const lookupSmart = function lookupSmart(name: string): string | undefined {
@@ -268,23 +336,57 @@ function makeEvaluate(model: ModelBase, context: WhatIfContext, blankFields: Rea
     const value = (context.event !== null ? context.values[context.event]?.[key] : undefined) ?? context.values[ANY_EVENT]?.[key];
     return Array.isArray(value) ? value.join(',') : value;
   };
-  return function evaluate(text: string): TrackedResult {
+  /** A lookup that reads in `base`, and the inputs it found not to be known. */
+  const tracking = function tracking(base: string | null): { lookup: LogicLookup; recorded: MissingInput[] } {
     const recorded: MissingInput[] = [];
-    const tracking: LogicLookup = {
+    const lookup: LogicLookup = {
       field: function trackedField(ref: LogicFieldRef): string | undefined {
-        const value = lookupField(ref);
-        if (value === undefined) recorded.push({ variable: ref.name, event: targetEvent(ref, context) });
-        return value;
+        const read = readField(ref, base);
+        if (read.value === undefined) {
+          // nobody sets a calculation: report the inputs that decide it, and the field itself only when they are not known
+          if (read.deciding && read.deciding.length) recorded.push(...read.deciding);
+          else recorded.push({ variable: ref.name, event: targetEvent(ref, base) });
+        }
+        return read.value;
       },
       smart: function trackedSmart(name: string): string | undefined {
         const value = lookupSmart(name);
         if (value === undefined) recorded.push({ variable: smartKey(name), event: null });
         return value;
       },
+      today: function today(): string | undefined { return context.today; },
     };
-    const result = evaluateCondition(text, tracking).result;
+    return { lookup, recorded };
+  };
+  const evaluate = function evaluate(text: string): TrackedResult {
+    const { lookup, recorded } = tracking(context.event);
+    const result = evaluateCondition(text, lookup).result;
     return { result, missing: result === undefined ? uniqueInputs(recorded) : [] };
   };
+  /**
+   * The value each calculated field, or field with a top-level `@DEFAULT`, has in the viewed event, when it comes from its inputs: not
+   * set by hand, collected in the event, not hidden so that it reads blank, and decided. The intermediate steps of a chain of calculations.
+   */
+  const derivedValues = function derivedValues(): Map<string, string> {
+    const values = new Map<string, string>();
+    if (!derive) return values;
+    model.byVar.forEach((field, variable) => {
+      if (!(field.calc && field.calc.trim()) && topLevelDefault(field.annotation || '') === undefined) return;
+      const definition = context.event === null ? undefined : (model.parsed.events || []).find((candidate) => candidate.id === context.event);
+      if (definition && !definition.forms.includes(field.form)) return;
+      if (blankFields.has(variable)) return;
+      const setByHand = (context.event !== null ? context.values[context.event]?.[variable] : undefined) ?? context.values[ANY_EVENT]?.[variable];
+      if (setByHand !== undefined) return;
+      const read = derivedRead(field, context.event);
+      if (read.value !== undefined) values.set(variable, read.value);
+    });
+    return values;
+  };
+  return { evaluate, derivedValues };
+}
+
+function makeEvaluate(model: ModelBase, context: WhatIfContext, blankFields: ReadonlySet<string>): Evaluate {
+  return makeReader(model, context, blankFields).evaluate;
 }
 
 const sameInfo = (left: VisibilityInfo | undefined, right: VisibilityInfo): boolean =>
@@ -316,11 +418,35 @@ export function evaluateVisibility(model: ModelBase, context: WhatIfContext): Ma
     if (!changed) break;
   }
   blankFieldsOf.set(current, blankFields);
+  derivedValuesOf.set(current, makeReader(model, context, blankFields).derivedValues());
   return current;
 }
 
 /** The fields each evaluateVisibility result treated as blank, so a piece of logic can be judged again exactly as it was. */
 const blankFieldsOf = new WeakMap<Map<string, VisibilityInfo>, ReadonlySet<string>>();
+
+/** The values each evaluateVisibility result worked out for calculated and defaulted fields (empty unless `derive` was on). */
+const derivedValuesOf = new WeakMap<Map<string, VisibilityInfo>, ReadonlyMap<string, string>>();
+
+/** The value a result worked out for a calculated or defaulted field in the event it was evaluated for, or undefined when it did not (set by hand, hidden, undecided, not derived). */
+export function derivedValue(results: Map<string, VisibilityInfo> | null | undefined, variable: string): string | undefined {
+  return results ? derivedValuesOf.get(results)?.get(variable) : undefined;
+}
+
+/** All of them, for results that need to be compared or listed. */
+export function derivedValues(results: Map<string, VisibilityInfo>): ReadonlyMap<string, string> {
+  return derivedValuesOf.get(results) ?? new Map();
+}
+
+/** For results that did not come from evaluateVisibility (the Python engine's): record the values they worked out. */
+export function rememberDerivedValues(results: Map<string, VisibilityInfo>, values: Iterable<[string, string]>): void {
+  derivedValuesOf.set(results, new Map(values));
+}
+
+/** For results that did not come from evaluateVisibility (the Python engine's): record the fields they treated as blank, so explainLogic agrees. */
+export function rememberBlankFields(results: Map<string, VisibilityInfo>, blankFields: Iterable<string>): void {
+  blankFieldsOf.set(results, new Set(blankFields));
+}
 
 /** One top-level operand of a condition and how it came out: true, false, or undefined when it cannot be decided yet. */
 export interface ExplainedPart extends LogicPart { result: boolean | undefined }
@@ -346,21 +472,60 @@ export function eventsToEvaluate(model: ModelBase, nodeId: string, selectedEvent
   return events.length ? events : [selectedEvent];
 }
 
-/** The fields and form nodes whose visibility depends (directly, via branching / actiontag / formlogic edges) on `variable`. */
-export function dependentsOf(model: ModelBase, variable: string): string[] {
-  const targets = model.edges
-    .filter((edge) => edge.from === variable && (edge.type === 'branching' || edge.type === 'actiontag' || edge.type === 'formlogic'))
-    .map((edge) => edge.to);
-  return unique(targets);
-}
-
 const VISIBILITY_EDGES = new Set(['branching', 'actiontag', 'formlogic']);
 
-/** The variables that directly decide whether a field or form node (`form:<id>`) is shown: its branching logic and action tags, and for a field the display logic of its form. */
-function directControllersOf(model: ModelBase, nodeId: string): string[] {
+/** What `variable` directly decides the visibility of: the fields and form nodes with branching, action-tag or form display logic that names it. */
+function visibilityTargetsOf(model: ModelBase, variable: string): string[] {
+  return unique(model.edges.filter((edge) => edge.from === variable && VISIBILITY_EDGES.has(edge.type)).map((edge) => edge.to));
+}
+
+/** The derivable fields whose value is worked out from `variable`: those whose calculation, or top-level `@DEFAULT` text, names it. */
+function derivedFrom(model: ModelBase, variable: string): string[] {
+  return unique(
+    model.edges
+      .filter((edge) => edge.from === variable && (edge.type === 'calc' || edge.type === 'actiontag'))
+      .map((edge) => edge.to)
+      .filter((target) => {
+        const field = model.byVar.get(target);
+        return field !== undefined && isDerivable(field) && derivationInputsOf(model, field).includes(variable);
+      }),
+  );
+}
+
+/**
+ * The fields and form nodes whose visibility depends on `variable`: directly, via branching / actiontag / formlogic edges.
+ * With `calculations` (a value is worked out from its inputs), also those that depend on it through a chain of calculations
+ * and defaults, which are only a way of computing a value and so cost no step: with `a` feeding a calculated `b` feeding `c`,
+ * and a field shown only when `c` has some value, that field depends on `a`. A cycle of calculations is followed once.
+ */
+export function dependentsOf(model: ModelBase, variable: string, calculations = false): string[] {
+  const direct = visibilityTargetsOf(model, variable);
+  if (!calculations) return direct;
+  const viaCalculations: string[] = [];
+  const reached = new Set([variable]);
+  const queue = [variable];
+  while (queue.length) {
+    derivedFrom(model, queue.shift()!).forEach((derived) => {
+      if (reached.has(derived)) return;
+      reached.add(derived);
+      queue.push(derived);
+      viaCalculations.push(...visibilityTargetsOf(model, derived));
+    });
+  }
+  // a chain that loops back to the field does not make it depend on itself
+  return unique([...direct, ...viaCalculations.filter((target) => target !== variable)]);
+}
+const VISIBILITY_AND_CALCULATION_EDGES = new Set([...VISIBILITY_EDGES, 'calc']);
+
+/**
+ * The variables that directly decide whether a field or form node (`form:<id>`) is shown: its branching logic and action tags, and for a
+ * field the display logic of its form. With `calculations`, the inputs of a calculated field too: its value is worked out from them.
+ */
+function directControllersOf(model: ModelBase, nodeId: string, calculations: boolean): string[] {
   const formId = model.byVar.get(nodeId)?.form;
   const targets = new Set([nodeId, ...(formId === undefined ? [] : ['form:' + formId])]);
-  return unique(model.edges.filter((edge) => targets.has(edge.to) && VISIBILITY_EDGES.has(edge.type)).map((edge) => edge.from));
+  const kinds = calculations ? VISIBILITY_AND_CALCULATION_EDGES : VISIBILITY_EDGES;
+  return unique(model.edges.filter((edge) => targets.has(edge.to) && kinds.has(edge.type)).map((edge) => edge.from));
 }
 
 /** One variable upstream of a field: how many steps away it is (1 = named in the field's own logic or its form's display logic). */
@@ -369,14 +534,15 @@ export interface Controller { variable: string; depth: number }
 /**
  * Working backwards: every variable that can decide whether `nodeId` is shown, nearest first. A controller counts as blank when it
  * is itself hidden, so the variables deciding its visibility are followed too (breadth first, each listed once at its smallest depth).
- * Calculations are not followed: a calculated controller is set directly. The node itself is never listed, even in a cycle.
+ * Calculations are not followed unless `calculations` is set: otherwise a calculated controller is set directly. The node itself is never listed, even in a cycle.
  */
-export function controllersOf(model: ModelBase, nodeId: string): Controller[] {
+export function controllersOf(model: ModelBase, nodeId: string, calculations = false): Controller[] {
   const found = new Map<string, number>([[nodeId, 0]]);
   let frontier = [nodeId];
   for (let depth = 1; frontier.length; depth++) {
     const next: string[] = [];
-    frontier.forEach((current) => directControllersOf(model, current).forEach((variable) => {
+    // with `calculations` (a value is worked out from its inputs), a calculated controller is followed into its inputs, though the node itself is not: its own calculation says nothing about whether it is shown
+    frontier.forEach((current) => directControllersOf(model, current, calculations && current !== nodeId).forEach((variable) => {
       if (found.has(variable)) return;
       found.set(variable, depth);
       next.push(variable);
@@ -385,6 +551,81 @@ export function controllersOf(model: ModelBase, nodeId: string): Controller[] {
   }
   found.delete(nodeId);
   return [...found].map(([variable, depth]) => ({ variable, depth }));
+}
+
+/** True for a calculated field, and for a field with a top-level `@DEFAULT`: the fields whose value can be worked out from other fields. */
+export function isDerivable(field: Field | undefined): boolean {
+  return !!field && ((!!field.calc && field.calc.trim() !== '') || topLevelDefault(field.annotation || '') !== undefined);
+}
+
+/** The fields a derivable field's value is worked out from: those its calculation, or its `@DEFAULT` text, refers to (defined fields only). */
+function derivationInputsOf(model: ModelBase, field: Field): string[] {
+  const text = field.calc && field.calc.trim() ? field.calc : topLevelDefault(field.annotation || '') ?? '';
+  const names = extractRefs(text)
+    .filter((ref) => !(ref.adjNext && !model.byVar.has(ref.name))) // `[event][field]`: the first is an event prefix
+    .map((ref) => ref.name)
+    .filter((name) => model.byVar.has(name));
+  return unique(names);
+}
+
+/**
+ * The calculated and defaulted fields `variable` feeds, whose results go on to decide something: derivable fields reached through
+ * chains of calculations and defaults from it, keeping those that have a visibility dependent of their own (other than `variable`),
+ * or feed a derivable field that does. A calculation that leads nowhere is left out.
+ */
+function downstreamCalculationsOf(model: ModelBase, variable: string): string[] {
+  const reached = new Set([variable]);
+  const found: string[] = [];
+  const queue = [variable];
+  while (queue.length) {
+    derivedFrom(model, queue.shift()!).forEach((derived) => {
+      if (reached.has(derived)) return;
+      reached.add(derived);
+      found.push(derived);
+      queue.push(derived);
+    });
+  }
+  const decidesSomething = function decidesSomething(start: string): boolean {
+    const visited = new Set([start]);
+    const pending = [start];
+    while (pending.length) {
+      const current = pending.shift()!;
+      if (visibilityTargetsOf(model, current).some((target) => target !== variable)) return true;
+      derivedFrom(model, current).forEach((next) => {
+        if (reached.has(next) && !visited.has(next)) { visited.add(next); pending.push(next); }
+      });
+    }
+    return false;
+  };
+  return found.filter(decidesSomething);
+}
+
+/**
+ * The calculations and defaults connected to a field, inputs first: every calculated or defaulted field that can decide whether
+ * `nodeId` is shown, or whose value `nodeId` feeds and goes on to decide something, or that is `nodeId`; each after the fields it is
+ * worked out from, listed once, in project order where that does not matter. Reading down the list follows the chain from what you
+ * enter to what it comes to. Empty when nothing connected is derivable.
+ */
+export function calculationChainOf(model: ModelBase, nodeId: string): string[] {
+  const position = new Map([...model.byVar.keys()].map((variable, index) => [variable, index]));
+  const roots = unique([
+    ...controllersOf(model, nodeId, true).map((controller) => controller.variable),
+    ...downstreamCalculationsOf(model, nodeId),
+    nodeId,
+  ])
+    .filter((variable) => isDerivable(model.byVar.get(variable)))
+    .sort((left, right) => (position.get(left) ?? 0) - (position.get(right) ?? 0));
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  const visit = function visit(variable: string): void {
+    if (seen.has(variable)) return;
+    seen.add(variable);
+    const field = model.byVar.get(variable);
+    if (field && isDerivable(field)) derivationInputsOf(model, field).forEach(visit);
+    ordered.push(variable);
+  };
+  roots.forEach(visit);
+  return ordered;
 }
 
 /** The events whose forms include the field's form, in project order (empty for a non-longitudinal project). */

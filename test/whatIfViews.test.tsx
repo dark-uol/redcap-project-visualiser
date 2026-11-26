@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { LogicTextView, SmartValueInputView, StateBadgeView, ValueInputView, choicesFor } from '../src/components/whatIfViews';
+import { IgnoredValueHintView, LogicTextView, SmartValueInputView, StateBadgeView, ValueInputView, choicesFor } from '../src/components/whatIfViews';
 import { field } from './fixtures';
 import { fireChange, renderComponent } from './renderComponent';
 
@@ -11,6 +11,14 @@ describe('choicesFor', () => {
     expect(choicesFor(field({ type: 'yesno' })).map((c) => c.label)).toEqual(['Yes', 'No']);
     expect(choicesFor(field({ type: 'truefalse' })).map((c) => c.label)).toEqual(['True', 'False']);
     expect(choicesFor(field())).toEqual([]);
+  });
+});
+
+describe('IgnoredValueHintView', () => {
+  it('says the value is ignored and why, in its tooltip', () => {
+    const hint = renderComponent(() => <IgnoredValueHintView />).querySelector('.wi-ignored')!;
+    expect(hint.textContent?.trim()).toBe('value ignored');
+    expect(hint.getAttribute('title')).toContain('hidden, so other logic reads it as blank');
   });
 });
 

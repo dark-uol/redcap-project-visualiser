@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { FieldEditorView, ValuesTableView, VisibilityTableView } from '../src/components/WhatIfTabViews';
-import type { ChooserMatch, ValuesRow, ValuesTableViewProps, VisibilityRow, VisibilityTableViewProps } from '../src/components/WhatIfTabViews';
+import { CalculationTableView, FieldEditorView, ValuesTableView, VisibilityTableView } from '../src/components/WhatIfTabViews';
+import type { CalculationRow, CalculationTableViewProps, ChooserMatch, ValuesRow, ValuesTableViewProps, VisibilityRow, VisibilityTableViewProps } from '../src/components/WhatIfTabViews';
 import { fireChange, renderComponent, tick } from './renderComponent';
 
 const valuesRow = (over: Partial<ValuesRow> = {}): ValuesRow => ({
@@ -10,8 +10,8 @@ const valuesRow = (over: Partial<ValuesRow> = {}): ValuesRow => ({
 
 function valuesProps(over: Partial<ValuesTableViewProps> = {}): ValuesTableViewProps {
   return {
-    rows: [valuesRow()], showEventColumn: false, eventLabelOf: (id) => ({ ev1: 'Baseline', ev2: 'Week 1' } as Record<string, string>)[id] ?? id, clearCount: null, mode: 'form', query: '', matches: [], listOpen: true,
-    onModeChange: vi.fn(), onClearAll: vi.fn(), onExploreRow: vi.fn(), onChangeEvent: vi.fn(), onRemoveRow: vi.fn(),
+    rows: [valuesRow()], showEventColumn: false, eventLabelOf: (id) => ({ ev1: 'Baseline', ev2: 'Week 1' } as Record<string, string>)[id] ?? id, clearCount: null, mode: 'form', engine: 'typescript', engineStatus: '', derive: true, onDeriveChange: vi.fn(), query: '', matches: [], listOpen: true,
+    onModeChange: vi.fn(), onEngineChange: vi.fn(), onClearAll: vi.fn(), onExploreRow: vi.fn(), onChangeEvent: vi.fn(), onRemoveRow: vi.fn(),
     onQueryChange: vi.fn(), onChooseMatch: vi.fn(),
     renderValue: (row) => <span class="value-slot">{row().variable}</span>,
     renderState: () => <span class="state-slot">state</span>,
@@ -99,6 +99,28 @@ describe('ValuesTableView', () => {
     expect(props.onModeChange).toHaveBeenCalledWith('survey');
   });
 
+  it('reports an engine change and shows the engine status only when there is one', () => {
+    const props = valuesProps();
+    const container = renderComponent(() => <ValuesTableView {...props} />);
+    expect(container.querySelector('.wi-engine-status')).toBeNull();
+    const select = container.querySelector('select.wi-engine') as HTMLSelectElement;
+    select.value = 'python';
+    fireChange(select);
+    expect(props.onEngineChange).toHaveBeenCalledWith('python');
+    const withStatus = renderComponent(() => <ValuesTableView {...valuesProps({ engine: 'python', engineStatus: 'Python 3.14.2' })} />);
+    expect(withStatus.querySelector('.wi-engine-status')?.textContent).toBe('Python 3.14.2');
+    expect((withStatus.querySelector('select.wi-engine') as HTMLSelectElement).value).toBe('python');
+  });
+
+  it('reports the Calculate setting changing', () => {
+    const props = valuesProps({ derive: true });
+    const box = renderComponent(() => <ValuesTableView {...props} />).querySelector('input.wi-derive') as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    box.click();
+    expect(props.onDeriveChange).toHaveBeenCalledWith(false);
+    expect((renderComponent(() => <ValuesTableView {...valuesProps({ derive: false })} />).querySelector('input.wi-derive') as HTMLInputElement).checked).toBe(false);
+  });
+
   describe('chooser', () => {
     const matches: ChooserMatch[] = [{ variable: 'sex', smart: false, text: 'sex — Sex (Demographics)' }, { variable: '[x]', smart: true, text: '[x] — smart variable' }];
 
@@ -158,7 +180,7 @@ describe('FieldEditorView', () => {
 });
 
 const visibilityRow = (over: Partial<VisibilityRow> = {}): VisibilityRow => ({
-  key: 'a|', id: 'a', event: null, eventLabel: '', state: 'shown', info: undefined, step: 0, formId: 'f1', formLabel: 'Form One',
+  key: 'a|', id: 'a', event: null, eventLabel: '', state: 'shown', info: undefined, formId: 'f1', formLabel: 'Form One',
   kind: 'field', label: 'Field A', defined: true, logicTexts: [], logicNote: '', needs: [], ...over,
 });
 
@@ -172,6 +194,68 @@ function visibilityProps(over: Partial<VisibilityTableViewProps> = {}): Visibili
     ...over,
   };
 }
+
+const calculationRow = (over: Partial<CalculationRow> = {}): CalculationRow => ({
+  key: 'a|', id: 'a', event: null, eventLabel: '', label: 'Field A', formula: '= b * 2', value: '', valueKind: '', needsText: '', ...over,
+});
+
+function calculationProps(over: Partial<CalculationTableViewProps> = {}): CalculationTableViewProps {
+  return { rows: [calculationRow()], showEventColumn: false, collapsed: false, onToggleCollapsed: vi.fn(), onEditField: vi.fn(), ...over };
+}
+
+describe('CalculationTableView', () => {
+  const headers = (container: HTMLElement) => [...container.querySelectorAll('th')].map((cell) => cell.textContent);
+
+  it('has no Step column and shows the calculation and its value', () => {
+    expect(headers(renderComponent(() => <CalculationTableView {...calculationProps()} />))).toEqual(['Field', 'Label', 'Calculation', 'Value']);
+    expect(headers(renderComponent(() => <CalculationTableView {...calculationProps({ showEventColumn: true })} />))).toEqual(['Field', 'Event', 'Label', 'Calculation', 'Value']);
+  });
+
+  it('marks calculated and default values with "=", set values plainly, and undecided steps as not yet', () => {
+    const rows = [
+      calculationRow({ key: 'a|', id: 'a', value: '299', valueKind: 'calculated' }),
+      calculationRow({ key: 'b|', id: 'b', formula: "default '[ev][z]'", value: 'x', valueKind: 'default' }),
+      calculationRow({ key: 'c|', id: 'c', formula: '', value: '17', valueKind: 'set' }),
+      calculationRow({ key: 'd|', id: 'd', needsText: 'needs: z' }),
+      calculationRow({ key: 'e|', id: 'e', formula: '' }),
+    ];
+    const container = renderComponent(() => <CalculationTableView {...calculationProps({ rows })} />);
+    const valueCells = [...container.querySelectorAll('tbody tr')].map((row) => row.querySelector('td:last-child')!);
+    expect(valueCells.map((cell) => cell.textContent?.trim())).toEqual(['= 299', '= x', '17', 'not yet', '(not set)']);
+    expect(valueCells[0]!.querySelector('.wi-value-calculated')!.getAttribute('title')).toBe('Calculated from its inputs');
+    expect(valueCells[1]!.querySelector('.wi-value-default')).not.toBeNull();
+    expect(valueCells[2]!.querySelector('.wi-value-set')).not.toBeNull();
+    expect(valueCells[3]!.querySelector('[title]')!.getAttribute('title')).toBe('needs: z');
+  });
+
+  it('shows an input as "input" in the Calculation column, and a blank result as "(blank)"', () => {
+    const container = renderComponent(() => <CalculationTableView {...calculationProps({ rows: [calculationRow({ formula: '', value: '1', valueKind: 'set' }), calculationRow({ key: 'b|', value: '', valueKind: 'calculated' })] })} />);
+    const rows = [...container.querySelectorAll('tbody tr')];
+    expect(rows[0]!.querySelector('td.wi-derivation')!.textContent).toBe('input');
+    expect(rows[1]!.querySelector('td.wi-derivation')!.textContent).toBe('= b * 2');
+    expect(rows[1]!.querySelector('.wi-value-calculated')!.textContent).toContain('(blank)');
+  });
+
+  it('counts the steps worked out and not yet, leaving inputs out', () => {
+    const rows = [
+      calculationRow({ key: 'a|', value: '1', valueKind: 'calculated' }),
+      calculationRow({ key: 'b|', id: 'b' }),
+      calculationRow({ key: 'c|', id: 'c', formula: '', value: '5', valueKind: 'set' }),
+    ];
+    expect(renderComponent(() => <CalculationTableView {...calculationProps({ rows })} />).querySelector('.wi-fold')!.textContent).toContain('Worked out (1) · Not yet (1)');
+  });
+
+  it('collapses behind the heading, and reports a field being edited', () => {
+    const props = calculationProps({ collapsed: true });
+    const container = renderComponent(() => <CalculationTableView {...props} />);
+    expect(container.querySelector('table')).toBeNull();
+    (container.querySelector('.wi-fold') as HTMLElement).click();
+    expect(props.onToggleCollapsed).toHaveBeenCalledOnce();
+    const open = calculationProps();
+    (renderComponent(() => <CalculationTableView {...open} />).querySelector('button.link') as HTMLElement).click();
+    expect(open.onEditField).toHaveBeenCalledWith(open.rows[0]);
+  });
+});
 
 describe('VisibilityTableView', () => {
   it('shows the empty text when there are no rows', () => {
@@ -216,9 +300,9 @@ describe('VisibilityTableView', () => {
     expect(props.onEditField).toHaveBeenCalledWith(props.rows[0]);
   });
 
-  it('shows the step column only when asked', () => {
-    expect(renderComponent(() => <VisibilityTableView {...visibilityProps({ showStep: true, rows: [visibilityRow({ step: 2 })] })} />).querySelector('thead')!.textContent).toContain('Step');
-    expect(renderComponent(() => <VisibilityTableView {...visibilityProps()} />).querySelector('thead')!.textContent).not.toContain('Step');
+  it('has no Step or Value column', () => {
+    const headers = [...renderComponent(() => <VisibilityTableView {...visibilityProps()} />).querySelectorAll('th')].map((cell) => cell.textContent);
+    expect(headers).toEqual(['Field', 'Label', 'State', 'Logic', 'Needs']);
   });
 
   it('renders the logic, the note and the needs through the slots', () => {

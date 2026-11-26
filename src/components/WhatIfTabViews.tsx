@@ -4,6 +4,7 @@
  */
 import { For, Show, createMemo, createSignal } from 'solid-js';
 import type { Accessor, Element as SolidElement } from 'solid-js';
+import type { WhatIfEngine } from '../lib/types';
 import type { MissingInput, Visibility, VisibilityInfo } from '../lib/whatIf';
 import { countByState, distinctOf, filterVisibilityRows } from '../lib/whatIfRows';
 import type { ChooserMatch } from '../lib/whatIfRows';
@@ -40,10 +41,17 @@ export type ValuesTableViewProps = {
   /** The row count shown on the "Clear all" button, or null when there is nothing to clear. */
   clearCount: number | null;
   mode: 'form' | 'survey';
+  /** Which engine evaluates the states, and a one-line status for the Python one ('' when there is nothing to say). */
+  engine: WhatIfEngine;
+  engineStatus: string;
+  /** Whether calculated fields and `@DEFAULT` values are worked out from their inputs when none is set. */
+  derive: boolean;
+  onDeriveChange: (derive: boolean) => void;
   query: string;
   matches: ChooserMatch[];
   listOpen: boolean;
   onModeChange: (mode: 'form' | 'survey') => void;
+  onEngineChange: (engine: WhatIfEngine) => void;
   onClearAll: () => void;
   onExploreRow: (row: ValuesRow) => void;
   onChangeEvent: (row: ValuesRow, eventId: string) => void;
@@ -62,6 +70,9 @@ export type ValuesTableViewProps = {
 export function ValuesTableView(props: ValuesTableViewProps) {
   const onModeSelectChange = function onModeSelectChange(event: Event & { currentTarget: HTMLSelectElement }): void {
     props.onModeChange(event.currentTarget.value === 'survey' ? 'survey' : 'form');
+  };
+  const onEngineSelectChange = function onEngineSelectChange(event: Event & { currentTarget: HTMLSelectElement }): void {
+    props.onEngineChange(event.currentTarget.value === 'python' ? 'python' : 'typescript');
   };
   const onInput = function onInput(event: Event & { currentTarget: HTMLInputElement }): void {
     props.onQueryChange(event.currentTarget.value);
@@ -93,6 +104,20 @@ export function ValuesTableView(props: ValuesTableViewProps) {
             <option value="survey" selected={props.mode === 'survey'}>survey</option>
           </select>
         </label>
+        <label class="wi-mode small">
+          <span class="muted">Engine</span>
+          <select class="wi-engine" onChange={onEngineSelectChange}>
+            <option value="typescript" selected={props.engine === 'typescript'}>TypeScript</option>
+            <option value="python" selected={props.engine === 'python'}>Python (Pyodide)</option>
+          </select>
+        </label>
+        <label class="wi-mode small" title="Work out calculated fields and @DEFAULT values from their inputs when no value is set. Off, they stay unknown until you set them.">
+          <input type="checkbox" class="wi-derive" checked={props.derive} onChange={(event) => props.onDeriveChange(event.currentTarget.checked)} />
+          <span class="muted">Calculate</span>
+        </label>
+        <Show when={props.engineStatus}>
+          <span class="wi-engine-status muted small">{props.engineStatus}</span>
+        </Show>
       </div>
       <table class="wi-table">
         <thead><tr>
@@ -172,6 +197,12 @@ export function FieldEditorView(props: FieldEditorViewProps) {
 // ---- the shown-when and affects tables ----
 
 /** One row of a shown-when / affects table, ready to show. */
+const VALUE_TITLES = {
+  set: 'A value you set',
+  calculated: 'Calculated from its inputs',
+  default: 'The field\'s @DEFAULT, filled in because no value is set',
+} as const;
+
 export type VisibilityRow = {
   key: string;
   id: string;
@@ -180,8 +211,6 @@ export type VisibilityRow = {
   state: Visibility;
   /** The state's reasons and missing inputs, which the state badge turns into its tooltip. */
   info: VisibilityInfo | undefined;
-  /** Distance upstream of the chosen field in "Shown when"; unused in "Affects". */
-  step: number;
   /** The form this row belongs to (for the form filter), or undefined for an id the project does not define. */
   formId: string | undefined;
   formLabel: string;
@@ -200,7 +229,6 @@ export type VisibilityTableViewProps = {
   title: string;
   emptyText: string;
   rows: VisibilityRow[];
-  showStep?: boolean;
   showEventColumn: boolean;
   collapsed: boolean;
   onToggleCollapsed: () => void;
@@ -268,14 +296,12 @@ export function VisibilityTableView(props: VisibilityTableViewProps) {
         </div>
         <table class="wi-table">
           <thead><tr>
-            <Show when={props.showStep}><th>Step</th></Show>
             <th>Field</th><Show when={props.showEventColumn}><th>Event</th></Show><th>Label</th><th>State</th><th>Logic</th><th>Needs</th>
           </tr></thead>
           <tbody>
             <For each={visibleRows()} keyed={(row) => row.key}>
               {(row) => (
                 <tr>
-                  <Show when={props.showStep}><td>{row().step}</td></Show>
                   <td>
                     <Show when={row().kind === 'form'} fallback={
                       <Show when={row().kind === 'field'} fallback={<code>{row().id}</code>}>
@@ -305,6 +331,79 @@ export function VisibilityTableView(props: VisibilityTableViewProps) {
           </tbody>
         </table>
       </Show>
+      </Show>
+    </div>
+  );
+}
+
+// ---- the calculations table ----
+
+export type CalculationRow = {
+  key: string;
+  id: string;
+  event: string | null;
+  eventLabel: string;
+  label: string;
+  /** The calculation (`= …`) or default (`default …`) as written; '' for an input, which has neither. */
+  formula: string;
+  /** What the step came to, as text. Meaningful only when `valueKind` is not ''. */
+  value: string;
+  /** Where `value` came from: set by you, calculated from its formula, or its `@DEFAULT`. '' when there is no value yet. */
+  valueKind: 'set' | 'calculated' | 'default' | '';
+  /** When there is no value yet: what the step still needs, as text, for its tooltip. */
+  needsText: string;
+};
+
+export type CalculationTableViewProps = {
+  rows: CalculationRow[];
+  showEventColumn: boolean;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  onEditField: (row: CalculationRow) => void;
+};
+
+/** Presentational: the calculations and defaults that feed the explored field's logic, inputs first, each with the value it came to. */
+export function CalculationTableView(props: CalculationTableViewProps) {
+  const workedOut = (): number => props.rows.filter((row) => row.formula !== '' && row.valueKind !== '').length;
+  const pending = (): number => props.rows.filter((row) => row.formula !== '' && row.valueKind === '').length;
+  return (
+    <div class="wi-section">
+      <button class="wi-fold" aria-expanded={props.collapsed ? 'false' : 'true'} onClick={() => props.onToggleCollapsed()}>
+        <h4>Calculations</h4>
+        <span class={{ 'wi-fold-mark': true, collapsed: props.collapsed }} aria-hidden="true" />
+        <span class="small muted">Worked out ({workedOut()}) · Not yet ({pending()})</span>
+      </button>
+      <Show when={!props.collapsed}>
+        <table class="wi-table">
+          <thead><tr>
+            <th>Field</th><Show when={props.showEventColumn}><th>Event</th></Show><th>Label</th><th>Calculation</th><th>Value</th>
+          </tr></thead>
+          <tbody>
+            <For each={props.rows} keyed={(row) => row.key}>
+              {(row) => (
+                <tr>
+                  <td><button class="link" title="Edit this field" onClick={() => props.onEditField(row())}>{row().id}</button></td>
+                  <Show when={props.showEventColumn}><td>{row().eventLabel}</td></Show>
+                  <td>{row().label}</td>
+                  <td class="expr wi-derivation">
+                    <Show when={row().formula} fallback={<span class="muted small">input</span>}>{row().formula}</Show>
+                  </td>
+                  <td>
+                    <Show
+                      when={row().valueKind !== ''}
+                      fallback={<span class="muted small" title={row().needsText}>{row().formula ? 'not yet' : '(not set)'}</span>}
+                    >
+                      <span class={'wi-value-' + row().valueKind} title={VALUE_TITLES[row().valueKind as 'set' | 'calculated' | 'default']}>
+                        {row().valueKind === 'set' ? '' : '= '}
+                        <Show when={row().value !== ''} fallback={<span class="muted">(blank)</span>}><code>{row().value}</code></Show>
+                      </span>
+                    </Show>
+                  </td>
+                </tr>
+              )}
+            </For>
+          </tbody>
+        </table>
       </Show>
     </div>
   );

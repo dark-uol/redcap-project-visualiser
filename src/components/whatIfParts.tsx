@@ -62,7 +62,7 @@ export function LogicText(props: { text: string; event: string | null }) {
   const parts = (): ExplainedPart[] => {
     const results = visibilityIn(props.event, true);
     if (!results) return [{ joiner: '', text: props.text, result: undefined }];
-    return explainLogic(need(model()), { values: whatIf.values(), mode: whatIf.mode(), event: props.event }, results, props.text);
+    return explainLogic(need(model()), { values: whatIf.values(), mode: whatIf.mode(), event: props.event, derive: whatIf.derive() }, results, props.text);
   };
   return <LogicTextView parts={parts()} />;
 }

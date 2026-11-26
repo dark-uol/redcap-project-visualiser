@@ -20,7 +20,16 @@ export function StateBadgeView(props: StateBadgeViewProps) {
   return <span class={'wi-state ' + props.state} title={props.tooltip}>{props.state}</span>;
 }
 
-const PART_TITLES = { true: 'true', false: 'false', unknown: 'not decided yet' } as const;
+/** Presentational: a note beside the state of a hidden field that has a value set, saying the value counts for nothing while it is hidden. */
+export function IgnoredValueHintView() {
+  return (
+    <span class="wi-ignored muted small" title="This field is hidden, so other logic reads it as blank. The value set here is not used.">
+      value ignored
+    </span>
+  );
+}
+
+const PART_TITLES ={ true: 'true', false: 'false', unknown: 'not decided yet' } as const;
 
 export type LogicTextViewProps = { parts: ExplainedPart[] };
 

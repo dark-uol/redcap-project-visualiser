@@ -5,8 +5,8 @@ import { parseODM } from '../src/lib/parser';
 import { smartKey } from '../src/lib/whatIf';
 import type { DepType, Field, FormNode, ModelBase } from '../src/lib/types';
 import {
-  chooserMatches, computeVisibilityLogic, countByState, displayRows, distinctOf, filterVisibilityRows, nextExploredRow,
-  rowKeyOf, smartVariableNames,
+  chooserMatches, computeVisibilityLogic, countByState, derivationOf, displayRows, distinctOf, filterVisibilityRows, nextExploredRow,
+  rowKeyOf, setValueText, smartVariableNames,
 } from '../src/lib/whatIfRows';
 import type { ChooserMatch, TableRow, VisibilityFilterable } from '../src/lib/whatIfRows';
 
@@ -74,6 +74,32 @@ describe('computeVisibilityLogic', () => {
   it('gives a form node with no rules nothing to show', () => {
     const model = modelWith([], [formNode('f', [], [])]);
     expect(computeVisibilityLogic(model, 'form:f', 'e1')).toEqual({ main: [], note: '' });
+  });
+});
+
+describe('derivationOf', () => {
+  it('names a calculation, as written and trimmed', () => {
+    expect(derivationOf({ calc: '  [a] * 2 ', annotation: '' })).toEqual({ kind: 'calculated', text: '= [a] * 2' });
+  });
+
+  it('names a top-level @DEFAULT, and prefers the calculation when there are both', () => {
+    expect(derivationOf({ calc: '', annotation: "@HIDDEN @DEFAULT='[ev][x]'" })).toEqual({ kind: 'default', text: 'default [ev][x]' });
+    expect(derivationOf({ calc: '[a]', annotation: "@DEFAULT='1'" }).kind).toBe('calculated');
+  });
+
+  it('says nothing for a field that has neither, a default inside @IF, or no field at all', () => {
+    expect(derivationOf({ calc: '', annotation: '@HIDDEN' })).toEqual({ kind: '', text: '' });
+    expect(derivationOf({ calc: ' ', annotation: "@IF([a]=1, @DEFAULT='x', @DEFAULT='y')" })).toEqual({ kind: '', text: '' });
+    expect(derivationOf(undefined)).toEqual({ kind: '', text: '' });
+  });
+});
+
+describe('setValueText', () => {
+  it('gives a value as text, joins a checkbox\'s codes, and is undefined when nothing is set', () => {
+    expect(setValueText('17')).toBe('17');
+    expect(setValueText('')).toBe('');
+    expect(setValueText(['1', '3'])).toBe('1, 3');
+    expect(setValueText(undefined)).toBeUndefined();
   });
 });
 

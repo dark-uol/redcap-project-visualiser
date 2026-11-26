@@ -18,6 +18,11 @@ export interface LogicLookup {
   field(ref: LogicFieldRef): string | undefined;
   /** Value of a smart variable such as `event-name` (name without brackets). */
   smart(name: string): string | undefined;
+  /**
+   * The date `"today"` means, as `YYYY-MM-DD` (year 1000 to 9999). Left out, the system clock's local date is used, which makes a
+   * result depend on when it is computed: inject a date wherever results must be reproducible.
+   */
+  today?(): string | undefined;
 }
 
 type BinaryOperator = 'or' | 'and' | '=' | '<>' | '<' | '>' | '<=' | '>=' | '+' | '-' | '*' | '/' | '^';
@@ -426,13 +431,34 @@ function roundTo(value: number, digits: number, mode: 'half' | 'up' | 'down'): n
   return (Math.sign(scaled) * Math.round(Math.abs(scaled))) / factor;
 }
 
-/** Parses a date as milliseconds since epoch (UTC), or undefined. */
-function parseDate(text: string, format: string): number | undefined {
-  const trimmed = text.trim().toLowerCase();
-  if (trimmed === 'today') {
+/** Milliseconds since the epoch (UTC) of an injected `today`; throws on anything but a real calendar date from year 1000 to 9999. */
+function parseInjectedToday(text: string): number {
+  const match = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(text);
+  if (match) {
+    const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
+    const milliseconds = Date.UTC(year, month - 1, day);
+    const date = new Date(milliseconds);
+    if (year >= 1000 && date.getUTCMonth() === month - 1 && date.getUTCDate() === day) return milliseconds;
+  }
+  throw new Error('today must be a calendar date written YYYY-MM-DD (year 1000 to 9999), not "' + text + '"');
+}
+
+/** What `"today"` means: the injected date, else the system clock's local date. */
+type Today = () => number;
+
+function todayOf(lookup: LogicLookup): Today {
+  return function today(): number {
+    const injected = lookup.today?.();
+    if (injected !== undefined) return parseInjectedToday(injected);
     const now = new Date();
     return Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-  }
+  };
+}
+
+/** Parses a date as milliseconds since epoch (UTC), or undefined. */
+function parseDate(text: string, format: string, today: Today): number | undefined {
+  const trimmed = text.trim().toLowerCase();
+  if (trimmed === 'today') return today();
   const match = /^(\d{1,4})[-/](\d{1,2})[-/](\d{1,4})(?:[ t](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(trimmed);
   if (!match) return undefined;
   const first = Number(match[1]);
@@ -456,7 +482,7 @@ const UNIT_MILLISECONDS: Record<string, number> = {
   s: 1000,
 };
 
-function evaluateDateDifference(args: KnownValue[]): LogicValue {
+function evaluateDateDifference(args: KnownValue[], today: Today): LogicValue {
   if (args.length < 3) return '';
   let format = 'ymd';
   let signed = false;
@@ -468,8 +494,8 @@ function evaluateDateDifference(args: KnownValue[]): LogicValue {
   }
   const unitSize = UNIT_MILLISECONDS[toText(args[2]!)];
   if (unitSize === undefined) return '';
-  const start = parseDate(toText(args[0]!), format);
-  const end = parseDate(toText(args[1]!), format);
+  const start = parseDate(toText(args[0]!), format, today);
+  const end = parseDate(toText(args[1]!), format, today);
   if (start === undefined || end === undefined) return '';
   const difference = (end - start) / unitSize;
   return signed ? difference : Math.abs(difference);
@@ -481,7 +507,7 @@ function sumOf(numbers: number[]): number {
   }, 0);
 }
 
-function evaluateCall(name: string, args: KnownValue[]): LogicValue | typeof UNSUPPORTED {
+function evaluateCall(name: string, args: KnownValue[], today: Today): LogicValue | typeof UNSUPPORTED {
   const textAt = function textAt(index: number): string {
     const value = args[index];
     return value === undefined ? '' : toText(value);
@@ -506,7 +532,7 @@ function evaluateCall(name: string, args: KnownValue[]): LogicValue | typeof UNS
     case 'rounddown': return first === undefined ? '' : roundTo(first, digits, 'down');
     case 'abs': return first === undefined ? '' : Math.abs(first);
     case 'sqrt': return first === undefined || first < 0 ? '' : Math.sqrt(first);
-    case 'datediff': return evaluateDateDifference(args);
+    case 'datediff': return evaluateDateDifference(args, today);
     case 'isnumber': return isNumericText(textAt(0));
     case 'isinteger': return INTEGER_TEXT.test(textAt(0));
     case 'isblankormissingcode': return isBlank(textAt(0));
@@ -602,12 +628,13 @@ function evaluateNode(node: LogicExpression, context: EvaluationContext): LogicV
         return values[1] !== undefined && values[1] === values[2] ? values[1] : undefined;
       }
       // Probe with no arguments to learn whether the function name is known at all.
-      if (evaluateCall(node.name, []) === UNSUPPORTED) {
+      const today = todayOf(context.lookup);
+      if (evaluateCall(node.name, [], today) === UNSUPPORTED) {
         context.unsupported.add(node.name);
         return undefined;
       }
       if (values.some(function isUnknown(value) { return value === undefined; })) return undefined;
-      return evaluateCall(node.name, values as KnownValue[]) as LogicValue;
+      return evaluateCall(node.name, values as KnownValue[], today) as LogicValue;
     }
   }
 }
@@ -628,6 +655,38 @@ export function evaluateCondition(text: string, lookup: LogicLookup): ConditionR
   if (text.trim() === '') return { result: true, missing: [], unsupported: [] };
   const { value, missing, unsupported } = evaluateLogic(parseLogic(text), lookup);
   return { result: toTruth(value), missing, unsupported };
+}
+
+export interface ValueResult {
+  /** The value as text (a number as JavaScript prints it), or undefined when it cannot be decided yet. */
+  value: string | undefined;
+  unsupported: string[];
+}
+
+/** Parse and evaluate `text` as an expression (a calculation) and give its value, which is blank text when the inputs are blank or not numbers. */
+export function evaluateValue(text: string, lookup: LogicLookup): ValueResult {
+  const { value, unsupported } = evaluateLogic(parseLogic(text), lookup);
+  return { value: value === undefined ? undefined : toText(value), unsupported };
+}
+
+const BRACKET_RUN = /(?:\[[^[\]]*\])+/g;
+
+/**
+ * Text with `[field]` references in it (piping, as in `@DEFAULT='ID-[event][field]'`) as an expression that builds it:
+ * `concat("ID-", [event][field])`. Evaluating that with the ordinary evaluator pipes the values in, and an input that is not known
+ * makes the whole text unknown, so event prefixes, smart variables and missing-input tracking all behave as in any other logic.
+ */
+export function pipedTextExpression(text: string): string {
+  const quote = (literal: string): string => '"' + literal.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+  const pieces: string[] = [];
+  let end = 0;
+  for (const match of text.matchAll(BRACKET_RUN)) {
+    if (match.index > end) pieces.push(quote(text.slice(end, match.index)));
+    pieces.push(match[0]);
+    end = match.index + match[0].length;
+  }
+  if (end < text.length) pieces.push(quote(text.slice(end)));
+  return 'concat(' + pieces.join(', ') + ')';
 }
 
 /** One top-level operand of a condition, with the `and` / `or` (as written) that joins it to the previous one ('' for the first). */

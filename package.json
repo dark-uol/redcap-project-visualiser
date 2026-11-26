@@ -15,12 +15,14 @@
     "@viz-js/viz": "^3.31.0",
     "elkjs": "^0.12.2",
     "mermaid": "^12.3.0",
+    "pyodide": "^314.0.8",
     "solid-js": "2.0.3"
   },
   "devDependencies": {
     "@babel/core": "^7.29.13",
     "@solidjs/babel-plugin": "^2.0.2",
     "@solidjs/vite-plugin": "^3.0.1",
+    "@types/node": "^26.6.11",
     "jsdom": "^31.0.1",
     "typescript": "^5.9.3",
     "vite": "^8.3.8",
