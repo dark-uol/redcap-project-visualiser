@@ -197,6 +197,12 @@ export function FieldEditorView(props: FieldEditorViewProps) {
 // ---- the shown-when and affects tables ----
 
 /** One row of a shown-when / affects table, ready to show. */
+const VALUE_TITLES = {
+  set: 'A value you set',
+  calculated: 'Calculated from its inputs',
+  default: 'The field\'s @DEFAULT, filled in because no value is set',
+} as const;
+
 export type VisibilityRow = {
   key: string;
   id: string;
@@ -219,6 +225,12 @@ export type VisibilityRow = {
   logicTexts: string[];
   logicNote: string;
   needs: MissingInput[];
+  /** The value to show for this row, as text ('' when it has none): one you set, or one worked out from the row's inputs. */
+  value: string;
+  /** Where `value` came from: set by you, calculated from a formula, or a `@DEFAULT`. '' when there is no value. */
+  valueKind: 'set' | 'calculated' | 'default' | '';
+  /** The formula (`= …`) or default (`default …`) as written, so a step can be read, whether or not it has a value yet. '' for any other row. */
+  derivation: string;
 };
 
 export type VisibilityTableViewProps = {
@@ -264,6 +276,8 @@ export function VisibilityTableView(props: VisibilityTableViewProps) {
   };
   const visibleRows = () => filterVisibilityRows(props.rows, { state: stateFilter(), event: activeEvent(), form: activeForm() });
   const countOf = (state: Visibility): number => countByState(props.rows, state);
+  // the Value column only appears when some row has a value to show
+  const showValues = () => props.rows.some((row) => row.valueKind !== '');
   return (
     <div class="wi-section">
       {/* the heading folds the section away; the counts stay in view so a collapsed section still says how things stand */}
@@ -294,7 +308,8 @@ export function VisibilityTableView(props: VisibilityTableViewProps) {
         <table class="wi-table">
           <thead><tr>
             <Show when={props.showStep}><th>Step</th></Show>
-            <th>Field</th><Show when={props.showEventColumn}><th>Event</th></Show><th>Label</th><th>State</th><th>Logic</th><th>Needs</th>
+            <th>Field</th><Show when={props.showEventColumn}><th>Event</th></Show><th>Label</th>
+            <Show when={showValues()}><th>Value</th></Show><th>State</th><th>Logic</th><th>Needs</th>
           </tr></thead>
           <tbody>
             <For each={visibleRows()} keyed={(row) => row.key}>
@@ -316,10 +331,21 @@ export function VisibilityTableView(props: VisibilityTableViewProps) {
                       {row().label}
                     </Show>
                   </td>
+                  <Show when={showValues()}>
+                    <td>
+                      <Show when={row().valueKind !== ''}>
+                        <span class={'wi-value-' + row().valueKind} title={VALUE_TITLES[row().valueKind as 'set' | 'calculated' | 'default']}>
+                          {row().valueKind === 'set' ? '' : '= '}
+                          <Show when={row().value !== ''} fallback={<span class="muted">(blank)</span>}><code>{row().value}</code></Show>
+                        </span>
+                      </Show>
+                    </td>
+                  </Show>
                   <td>{props.renderState(row)}</td>
                   <td class="expr">
                     <For each={row().logicTexts}>{(text) => props.renderLogicText(text, row)}</For>
                     <Show when={row().logicNote}><div class="muted">{row().logicNote}</div></Show>
+                    <Show when={row().derivation}><div class="muted wi-derivation">{row().derivation}</div></Show>
                   </td>
                   <td>
                     <For each={row().needs} keyed={inputKey}>{(input) => props.renderNeed(input, row)}</For>

@@ -8,9 +8,9 @@ bridge per lookup.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Mapping, Tuple, Union
+from typing import Any, Dict, Mapping, Union
 
-from .visibility import Context, VisibilityInfo, build_model, evaluate_visibility_with_blank
+from .visibility import Context, VisibilityInfo, VisibilityOutcome, build_model, evaluate_visibility_full
 
 
 def _info_to_json(info: VisibilityInfo) -> Dict[str, Any]:
@@ -31,9 +31,9 @@ class Engine:
     def __init__(self, parsed: Union[str, Mapping[str, Any]]) -> None:
         self._model = build_model(json.loads(parsed) if isinstance(parsed, str) else parsed)
 
-    def _run(self, context: Union[str, Mapping[str, Any]]) -> Tuple[Dict[str, Dict[str, Any]], list]:
+    def _run(self, context: Union[str, Mapping[str, Any]]) -> VisibilityOutcome:
         data = json.loads(context) if isinstance(context, str) else context
-        results, blank = evaluate_visibility_with_blank(
+        return evaluate_visibility_full(
             self._model,
             Context(
                 values=data.get("values", {}),
@@ -44,7 +44,6 @@ class Engine:
                 derive=bool(data.get("derive", False)),
             ),
         )
-        return {key: _info_to_json(info) for key, info in results.items()}, sorted(blank)
 
     def evaluate(self, context: Union[str, Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
         """``context`` is ``{"values": {event: {variable: value}}, "mode": "form"|"survey", "event": id|null, "today": "YYYY-MM-DD"}``.
@@ -58,9 +57,18 @@ class Engine:
         ``{event: {form: {instance: {variable: value}}}}`` (event ``""`` for no events). A field of a repeating form listed there
         gets one result per instance, keyed ``variable#instance``; without it every field has the one result it always had.
         """
-        return self._run(context)[0]
+        return self.evaluate_full(context)["results"]
+
+    def evaluate_full(self, context: Union[str, Mapping[str, Any]]) -> Dict[str, Any]:
+        """What ``evaluate`` returns, as ``results``, plus ``blank``: the fields the evaluation treated as blank (sorted), and
+        ``derived``: the value of each calculated or defaulted field that came from its inputs, by variable, in the viewed event."""
+        outcome = self._run(context)
+        return {
+            "results": {key: _info_to_json(info) for key, info in outcome.results.items()},
+            "blank": sorted(outcome.blank),
+            "derived": dict(outcome.derived),
+        }
 
     def evaluate_json(self, context: Union[str, Mapping[str, Any]]) -> str:
-        """``{"results": <what evaluate returns>, "blank": [fields the evaluation treated as blank]}`` as JSON text."""
-        results, blank = self._run(context)
-        return json.dumps({"results": results, "blank": blank})
+        """``evaluate_full`` as JSON text, the one call the browser makes across the bridge."""
+        return json.dumps(self.evaluate_full(context))

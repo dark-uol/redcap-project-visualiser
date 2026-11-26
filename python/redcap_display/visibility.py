@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field as dataclass_field
-from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Set, Tuple, Union
 
 from .logic import LogicFieldRef, evaluate_condition, evaluate_value, is_space, piped_text_expression
 
@@ -561,7 +561,7 @@ def top_level_default(annotation: str) -> Optional[str]:
     return None
 
 
-def _make_evaluate(model: Model, context: Context, blank_cells: BlankCells) -> Evaluate:
+def _make_evaluate(model: Model, context: Context, blank_cells: BlankCells) -> "_Evaluator":
 
     def resolve_instance(ref: LogicFieldRef, field: FieldInfo, target: Optional[str], numbered: Dict[int, Any], cell: Optional[Cell]) -> int:
         """The instance number a reference to a field of a repeating form means.
@@ -718,16 +718,66 @@ def _make_evaluate(model: Model, context: Context, blank_cells: BlankCells) -> E
         result = evaluate_condition(text, tracking).result
         return _Tracked(result, _unique_inputs(tracking.recorded) if result is None else [])
 
-    return evaluate
+    def derived_values() -> Dict[str, str]:
+        """The value each calculated field, or field with a top-level ``@DEFAULT``, has in the viewed event, when it comes from its
+        inputs: not set by hand, collected in the event, not hidden so that it reads blank, and decided. The intermediate steps of a
+        chain of calculations. (Not for a field of a repeating form that has instances in the context: derivation is not done there yet.)"""
+        values: Dict[str, str] = {}
+        if not derive:
+            return values
+        definition = model.event(context.event)
+        for variable, field in model.fields.items():
+            if not field.calc.strip() and top_level_default(field.annotation) is None:
+                continue
+            if definition is not None and field.form not in definition.forms:
+                continue
+            if (variable, None) in blank_cells:
+                continue
+            if model.repeats(field.form, context.event) and context.instances_of(context.event, field.form):
+                continue
+            set_by_hand = context.values.get(context.event, {}).get(variable) if context.event is not None else None
+            if set_by_hand is None:
+                set_by_hand = context.values.get(ANY_EVENT, {}).get(variable)
+            if set_by_hand is not None:
+                continue
+            read = derived_read(field, context.event)
+            if read.value is not None:
+                values[variable] = read.value
+        return values
+
+    return _Evaluator(evaluate, derived_values)
+
+
+class _Evaluator(NamedTuple):
+    evaluate: Evaluate
+    derived_values: Callable[[], Dict[str, str]]
+
+
+@dataclass
+class VisibilityOutcome:
+    """What an evaluation worked out."""
+
+    #: The visibility of every field and form node.
+    results: Dict[str, VisibilityInfo]
+    #: The fields it treated as blank (hidden by branching logic or a hidden form), so logic can be judged again exactly as it was.
+    blank: Set[str]
+    #: The value of each calculated or defaulted field that came from its inputs, by variable, in the viewed event (empty unless ``derive``).
+    derived: Dict[str, str]
 
 
 def evaluate_visibility(model: Model, context: Context) -> Dict[str, VisibilityInfo]:
     """Keys: every field variable in the model, plus every form node id (``form:<form id>``)."""
-    return evaluate_visibility_with_blank(model, context)[0]
+    return evaluate_visibility_full(model, context).results
 
 
 def evaluate_visibility_with_blank(model: Model, context: Context) -> Tuple[Dict[str, VisibilityInfo], Set[str]]:
-    """The visibility of every field and form node, and the fields it treated as blank (hidden by branching logic or a hidden form).
+    """The visibility of every field and form node, and the fields it treated as blank (see ``VisibilityOutcome``)."""
+    outcome = evaluate_visibility_full(model, context)
+    return outcome.results, outcome.blank
+
+
+def evaluate_visibility_full(model: Model, context: Context) -> VisibilityOutcome:
+    """The visibility of every field and form node, the fields it treated as blank, and the values it worked out.
 
     The blank set lets a caller judge a piece of logic again exactly as it was judged here (TypeScript ``explainLogic``).
 
@@ -752,7 +802,7 @@ def evaluate_visibility_with_blank(model: Model, context: Context) -> Tuple[Dict
     blank_cells: BlankCells = set()
     for _round in range(MAX_ROUNDS):
         previous = current
-        evaluate = _make_evaluate(model, context, blank_cells)
+        evaluate = _make_evaluate(model, context, blank_cells).evaluate
         following: Dict[str, VisibilityInfo] = {}
         next_blank: BlankCells = set()
         for node_id in model.form_nodes:
@@ -767,4 +817,5 @@ def evaluate_visibility_with_blank(model: Model, context: Context) -> Tuple[Dict
         blank_cells = next_blank
         if not changed:
             break
-    return current, {cell_key(variable, instance) for variable, instance in blank_cells}
+    derived = _make_evaluate(model, context, blank_cells).derived_values()
+    return VisibilityOutcome(current, {cell_key(variable, instance) for variable, instance in blank_cells}, derived)

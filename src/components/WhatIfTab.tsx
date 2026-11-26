@@ -1,10 +1,10 @@
 /* What if tab: one editable table of the values set (fields and smart variables, each with the event its value is for), then the explored field's state, what decides whether it is shown and what it affects. */
 import { Show, createMemo, createSignal } from 'solid-js';
 import type { Accessor } from 'solid-js';
-import { ANY_EVENT, controllersOf, dependentsOf, eventForField, eventsForField, eventsToEvaluate, isSmartKey, valueIsIgnored } from '../lib/whatIf';
+import { ANY_EVENT, controllersOf, dependentsOf, derivedValue, eventForField, eventsForField, eventsToEvaluate, isSmartKey, valueIsIgnored } from '../lib/whatIf';
 import type { MissingInput, Visibility, VisibilityInfo } from '../lib/whatIf';
 import type { Field, Model, WhatIfEngine } from '../lib/types';
-import { computeVisibilityLogic, chooserMatches, displayRows, nextExploredRow, rowKeyOf, smartVariableNames } from '../lib/whatIfRows';
+import { computeVisibilityLogic, chooserMatches, derivationOf, displayRows, nextExploredRow, rowKeyOf, setValueText, smartVariableNames } from '../lib/whatIfRows';
 import type { ChooserMatch, TableRow } from '../lib/whatIfRows';
 import { need, model, selection, whatIf, visibilityIn, formLabel } from '../store';
 import { IgnoredValueHintView } from './whatIfViews';
@@ -174,6 +174,8 @@ interface AffectedRow {
   id: string;
   event: string | null;
   info: VisibilityInfo | undefined;
+  /** The value worked out for a calculated or defaulted field in this row's event, when there is one. */
+  derived: string | undefined;
   state: Visibility;
   /** Distance upstream of the chosen field in "Shown when" (0 = the field or its form); unused in "Affects". */
   step: number;
@@ -194,8 +196,9 @@ function rowsFor(entries: { id: string; step: number }[]): AffectedRow[] {
   return entries
     .filter((entry) => !seen.has(entry.id) && !!seen.add(entry.id))
     .flatMap((entry) => eventsToEvaluate(loadedModel, entry.id, whatIf.event()).map((event): AffectedRow => {
-      const info = visibilityIn(event, true)?.get(entry.id);
-      return { id: entry.id, event, info, state: info?.state ?? 'unknown', step: entry.step };
+      const results = visibilityIn(event, true);
+      const info = results?.get(entry.id);
+      return { id: entry.id, event, info, derived: derivedValue(results, entry.id), state: info?.state ?? 'unknown', step: entry.step };
     }));
 }
 /** A control for one value a row still needs: its variable (and event when different from the row's), then the input. */
@@ -222,6 +225,9 @@ function VisibilityTable(props: { title: string; emptyText: string; rows: Affect
     const isForm = row.id.startsWith(FORM_PREFIX);
     const formId = formOf(row.id);
     const logic = visibilityLogic(row.id, row.event);
+    const how = whatIf.derive() ? derivationOf(fieldFor(row.id)) : { kind: '' as const, text: '' };
+    // a value you set wins over one worked out, as it does in the evaluation
+    const setValue = isForm ? undefined : setValueText(whatIf.values()[row.event ?? ANY_EVENT]?.[row.id] ?? whatIf.values()[ANY_EVENT]?.[row.id]);
     return {
       key: rowKey(row),
       id: row.id,
@@ -238,6 +244,9 @@ function VisibilityTable(props: { title: string; emptyText: string; rows: Affect
       logicTexts: logic.main,
       logicNote: logic.note,
       needs: needsOf(row),
+      value: setValue ?? row.derived ?? '',
+      valueKind: setValue !== undefined ? 'set' : row.derived !== undefined && how.kind !== '' ? how.kind : '',
+      derivation: how.text,
     };
   }));
   const editRow = function editRow(row: VisibilityRow): void {
@@ -285,7 +294,8 @@ function ShownWhenTable(props: { field: Field }) {
     const entries = [
       { id: props.field.variable, step: 0 },
       ...(loadedModel.formNodes.has(formNode) ? [{ id: formNode, step: 0 }] : []),
-      ...controllersOf(loadedModel, props.field.variable).map((controller) => ({ id: controller.variable, step: controller.depth })),
+      // with Calculate on, a calculated controller is followed into its inputs, so the steps of a chain show
+      ...controllersOf(loadedModel, props.field.variable, whatIf.derive()).map((controller) => ({ id: controller.variable, step: controller.depth })),
     ];
     return rowsFor(entries);
   });

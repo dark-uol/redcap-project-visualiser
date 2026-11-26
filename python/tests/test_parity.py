@@ -59,11 +59,11 @@ class VisibilityParity(unittest.TestCase):
         engines = {name: Engine(parsed) for name, parsed in PAYLOAD["projects"].items()}
         failures = []
         for index, vector in enumerate(PAYLOAD["visibility"]):
-            actual = engines[vector["project"]].evaluate(vector["context"])
-            expected = vector["expected"]
-            if actual != expected or list(actual) != list(expected):
+            outcome = engines[vector["project"]].evaluate_full(vector["context"])
+            actual, expected = outcome["results"], vector["expected"]
+            if actual != expected or list(actual) != list(expected) or outcome["derived"] != vector["derived"]:
                 differing = [key for key in expected if actual.get(key) != expected[key]]
-                failures.append((index, vector["project"], vector["context"]["event"], vector["context"]["mode"], differing[:3]))
+                failures.append((index, vector["project"], vector["context"]["event"], vector["context"]["mode"], differing[:3], outcome["derived"] != vector["derived"]))
         self.assertEqual(failures[:10], [], "%d of %d contexts disagree" % (len(failures), len(PAYLOAD["visibility"])))
 
 

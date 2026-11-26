@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { buildModel } from '../src/lib/graph';
 import { pipedTextExpression } from '../src/lib/logic';
 import type { EventDef, Field, ParsedODM } from '../src/lib/types';
-import { ANY_EVENT, evaluateVisibility, topLevelDefault } from '../src/lib/whatIf';
+import { ANY_EVENT, controllersOf, derivedValue, derivedValues, evaluateVisibility, topLevelDefault } from '../src/lib/whatIf';
 import type { WhatIfContext, WhatIfValue } from '../src/lib/whatIf';
 
 const field = (variable: string, form: string, over: Partial<Field> = {}): Field => ({
@@ -114,6 +114,63 @@ describe('derivation edge cases', () => {
 
   it('does not derive a default that sits inside an @IF, which stays unknown', () => {
     expect(resultFor({ registration: { nhs_entered: '1' } }, { event: 'registration' }).get('reads_conditional_default')?.state).toBe('unknown');
+  });
+});
+
+describe('the intermediate values of a chain', () => {
+  const valuesFor = (entered: string, over: Partial<WhatIfContext> = {}, set: Record<string, Record<string, WhatIfValue>> = {}) => {
+    const results = resultFor({ registration: { nhs_entered: entered }, ...set }, over);
+    return Object.fromEntries(derivedValues(results));
+  };
+
+  it('lists every step, from the piped default to the final check', () => {
+    expect(valuesFor(VALID)).toEqual({
+      nhs_copy: VALID, nhs_sum: '299', nhs_quotient: '27', nhs_remainder: '2', nhs_check: '9', nhs_last: '9', nhs_valid: '1',
+    });
+    expect(valuesFor(INVALID)).toMatchObject({ nhs_last: '8', nhs_valid: '0' });
+  });
+
+  it('is found by variable for the result it came from, and absent for anything else', () => {
+    const results = resultFor({ registration: { nhs_entered: VALID } });
+    expect(derivedValue(results, 'nhs_sum')).toBe('299');
+    expect(derivedValue(results, 'nhs_entered')).toBeUndefined();
+    expect(derivedValue(null, 'nhs_sum')).toBeUndefined();
+  });
+
+  it('leaves out a value that was set by hand, since it is not worked out', () => {
+    const values = valuesFor(VALID, {}, { consent: { nhs_valid: '0' } });
+    expect(values).not.toHaveProperty('nhs_valid');
+    expect(values).toHaveProperty('nhs_check', '9');
+  });
+
+  it('has nothing for steps that cannot be decided yet, and nothing when derivation is off', () => {
+    expect(Object.fromEntries(derivedValues(resultFor({})))).toEqual({});
+    expect(Object.fromEntries(derivedValues(resultFor({ registration: { nhs_entered: VALID } }, { derive: false })))).toEqual({});
+  });
+
+  it('has nothing for fields not collected in the viewed event', () => {
+    // the loop and plain-default fields are in the registration form, not collected at consent
+    const values = valuesFor(VALID);
+    expect(values).not.toHaveProperty('plain_default');
+    expect(Object.fromEntries(derivedValues(resultFor({}, { event: 'registration' })))).toEqual({ plain_default: '7' });
+  });
+});
+
+describe('controllersOf following calculations', () => {
+  const depthsOf = (calculations: boolean) => Object.fromEntries(controllersOf(model, 'nhs_warning', calculations).map((item) => [item.variable, item.depth]));
+
+  it('stops at a calculated controller by default, as it always did', () => {
+    expect(depthsOf(false)).toEqual({ nhs_copy: 1, nhs_valid: 1, nhs_entered: 2 });
+  });
+
+  it('follows a calculated controller into its inputs, nearest first, when asked', () => {
+    expect(depthsOf(true)).toEqual({
+      nhs_copy: 1, nhs_valid: 1, nhs_entered: 2, nhs_check: 2, nhs_last: 2, nhs_remainder: 3, nhs_sum: 4, nhs_quotient: 4,
+    });
+  });
+
+  it('does not follow the explored field\'s own calculation, which says nothing about whether it is shown', () => {
+    expect(controllersOf(model, 'nhs_valid', true).map((item) => item.variable)).not.toContain('nhs_check');
   });
 });
 

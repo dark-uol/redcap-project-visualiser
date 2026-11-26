@@ -181,7 +181,7 @@ describe('FieldEditorView', () => {
 
 const visibilityRow = (over: Partial<VisibilityRow> = {}): VisibilityRow => ({
   key: 'a|', id: 'a', event: null, eventLabel: '', state: 'shown', info: undefined, step: 0, formId: 'f1', formLabel: 'Form One',
-  kind: 'field', label: 'Field A', defined: true, logicTexts: [], logicNote: '', needs: [], ...over,
+  kind: 'field', label: 'Field A', defined: true, logicTexts: [], logicNote: '', needs: [], value: '', valueKind: '', derivation: '', ...over,
 });
 
 function visibilityProps(over: Partial<VisibilityTableViewProps> = {}): VisibilityTableViewProps {
@@ -194,6 +194,39 @@ function visibilityProps(over: Partial<VisibilityTableViewProps> = {}): Visibili
     ...over,
   };
 }
+
+describe('VisibilityTableView values', () => {
+  const headers = (container: HTMLElement) => [...container.querySelectorAll('th')].map((cell) => cell.textContent);
+
+  it('has no Value column when no row has a value', () => {
+    expect(headers(renderComponent(() => <VisibilityTableView {...visibilityProps()} />))).not.toContain('Value');
+  });
+
+  it('shows a Value column when a row has one, marking calculated and default values with "=" and set ones plainly', () => {
+    const rows = [
+      visibilityRow({ key: 'a|', id: 'a', value: '299', valueKind: 'calculated', derivation: '= (a * 2)' }),
+      visibilityRow({ key: 'b|', id: 'b', value: 'x', valueKind: 'default', derivation: "default '[ev][z]'" }),
+      visibilityRow({ key: 'c|', id: 'c', value: '17', valueKind: 'set' }),
+      visibilityRow({ key: 'd|', id: 'd' }),
+    ];
+    const container = renderComponent(() => <VisibilityTableView {...visibilityProps({ rows })} />);
+    expect(headers(container)).toContain('Value');
+    const cells = [...container.querySelectorAll('tbody tr')].map((row) => row.querySelector('[class^="wi-value-"]'));
+    expect(cells.map((cell) => cell?.className ?? null)).toEqual(['wi-value-calculated', 'wi-value-default', 'wi-value-set', null]);
+    expect(cells.map((cell) => cell?.textContent?.trim() ?? null)).toEqual(['= 299', '= x', '17', null]);
+    expect(cells[0]!.getAttribute('title')).toBe('Calculated from its inputs');
+  });
+
+  it('shows a blank result as "(blank)", not as nothing', () => {
+    const container = renderComponent(() => <VisibilityTableView {...visibilityProps({ rows: [visibilityRow({ value: '', valueKind: 'calculated' })] })} />);
+    expect(container.querySelector('.wi-value-calculated')!.textContent).toContain('(blank)');
+  });
+
+  it('shows the formula under the logic, with or without a value yet', () => {
+    const container = renderComponent(() => <VisibilityTableView {...visibilityProps({ rows: [visibilityRow({ derivation: '= a + b' })] })} />);
+    expect(container.querySelector('.wi-derivation')!.textContent).toBe('= a + b');
+  });
+});
 
 describe('VisibilityTableView', () => {
   it('shows the empty text when there are no rows', () => {

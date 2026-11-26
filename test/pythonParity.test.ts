@@ -16,7 +16,7 @@ import type { LogicFieldRef } from '../src/lib/logic';
 import { parseODM } from '../src/lib/parser';
 import { pythonMetadata } from '../src/lib/pythonEngine';
 import type { Field, ParsedODM } from '../src/lib/types';
-import { ANY_EVENT, evaluateVisibility } from '../src/lib/whatIf';
+import { ANY_EVENT, derivedValues, evaluateVisibility } from '../src/lib/whatIf';
 import type { WhatIfValue } from '../src/lib/whatIf';
 
 // vitest runs from the repository root
@@ -267,6 +267,8 @@ interface VisibilityVector {
   project: string;
   context: { values: Record<string, Record<string, WhatIfValue>>; mode: 'survey' | 'form'; event: string | null; today: string; derive: boolean };
   expected: Record<string, unknown>;
+  /** The values worked out for calculated and defaulted fields. */
+  derived: Record<string, string>;
 }
 
 function visibilityVectors(name: string, parsed: ParsedODM, count: number, seed: number): VisibilityVector[] {
@@ -284,7 +286,7 @@ function visibilityVectors(name: string, parsed: ParsedODM, count: number, seed:
     const result = evaluateVisibility(model, { values, mode, event, today, derive });
     const expected: Record<string, unknown> = {};
     result.forEach((info, key) => { expected[key] = info; });
-    vectors.push({ project: name, context: { values, mode, event, today, derive }, expected });
+    vectors.push({ project: name, context: { values, mode, event, today, derive }, expected, derived: Object.fromEntries(derivedValues(result)) });
   }
   return vectors;
 }

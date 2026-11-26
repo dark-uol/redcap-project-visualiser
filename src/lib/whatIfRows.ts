@@ -1,8 +1,8 @@
 /* Row and table derivations for the What if tab: the values table's rows, the field chooser's matches, the visibility tables' filters and counts. Pure: no Solid, no DOM, no store. */
 
-import { ANY_EVENT, smartKey } from './whatIf';
+import { ANY_EVENT, smartKey, topLevelDefault } from './whatIf';
 import type { Visibility, WhatIfValue } from './whatIf';
-import type { ModelBase } from './types';
+import type { Field, ModelBase } from './types';
 
 /** One row of the values table: a field or smart variable key, and the event its value is for (null: every event, or no events). */
 export interface TableRow { variable: string; event: string | null }
@@ -76,6 +76,17 @@ export function computeVisibilityLogic(model: ModelBase, id: string, event: stri
   const annotation = field?.annotation || '';
   return { main: field?.branching.trim() ? [field.branching.trim()] : [], note: /@(HIDDEN|IF)\b/i.test(annotation) ? annotation.trim() : '' };
 }
+
+/** How a field can get a value from its inputs: a calculation, a top-level `@DEFAULT`, or neither, with the text that shows it as written. */
+export function derivationOf(field: Pick<Field, 'calc' | 'annotation'> | undefined): { kind: 'calculated' | 'default' | ''; text: string } {
+  if (!field) return { kind: '', text: '' };
+  if (field.calc && field.calc.trim()) return { kind: 'calculated', text: '= ' + field.calc.trim() };
+  const fallback = topLevelDefault(field.annotation || '');
+  return fallback === undefined ? { kind: '', text: '' } : { kind: 'default', text: 'default ' + fallback };
+}
+
+/** A set value as text for a table cell: a checkbox's checked codes joined; undefined when nothing is set. */
+export const setValueText = (value: WhatIfValue | undefined): string | undefined => (value === undefined ? undefined : Array.isArray(value) ? value.join(', ') : value);
 
 /** The distinct values of a key, in first-seen order, without undefined and null. */
 export const distinctOf = <Key extends string>(values: readonly (Key | undefined | null)[]): Key[] => [...new Set(values.filter((value): value is Key => value !== undefined && value !== null))];

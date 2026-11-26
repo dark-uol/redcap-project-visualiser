@@ -12,7 +12,7 @@ import { buildModel } from '../src/lib/graph';
 import { parseODM } from '../src/lib/parser';
 import { createPythonVisibility, loadPythonRuntime } from '../src/lib/pythonEngine';
 import type { PythonContext } from '../src/lib/pythonEngine';
-import { ANY_EVENT, evaluateVisibility, explainLogic } from '../src/lib/whatIf';
+import { ANY_EVENT, derivedValue, derivedValues, evaluateVisibility, explainLogic } from '../src/lib/whatIf';
 import type { WhatIfContext } from '../src/lib/whatIf';
 
 const TEST_DIRECTORY = join(process.cwd(), 'python', 'tests');
@@ -45,6 +45,11 @@ describe('Python core on Pyodide', () => {
     expect(engine.evaluate({ ...on, values: { [ANY_EVENT]: { a: '5' } } }).get('c')?.state).toBe('hidden');
     expect(engine.evaluate({ ...on, derive: false }).get('c')?.state).toBe('unknown');
     expect(engine.evaluate({ ...on, values: {} }).get('c')?.missing).toEqual([{ variable: 'a', event: null }]);
+    // the intermediate values come back with the results, and agree with the TypeScript engine
+    expect(derivedValue(engine.evaluate(on), 'b')).toBe('8');
+    expect(derivedValue(engine.evaluate({ ...on, derive: false }), 'b')).toBeUndefined();
+    const typescript = evaluateVisibility(buildModel(parsed), on);
+    expect(Object.fromEntries(derivedValues(engine.evaluate(on)))).toEqual(Object.fromEntries(derivedValues(typescript)));
     engine.destroy();
   }, SLOW);
 
