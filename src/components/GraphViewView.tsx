@@ -2,7 +2,7 @@
 import { Show, createEffect, onCleanup, onSettled } from 'solid-js';
 import type { Element as SolidElement } from 'solid-js';
 import type { View } from '../lib/types';
-import { closestEl, highlightLinks, keyForSelection, nodeKey, normalizeSvg, widenEdgeHits } from './svgDom';
+import { closestEl, highlightCluster, highlightLinks, keyForSelection, nodeKey, normalizeSvg, widenEdgeHits } from './svgDom';
 import { resolveClick } from './hitTest';
 import type { ClickAction } from './hitTest';
 import { cssTransform, fitPan, zoomPan, type Pan } from './panzoom';
@@ -84,6 +84,7 @@ export function GraphViewView(props: GraphViewViewProps) {
     const svg = state.svg;
     if (!svg) return;
     highlightLinks(svg, state.hover ?? (state.selection && state.view ? keyForSelection(state.view.nodes, state.selection) : null));
+    highlightCluster(svg, state.view?.groups ?? [], state.selection);
   };
 
   // new svg: mount it, restore / fit the view, widen form-level edge hit areas, re-apply highlighting

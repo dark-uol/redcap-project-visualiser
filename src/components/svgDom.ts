@@ -1,5 +1,6 @@
 /* Helpers for reading the rendered graph SVG (Graphviz titles or Mermaid ids). No Solid, no store. */
-import type { ViewNode } from '../lib/types';
+import { groupIdFor } from '../lib/selection';
+import type { ViewGroup, ViewNode } from '../lib/types';
 
 /** Nearest ancestor-or-self of an event target matching `sel` (targets may be non-elements, e.g. text). */
 export const closestEl = (t: EventTarget | null, sel: string): Element | null => (t instanceof Element ? t.closest(sel) : null);
@@ -110,4 +111,12 @@ export const centreInStage = (element: Element, stageRect: DOMRect): { x: number
     w: rect.width,
     h: rect.height,
   };
+};
+
+/** Mark the form or event box the selection stands for (an expanded node is drawn as a box, not a node) with class `on`. */
+export const highlightCluster = (s: SVGSVGElement, groups: ViewGroup[], selection: string | null): void => {
+  const groupIndex = selection === null ? -1 : groups.findIndex((group) => group.id === selection || groupIdFor(group.id) === selection);
+  s.querySelectorAll('g.cluster').forEach((element) => {
+    element.classList.toggle('on', groupIndex >= 0 && clusterIndex(element) === groupIndex);
+  });
 };

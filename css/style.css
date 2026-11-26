@@ -78,6 +78,7 @@ button.fieldlink{background:none;border:0;color:var(--accent);cursor:pointer;fon
 
 /* highlight: dim everything except the hovered/selected node and its direct links */
 #canvas svg.hl g.node:not(.on),#canvas svg.hl g.edge:not(.on),#canvas svg.hl path.flowchart-link:not(.on){opacity:.1}
+#canvas g.cluster.on>:is(rect,polygon,path){stroke:#2563eb;stroke-width:2.5px}
 #canvas svg.hl g.edge.on path,#canvas svg.hl path.flowchart-link.on{stroke-width:2.5px}
 .mxwrap{display:flex;gap:10px;height:calc(100vh - 150px)}
 .mxscroll{flex:1;min-width:0;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:8px}

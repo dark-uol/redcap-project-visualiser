@@ -24,13 +24,14 @@ export function createDerived(state: State) {
   });
   /**
    * The renderer actually used. Swimlane needs a longitudinal project showing events or form instances; where it does not
-   * apply, Graphviz stands in. Switching renderer never changes the view itself, only how it is laid out.
+   * apply, ELK stands in. Switching renderer never changes the view itself, only how it is laid out.
    */
   const effectiveRenderer = (): Renderer => {
     const loadedModel = model();
     const hasEvents = !!loadedModel && (loadedModel.parsed.events || []).length > 0;
     const swimlaneApplies = hasEvents && (level() === 'event' || (level() === 'form' && instances()));
-    return renderer() === 'swimlane' && !swimlaneApplies ? 'graphviz' : renderer();
+    // ELK stands in: it lays out any view, with boxes for groups, so field level keeps every feature
+    return renderer() === 'swimlane' && !swimlaneApplies ? 'elk' : renderer();
   };
   const instanceMode = (): boolean => {
     const loadedModel = model();
