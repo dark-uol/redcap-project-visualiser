@@ -126,6 +126,7 @@ const placeColumns = (columns: ColumnPlan[]): void => {
   let sharedArms = new Set<string>();
   // right edge of the group of columns sharing the previous x
   let groupRight = firstLeft;
+  const armRight = new Map<string, number>();
   columns.forEach((column, index) => {
     const halfWidth = columnWidth(column) / 2;
     const desired = timed
@@ -133,9 +134,11 @@ const placeColumns = (columns: ColumnPlan[]): void => {
       : firstCenter + index * COLUMN_PITCH;
     const arm = column.event!.arm;
     const sameDay = timed && previous !== undefined && previous.event!.dayOffset === column.event!.dayOffset;
+    // what the column's own lane already holds: a wide column sharing an x must still start right of its own lane's last column
+    const ownLaneClearance = (armRight.get(arm) ?? firstLeft) + halfWidth;
     if (previous && sameDay && !sharedArms.has(arm)) {
       // Equal days in different arms may share an x: their lanes keep them apart.
-      column.centerX = previous.centerX;
+      column.centerX = Math.max(previous.centerX, firstLeft + halfWidth, ownLaneClearance);
       sharedArms.add(arm);
       groupRight = Math.max(groupRight, column.centerX + halfWidth);
     } else {
@@ -143,6 +146,7 @@ const placeColumns = (columns: ColumnPlan[]): void => {
       sharedArms = new Set([arm]);
       groupRight = column.centerX + halfWidth;
     }
+    armRight.set(arm, column.centerX + halfWidth);
     previous = column;
   });
 };
@@ -270,6 +274,81 @@ export const curveHitsNode = (curve: Curve, grid: NodeGrid, ignored: Set<string>
     if (hit) return true;
   }
   return false;
+};
+
+/** The ids of the nodes (other than the ignored ones) that the curve passes through, found like `curveHitsNode` but without stopping at the first. */
+export const curveHitIds = (curve: Curve, grid: NodeGrid, ignored: Set<string>): Set<string> => {
+  const hits = new Set<string>();
+  for (let step = 1; step < CURVE_SAMPLES; step++) {
+    const point = curvePoint(curve, step / CURVE_SAMPLES);
+    const cell = grid.get(cellKey(Math.floor(point.x / GRID_CELL), Math.floor(point.y / GRID_CELL)));
+    if (!cell) continue;
+    cell.forEach((node) => {
+      if (!ignored.has(node.id)
+        && point.x > node.x - NODE_CLEARANCE && point.x < node.x + node.width + NODE_CLEARANCE
+        && point.y > node.y - NODE_CLEARANCE && point.y < node.y + node.height + NODE_CLEARANCE) hits.add(node.id);
+    });
+  }
+  return hits;
+};
+
+/** The ids of the nodes (other than the ignored ones) that an axis-aligned polyline passes through. Every segment of a gutter
+ * route is horizontal or vertical, so a segment is its own bounding box and is tested exactly against the grid cells it spans. */
+export const polylineHitIds = (points: Point[], grid: NodeGrid, ignored: Set<string>): Set<string> => {
+  const hits = new Set<string>();
+  for (let index = 1; index < points.length; index++) {
+    const left = Math.min(points[index - 1].x, points[index].x);
+    const right = Math.max(points[index - 1].x, points[index].x);
+    const top = Math.min(points[index - 1].y, points[index].y);
+    const bottom = Math.max(points[index - 1].y, points[index].y);
+    for (let column = Math.floor(left / GRID_CELL); column <= Math.floor(right / GRID_CELL); column++) {
+      for (let row = Math.floor(top / GRID_CELL); row <= Math.floor(bottom / GRID_CELL); row++) {
+        grid.get(cellKey(column, row))?.forEach((node) => {
+          if (!ignored.has(node.id) && left < node.x + node.width + NODE_CLEARANCE && right > node.x - NODE_CLEARANCE
+            && top < node.y + node.height + NODE_CLEARANCE && bottom > node.y - NODE_CLEARANCE) hits.add(node.id);
+        });
+      }
+    }
+  }
+  return hits;
+};
+
+/** Free vertical lane beside a node's side: the middle of the COLUMN_GAP between this sub-column and its neighbour. */
+const GUTTER_OFFSET = (COLUMN_PITCH - NODE_WIDTH) / 2;
+/** Extra channels tried above and below the nearest gaps, one row (a node and its gap) at a time. */
+const CHANNEL_ROWS = 6;
+const ARROW_MARGIN = 10;
+
+/** Gutter-channel polylines for an edge, in the order they are tried: out of the source's side into the gutter, along a
+ * horizontal channel in a gap between rows, and into the target's side through its gutter. */
+const gutterRoutes = (source: LayoutNode, target: LayoutNode, leftward: boolean, rightward: boolean, nudge: number): Point[][] => {
+  const sourceMiddle = source.y + source.height / 2;
+  const targetMiddle = target.y + target.height / 2;
+  const routes: Point[][] = [];
+  if (!leftward && !rightward) {
+    // overlapping x (one sub-column, or equal-day columns of different lanes): out of the right gutter and back, then the left
+    [1, -1].forEach((side) => {
+      const sourceEdge = side > 0 ? source.x + source.width : source.x;
+      const targetEdge = side > 0 ? target.x + target.width : target.x;
+      const gutter = side > 0 ? Math.max(sourceEdge, targetEdge) + GUTTER_OFFSET + nudge : Math.min(sourceEdge, targetEdge) - GUTTER_OFFSET + nudge;
+      routes.push([{ x: sourceEdge, y: sourceMiddle }, { x: gutter, y: sourceMiddle }, { x: gutter, y: targetMiddle }, { x: targetEdge, y: targetMiddle }]);
+    });
+    return routes;
+  }
+  const direction = rightward ? 1 : -1;
+  const start = { x: direction > 0 ? source.x + source.width : source.x, y: sourceMiddle };
+  const end = { x: direction > 0 ? target.x : target.x + target.width, y: targetMiddle };
+  const sourceGutter = start.x + direction * GUTTER_OFFSET;
+  const targetGutter = end.x - direction * GUTTER_OFFSET;
+  const row = NODE_HEIGHT + NODE_GAP;
+  const below = (node: LayoutNode): number => node.y + node.height + NODE_GAP / 2;
+  const above = (node: LayoutNode): number => node.y - NODE_GAP / 2;
+  const channels: number[] = [below(source), above(source), below(target), above(target)];
+  for (let step = 1; step <= CHANNEL_ROWS; step++) channels.push(below(source) + step * row, above(source) - step * row, below(target) + step * row, above(target) - step * row);
+  [...new Set(channels)].forEach((channel) => {
+    routes.push([start, { x: sourceGutter, y: sourceMiddle }, { x: sourceGutter, y: channel }, { x: targetGutter, y: channel }, { x: targetGutter, y: targetMiddle }, end]);
+  });
+  return routes;
 };
 
 export function layoutSwimlane(view: View, events: EventDef[]): Layout {
@@ -426,6 +505,10 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   const edges: LayoutEdge[] = [];
   const edgeKeys = new Set(view.edges.map((edge) => `${edge.from}\u0000${edge.to}`));
   const grid = buildNodeGrid(nodes);
+  // the labelled top strip of every form box: a soft obstacle for gutter channels
+  const headerGrid = buildNodeGrid(regions.filter((region) => region.kind === 'cluster')
+    .map((region) => ({ id: region.id, x: region.x, y: region.y, width: region.width, height: CLUSTER_TOP })));
+  const noneIgnored = new Set<string>();
   view.edges.forEach((edge: ViewEdge) => {
     const source = nodeById.get(edge.from);
     const target = nodeById.get(edge.to);
@@ -438,6 +521,9 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
     const middleY = (node: LayoutNode): number => node.y + node.height / 2;
     const ignored = new Set([edge.from, edge.to]);
     const candidates: Curve[] = [];
+    // A reciprocal same-column pair would otherwise overlap exactly, so each direction is nudged to its own side of the centre line.
+    const reciprocal = edgeKeys.has(`${edge.to}\u0000${edge.from}`);
+    const sameXNudge = reciprocal ? (edge.from < edge.to ? -RECIPROCAL_NUDGE : RECIPROCAL_NUDGE) : 0;
     if (leftward) {
       const start = { x: source.x, y: middleY(source) };
       const end = { x: target.x + target.width, y: middleY(target) };
@@ -457,9 +543,7 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
       // Same x (same column, or equal-day columns of different lanes): straight between top and bottom edges when nothing is in
       // the way, otherwise attached to the side edges and bowed out, so it never has to cross the gap between stacked nodes.
       const downward = target.y >= source.y;
-      // A reciprocal pair would otherwise overlap exactly, so each direction is nudged to its own side of the centre line.
-      const reciprocal = edgeKeys.has(`${edge.to}\u0000${edge.from}`);
-      const nudge = reciprocal ? (edge.from < edge.to ? -RECIPROCAL_NUDGE : RECIPROCAL_NUDGE) : 0;
+      const nudge = sameXNudge;
       const start = { x: source.x + source.width / 2 + nudge, y: downward ? source.y + source.height : source.y };
       const end = { x: target.x + target.width / 2 + nudge, y: downward ? target.y : target.y + target.height };
       const reach = (end.y - start.y) / 2;
@@ -470,9 +554,61 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
         candidates.push([sideStart, { x: sideStart.x + bow, y: sideStart.y }, { x: sideEnd.x + bow, y: sideEnd.y }, sideEnd]);
       });
     }
-    const curve = candidates.find((candidate) => !curveHitsNode(candidate, grid, ignored)) ?? candidates[0];
-    edges.push({ from: edge.from, to: edge.to, curve, backward });
+    // The curves are prettier: the first that clears every node wins. When none does, gutter polylines are tried; the first that
+    // clears every node and every form-box header wins, then the first that clears every node; else the route with the fewest hits.
+    const clearCurve = candidates.find((candidate) => !curveHitsNode(candidate, grid, ignored));
+    if (clearCurve) { edges.push({ from: edge.from, to: edge.to, curve: clearCurve, backward }); return; }
+    let best: { curve?: Curve; points?: Point[]; hits: number } = { curve: candidates[0], hits: Infinity };
+    candidates.forEach((candidate) => {
+      const hits = curveHitIds(candidate, grid, ignored).size;
+      if (hits < best.hits) best = { curve: candidate, hits };
+    });
+    let clearOfNodes: Point[] | undefined;
+    let clear: Point[] | undefined;
+    for (const route of gutterRoutes(source, target, leftward, rightward, sameXNudge)) {
+      const hits = polylineHitIds(route, grid, ignored).size;
+      if (hits < best.hits) best = { points: route, hits };
+      if (hits > 0) continue;
+      clearOfNodes ??= route;
+      if (polylineHitIds(route, headerGrid, noneIgnored).size === 0) { clear = route; break; }
+    }
+    const chosenPoints = clear ?? clearOfNodes;
+    if (chosenPoints) edges.push({ from: edge.from, to: edge.to, points: chosenPoints, backward });
+    else if (best.points) edges.push({ from: edge.from, to: edge.to, points: best.points, backward });
+    else edges.push({ from: edge.from, to: edge.to, curve: best.curve, backward });
   });
 
-  return { width, height, nodes, edges, regions };
+  // The drawing must contain every route: a bow or channel can leave the columns' extent. Anything left of or above the origin
+  // shifts everything right or down; anything beyond the right or bottom edge grows the layout.
+  let routeLeft = Infinity, routeTop = Infinity, routeRight = -Infinity, routeBottom = -Infinity;
+  const include = (point: Point): void => {
+    routeLeft = Math.min(routeLeft, point.x); routeRight = Math.max(routeRight, point.x);
+    routeTop = Math.min(routeTop, point.y); routeBottom = Math.max(routeBottom, point.y);
+  };
+  edges.forEach((edge) => {
+    if (edge.curve) for (let step = 0; step <= CURVE_SAMPLES; step++) include(curvePoint(edge.curve, step / CURVE_SAMPLES));
+    edge.points?.forEach(include);
+  });
+  let totalWidth = width;
+  let totalHeight = height;
+  const shiftX = routeLeft - ARROW_MARGIN < 0 ? ARROW_MARGIN - routeLeft : 0;
+  const shiftY = routeTop - ARROW_MARGIN < 0 ? ARROW_MARGIN - routeTop : 0;
+  if (shiftX > 0 || shiftY > 0) {
+    const moved = (point: Point): Point => ({ x: point.x + shiftX, y: point.y + shiftY });
+    nodes.forEach((placed) => { placed.x += shiftX; placed.y += shiftY; });
+    edges.forEach((edge) => {
+      if (edge.curve) edge.curve = edge.curve.map(moved) as Curve;
+      if (edge.points) edge.points = edge.points.map(moved);
+    });
+    regions.forEach((region) => {
+      if (region.kind !== 'lane') region.x += shiftX;
+      region.y += shiftY;
+    });
+    totalWidth += shiftX; totalHeight += shiftY; routeRight += shiftX; routeBottom += shiftY;
+  }
+  if (routeRight + ARROW_MARGIN > totalWidth) totalWidth = routeRight + MARGIN;
+  if (routeBottom + ARROW_MARGIN > totalHeight) totalHeight = routeBottom + MARGIN;
+  regions.forEach((region) => { if (region.kind === 'lane') region.width = totalWidth; });
+
+  return { width: totalWidth, height: totalHeight, nodes, edges, regions };
 }

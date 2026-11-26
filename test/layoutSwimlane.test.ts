@@ -3,6 +3,7 @@ import { MAX_COLUMN_ROWS, NODE_CLEARANCE, buildNodeGrid, curveHitsNode, curvePoi
 import { layoutToSvg } from '../src/lib/layoutToSvg';
 import { resolveClick } from '../src/components/hitTest';
 import type { EventDef, View, ViewEdge, ViewOptions } from '../src/lib/types';
+import type { LayoutEdge, Point } from '../src/lib/layout';
 import { makeView, node } from './fixtures';
 
 const eventDef = (id: string, over: Partial<EventDef> = {}): EventDef =>
@@ -426,6 +427,24 @@ describe('layoutSwimlane tall columns', () => {
     expect(next.x).toBeGreaterThanOrEqual(wide.x + wide.width);
   });
 
+  it('does not overlap nodes when a wide column shares an x with a column of another arm that follows its own arm\'s previous column', () => {
+    const shared = [
+      eventDef('p', { dayOffset: 4, forms: ['f0'] }),
+      eventDef('a', { dayOffset: 5, arm: '2', armName: 'Other', forms: ['f2'] }),
+      eventDef('b', { dayOffset: 5, forms: ['f1'] }),
+    ];
+    const view = makeView({
+      level: 'field',
+      nodes: [node('p1', { form: 'f0', field: 'p1' }), node('a1', { form: 'f2', field: 'a1' }), ...manyNodes(60, () => 'f1')],
+    });
+    const layout = layoutSwimlane(view, shared);
+    layout.nodes.forEach((first, index) => layout.nodes.slice(index + 1).forEach((second) => expect(overlaps(first, second)).toBe(false)));
+    const columns = layout.regions.filter((region) => region.kind === 'column');
+    columns.forEach((first, index) => columns.slice(index + 1).forEach((second) => {
+      if (first.y === second.y) expect(first.x < second.x + second.width && second.x < first.x + first.width).toBe(false);
+    }));
+  });
+
   it('centres the column header over the full width', () => {
     const layout = layoutSwimlane(tallView(), events);
     const column = columnRegion(layout, 'e1');
@@ -465,13 +484,110 @@ describe('layoutSwimlane tall columns', () => {
     const edges = [link('n0', 'n30'), link('n30', 'n3'), link('n10', 'n11'), link('n5', 'n12'), link('n40', 'n25')];
     const layout = layoutSwimlane(tallView([], edges), events);
     expect(layout.edges).toHaveLength(edges.length);
-    const crossing = layout.edges.filter((edge) => {
-      const curve = edge.curve!;
-      return Array.from({ length: 31 }, (_, index) => curvePoint(curve, (index + 1) / 32)).some((point) =>
-        layout.nodes.some((placed) => placed.id !== edge.from && placed.id !== edge.to
-          && point.x > placed.x && point.x < placed.x + placed.width && point.y > placed.y && point.y < placed.y + placed.height));
-    });
+    const crossing = layout.edges.filter((edge) => routeHitCount(layout, edge) > 0);
     expect(crossing.map((edge) => `${edge.from}>${edge.to}`)).toEqual([]);
+  });
+});
+
+/** Points along an edge's route: samples of its curve, or every 4 px of its polyline. */
+const routeSamples = (edge: LayoutEdge): Point[] => {
+  if (edge.curve) return Array.from({ length: 31 }, (_, index) => curvePoint(edge.curve!, (index + 1) / 32));
+  const samples: Point[] = [];
+  const points = edge.points!;
+  for (let index = 1; index < points.length; index++) {
+    const length = Math.hypot(points[index].x - points[index - 1].x, points[index].y - points[index - 1].y);
+    const steps = Math.max(1, Math.ceil(length / 4));
+    for (let step = 0; step <= steps; step++) {
+      samples.push({ x: points[index - 1].x + (points[index].x - points[index - 1].x) * step / steps, y: points[index - 1].y + (points[index].y - points[index - 1].y) * step / steps });
+    }
+  }
+  return samples;
+};
+
+/** How many nodes other than the edge's endpoints the route passes through. */
+const routeHitCount = (layout: SwimlaneLayout, edge: LayoutEdge): number => {
+  const samples = routeSamples(edge);
+  return layout.nodes.filter((placed) => placed.id !== edge.from && placed.id !== edge.to
+    && samples.some((point) => point.x > placed.x && point.x < placed.x + placed.width && point.y > placed.y && point.y < placed.y + placed.height)).length;
+};
+
+describe('layoutSwimlane gutter routing', () => {
+  // One column of 25 stacked nodes with a wall of blockers: n0 (top) to n24 (bottom) in the same sub-column, plus a second
+  // sub-column so Beziers bowing sideways hit it. Every Bezier candidate of the far edge hits something; the gutter is free.
+  const events = [eventDef('e1', { dayOffset: 0, forms: ['f1'] }), eventDef('e2', { dayOffset: 1, forms: ['f2'] }), eventDef('e3', { dayOffset: 2, forms: ['f3'] })];
+  const fieldNodes = (prefix: string, form: string, total: number) => Array.from({ length: total }, (_, index) => node(`${prefix}${index}`, { form, field: `${prefix}${index}` }));
+  const wallView = (edges: ViewEdge[]) => makeView({ level: 'field', nodes: [...fieldNodes('a', 'f1', 25), ...fieldNodes('b', 'f2', 25), ...fieldNodes('c', 'f3', 25)], edges });
+  const wallEdges = [link('a0', 'c24'), link('a24', 'c0'), link('a10', 'c12'), link('c3', 'a20'), link('b0', 'b24'), link('a5', 'a20')];
+
+  it('draws a polyline that clears every node where all the curves hit one', () => {
+    const layout = layoutSwimlane(wallView(wallEdges), events);
+    const polylines = layout.edges.filter((edge) => edge.points);
+    expect(polylines.length).toBeGreaterThan(0);
+    polylines.forEach((edge) => expect(routeHitCount(layout, edge)).toBe(0));
+  });
+
+  it('starts and ends a polyline on the sides of its own boxes', () => {
+    const layout = layoutSwimlane(wallView(wallEdges), events);
+    layout.edges.filter((edge) => edge.points).forEach((edge) => {
+      const points = edge.points!;
+      const onSide = (point: Point, id: string): boolean => {
+        const placed = findNode(layout, id);
+        return (point.x === placed.x || point.x === placed.x + placed.width) && point.y === placed.y + placed.height / 2;
+      };
+      expect(onSide(points[0], edge.from)).toBe(true);
+      expect(onSide(points[points.length - 1], edge.to)).toBe(true);
+    });
+  });
+
+  it('never hits more nodes than the first candidate, and strictly fewer on seeded random layouts', () => {
+    let state = 99;
+    const random = (): number => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
+    let routedHits = 0;
+    let routed = 0;
+    for (let trial = 0; trial < 6; trial++) {
+      const edges: ViewEdge[] = [];
+      for (let count = 0; count < 120; count++) {
+        const from = `${'abc'[Math.floor(random() * 3)]}${Math.floor(random() * 25)}`;
+        const to = `${'abc'[Math.floor(random() * 3)]}${Math.floor(random() * 25)}`;
+        if (from !== to) edges.push(link(from, to));
+      }
+      const layout = layoutSwimlane(wallView(edges), events);
+      layout.edges.forEach((edge) => { routed++; routedHits += routeHitCount(layout, edge) > 0 ? 1 : 0; });
+    }
+    expect(routed).toBeGreaterThan(500);
+    expect(routedHits / routed).toBeLessThan(0.02);
+  });
+
+  it('keeps every route inside the layout bounds, and leaves the width alone when nothing sticks out', () => {
+    const sticksOut = layoutSwimlane(makeView({
+      level: 'field', nodes: [node('a', { form: 'f1', field: 'a' }), node('b', { form: 'f1', field: 'b' }), node('c', { form: 'f1', field: 'c' })],
+      edges: [link('c', 'a'), link('a', 'c')],
+    }), [eventDef('e1', { forms: ['f1'] })]);
+    sticksOut.edges.forEach((edge) => routeSamples(edge).forEach((point) => {
+      expect(point.x).toBeGreaterThanOrEqual(0); expect(point.x).toBeLessThanOrEqual(sticksOut.width);
+      expect(point.y).toBeGreaterThanOrEqual(0); expect(point.y).toBeLessThanOrEqual(sticksOut.height);
+    }));
+    sticksOut.regions.filter((region) => region.kind === 'lane').forEach((lane) => expect(lane.width).toBe(sticksOut.width));
+    const withoutEdges = layoutSwimlane(makeView({ level: 'field', nodes: [node('a', { form: 'f1', field: 'a' })] }), [eventDef('e1', { forms: ['f1'] })]);
+    expect(layoutSwimlane(makeView({ level: 'field', nodes: [node('a', { form: 'f1', field: 'a' })], edges: [] }), [eventDef('e1', { forms: ['f1'] })]).width).toBe(withoutEdges.width);
+  });
+
+  it('grows the height for a backward edge that bows below the last lane', () => {
+    const layout = layoutSwimlane(makeView({
+      nodes: [node('a', { event: 'e1' }), node('b', { event: 'e2' })], edges: [link('b', 'a')],
+    }), [eventDef('e1'), eventDef('e2')]);
+    layout.edges.forEach((edge) => routeSamples(edge).forEach((point) => expect(point.y).toBeLessThanOrEqual(layout.height)));
+    const base = layoutSwimlane(makeView({ nodes: [node('a', { event: 'e1' }), node('b', { event: 'e2' })] }), [eventDef('e1'), eventDef('e2')]);
+    expect(layout.width).toBe(base.width);
+  });
+
+  it('shifts the drawing right when a route would leave the left edge', () => {
+    // a same-column edge bowed to the left of the first column
+    const layout = layoutSwimlane(makeView({
+      level: 'field', nodes: ['a', 'b', 'c', 'd'].map((id) => node(id, { form: 'f1', field: id })),
+      edges: [link('d', 'a'), link('a', 'd'), link('c', 'a'), link('b', 'd')],
+    }), [eventDef('e1', { forms: ['f1'] })]);
+    layout.edges.forEach((edge) => routeSamples(edge).forEach((point) => expect(point.x).toBeGreaterThanOrEqual(0)));
   });
 });
 
