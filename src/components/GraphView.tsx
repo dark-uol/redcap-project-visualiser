@@ -1,6 +1,6 @@
 /* Graph tab: connector that reads the store and renders GraphViewView with the detail panel beside it. */
 import { Show } from 'solid-js';
-import { model, view, presentation, selection, svgEl, svgView, busy, renderMsg, tooBig, setForcedFor, dotSrc, setAnchorCapture } from '../store';
+import { model, view, effectiveRenderer, selection, svgEl, svgView, busy, renderMsg, tooBig, setForcedFor, dotSrc, setAnchorCapture } from '../store';
 import type { ClickAction } from './hitTest';
 import Detail from './Detail';
 import { GraphViewView } from './GraphViewView';
@@ -17,7 +17,7 @@ export default function GraphView() {
   };
   const renderAnyway = function renderAnyway(): void { setForcedFor(dotSrc()); };
   return (
-    <Show when={presentation.renderer() !== 'swimlane'} fallback={<SwimlaneGraph />}>
+    <Show when={effectiveRenderer() !== 'swimlane'} fallback={<SwimlaneGraph />}>
     <GraphViewView
       svg={svgEl()}
       drawnView={svgView()}

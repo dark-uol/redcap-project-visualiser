@@ -222,6 +222,27 @@ describe('layoutSwimlane', () => {
   });
 });
 
+describe('layoutSwimlane clusters', () => {
+  it('boxes the fields of a zoomed-in form and keeps them together', () => {
+    const events = [eventDef('e1', { forms: ['f1', 'f2'] })];
+    const fieldNode = (id: string) => node(id, { event: 'e1', form: 'f1', field: id });
+    const view = makeView({
+      nodes: [fieldNode('a'), node('other', { event: 'e1', form: 'f2' }), fieldNode('b')],
+      groups: [{ id: 'f1@e1', label: 'Form 1 @ E1', nodes: ['a', 'b'] }],
+      expandedNodes: [node('f1@e1', { event: 'e1', form: 'f1' })],
+    });
+    const layout = layoutSwimlane(view, events);
+    const cluster = layout.regions.find((region) => region.kind === 'cluster')!;
+    const [a, b, other] = ['a', 'b', 'other'].map((id) => findNode(layout, id));
+    expect(Math.abs(a.y - b.y)).toBe(28 + 18);
+    for (const member of [a, b]) {
+      expect(member.y).toBeGreaterThan(cluster.y);
+      expect(member.y + member.height).toBeLessThan(cluster.y + cluster.height);
+    }
+    expect(other.y >= cluster.y + cluster.height || other.y + other.height <= cluster.y).toBe(true);
+  });
+});
+
 describe('wrapLabel', () => {
   it('wraps on words, splits long words and ends in an ellipsis when cut', () => {
     expect(wrapLabel('one two three', 7)).toEqual(['one two', 'three']);

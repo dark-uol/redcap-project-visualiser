@@ -18,6 +18,10 @@ const HEADER_LINE_HEIGHT = 14;
 const COLUMN_LABEL_CHARACTERS = 22;
 const LANE_LABEL_CHARACTERS = 16;
 const MAX_LABEL_LINES = 3;
+const CLUSTER_SIDE = 6;
+const CLUSTER_TOP = 18;
+const CLUSTER_BOTTOM = 6;
+const CLUSTER_LABEL_CHARACTERS = 20;
 const LANE_FOOTER = 30;
 const LANE_GAP = 20;
 const BACKWARD_BOW = 40;
@@ -31,6 +35,8 @@ interface ColumnPlan {
   centerX: number;
   /** Top-left y of each node, relative to the lane's top, by node id. */
   topById: Map<string, number>;
+  /** Height of the stacked nodes, including cluster padding. */
+  contentHeight: number;
 }
 
 interface LanePlan {
@@ -123,8 +129,11 @@ const initialOrder = (column: ColumnPlan, viewOrder: Map<string, number>): ViewN
     formRank(first) - formRank(second) || (viewOrder.get(first.id) as number) - (viewOrder.get(second.id) as number));
 };
 
-/** One barycentre sweep left to right: order by the mean y of already-placed neighbours in earlier columns of the lane. */
-const orderLane = (lane: LanePlan, neighbours: Map<string, string[]>, viewOrder: Map<string, number>, headerHeight: number): void => {
+/** One barycentre sweep left to right: order by the mean y of already-placed neighbours in earlier columns of the lane.
+ * The fields of a zoomed-in form stay together, ordered as one unit, with padding around them for the cluster box. */
+const orderLane = (
+  lane: LanePlan, neighbours: Map<string, string[]>, viewOrder: Map<string, number>, headerHeight: number, clusterOf: Map<string, string>,
+): void => {
   const placedTop = new Map<string, number>();
   lane.columns.forEach((column) => {
     const initial = initialOrder(column, viewOrder);
@@ -133,12 +142,29 @@ const orderLane = (lane: LanePlan, neighbours: Map<string, string[]>, viewOrder:
       const barycentre = tops.length ? tops.reduce((sum, top) => sum + top, 0) / tops.length : slot * (NODE_HEIGHT + NODE_GAP);
       return { node, slot, barycentre };
     });
-    keyed.sort((first, second) => first.barycentre - second.barycentre || first.slot - second.slot);
+    const clusterMeans = new Map<string, number>();
+    keyed.forEach(({ node, barycentre }) => {
+      const cluster = clusterOf.get(node.id);
+      if (cluster) clusterMeans.set(cluster, (clusterMeans.get(cluster) ?? 0) + barycentre / initial.filter((other) => clusterOf.get(other.id) === cluster).length);
+    });
+    const sortKey = (entry: { node: ViewNode; barycentre: number }): number => {
+      const cluster = clusterOf.get(entry.node.id);
+      return cluster ? (clusterMeans.get(cluster) as number) : entry.barycentre;
+    };
+    keyed.sort((first, second) => sortKey(first) - sortKey(second) || first.slot - second.slot);
+    let top = headerHeight;
+    let previousCluster: string | undefined;
     keyed.forEach(({ node }, position) => {
-      const top = headerHeight + position * (NODE_HEIGHT + NODE_GAP);
+      const cluster = clusterOf.get(node.id);
+      if (position > 0) top += NODE_GAP;
+      if (previousCluster && previousCluster !== cluster) top += CLUSTER_BOTTOM;
+      if (cluster && cluster !== previousCluster) top += CLUSTER_TOP;
       column.topById.set(node.id, top);
       placedTop.set(node.id, top);
+      top += NODE_HEIGHT;
+      previousCluster = cluster;
     });
+    column.contentHeight = keyed.length ? top - headerHeight + (previousCluster ? CLUSTER_BOTTOM : 0) : 0;
   });
 };
 
@@ -192,7 +218,7 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   events.forEach((event) => {
     const nodes = nodesByEvent.get(event.id);
     if (nodes && !columns.some((column) => column.event === event)) {
-      columns.push({ id: `column:${event.id}`, event, nodes, centerX: 0, topById: new Map() });
+      columns.push({ id: `column:${event.id}`, event, nodes, centerX: 0, topById: new Map(), contentHeight: 0 });
     }
   });
   placeColumns(columns);
@@ -210,7 +236,7 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
     lane.columns.push(column);
   });
   if (unplaced.length) {
-    const column: ColumnPlan = { id: `column:${NO_EVENT_ARM}`, nodes: unplaced, centerX: FIRST_CENTER, topById: new Map() };
+    const column: ColumnPlan = { id: `column:${NO_EVENT_ARM}`, nodes: unplaced, centerX: FIRST_CENTER, topById: new Map(), contentHeight: 0 };
     lanes.push({ id: `lane:${NO_EVENT_ARM}`, label: NO_EVENT_ARM, columns: [column], y: 0, height: 0 });
   }
 
@@ -221,6 +247,11 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
     if (list) list.push(to); else neighbours.set(from, [to]);
   };
   view.edges.forEach((edge) => { link(edge.from, edge.to); link(edge.to, edge.from); });
+
+  // Zoomed-in forms: the group named after the expanded form instance holds its field nodes.
+  const clusterOf = new Map<string, string>();
+  const clusterGroups = view.groups.filter((group) => (view.expandedNodes ?? []).some((expanded) => expanded.id === group.id));
+  clusterGroups.forEach((group) => group.nodes.forEach((id) => clusterOf.set(id, group.id)));
 
   // Header: tall enough for the longest wrapped event name, plus the day line when any column has one.
   const columnLines = new Map<string, string[]>();
@@ -234,8 +265,8 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
   // Vertical placement.
   let cursorY = MARGIN;
   lanes.forEach((lane) => {
-    orderLane(lane, neighbours, viewOrder, headerHeight);
-    const tallest = Math.max(...lane.columns.map((column) => stackHeight(column.nodes.length)));
+    orderLane(lane, neighbours, viewOrder, headerHeight, clusterOf);
+    const tallest = Math.max(...lane.columns.map((column) => column.contentHeight));
     lane.y = cursorY;
     lane.height = headerHeight + tallest + LANE_FOOTER;
     cursorY += lane.height + LANE_GAP;
@@ -274,6 +305,16 @@ export function layoutSwimlane(view: View, events: EventDef[]): Layout {
           nodeColumn.set(node.id, column);
         });
     });
+  });
+
+  clusterGroups.forEach((group) => {
+    const members = group.nodes.map((id) => nodeById.get(id)).filter((member): member is LayoutNode => member !== undefined);
+    if (!members.length) return;
+    const left = Math.min(...members.map((member) => member.x)) - CLUSTER_SIDE;
+    const top = Math.min(...members.map((member) => member.y)) - CLUSTER_TOP;
+    const right = Math.max(...members.map((member) => member.x + member.width)) + CLUSTER_SIDE;
+    const bottom = Math.max(...members.map((member) => member.y + member.height)) + CLUSTER_BOTTOM;
+    regions.push({ id: `cluster:${group.id}`, kind: 'cluster', label: group.label, labelLines: wrapLabel(group.label, CLUSTER_LABEL_CHARACTERS, 1), x: left, y: top, width: right - left, height: bottom - top });
   });
 
   const edges: LayoutEdge[] = [];

@@ -1,4 +1,4 @@
-import { need, model, selection, instances, setInstances, filters, presentation } from '../../store';
+import { need, model, selection, effectiveRenderer, instances, setInstances, filters, presentation } from '../../store';
 import { ViewSectionView } from './ViewSectionView';
 
 const { level, setLevel } = selection;
@@ -13,12 +13,12 @@ export default function ViewSection() {
   return (
     <ViewSectionView
       level={level()}
-      renderer={renderer()}
+      renderer={effectiveRenderer()}
       direction={dir()}
       labelMode={labelMode()}
       groupBy={groupBy()}
       hasEvents={hasEvents()}
-      instances={instances() || renderer() === 'swimlane'}
+      instances={instances()}
       edgeLabels={edgeLabels()}
       hideIsolatedNodes={hideIsoNodes()}
       hideIsolatedFields={hideIso()}

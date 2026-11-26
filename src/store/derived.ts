@@ -7,7 +7,7 @@ import { toMermaid, toDot } from '../lib/exporters';
 import { activeEventIds, enabledFormIds } from '../lib/filterSelection';
 import { evaluateVisibility } from '../lib/whatIf';
 import type { VisibilityInfo } from '../lib/whatIf';
-import type { Explore, ExploreFilter, View, ViewFilter, ViewOptions, ViewPresentation } from '../lib/types';
+import type { Renderer, Explore, ExploreFilter, View, ViewFilter, ViewOptions, ViewPresentation } from '../lib/types';
 
 export function createDerived(state: State) {
   const {
@@ -22,10 +22,16 @@ export function createDerived(state: State) {
     const loadedModel = model();
     return loadedModel ? loadedModel.parsed.forms.map((f) => f.id) : [];
   });
+  /** The renderer actually used: swimlane needs a longitudinal project and a form or event level, otherwise Graphviz stands in. */
+  const effectiveRenderer = (): Renderer => {
+    const loadedModel = model();
+    const swimlaneApplies = !!loadedModel && (loadedModel.parsed.events || []).length > 0 && level() !== 'field';
+    return renderer() === 'swimlane' && !swimlaneApplies ? 'graphviz' : renderer();
+  };
   const instanceMode = (): boolean => {
     const loadedModel = model();
     // the swimlane layout is always of form instances, so it needs no separate toggle
-    return (instances() || renderer() === 'swimlane') && level() === 'form' && !!loadedModel && (loadedModel.parsed.events || []).length > 0;
+    return (instances() || effectiveRenderer() === 'swimlane') && level() === 'form' && !!loadedModel && (loadedModel.parsed.events || []).length > 0;
   };
   const exploreVisible = (exploration: Pick<Explore, 'seeds' | 'exp'>): Set<string> =>
     new Set([...exploration.seeds, ...exploration.exp.flatMap((x) => x.added)]);
@@ -100,7 +106,7 @@ export function createDerived(state: State) {
   const mermaidSrc = lazySrc(toMermaid);
   const dotSrc = lazySrc(toDot);
   // string memo: downstream only re-runs when the text sent to the renderer actually changes
-  const graphSrc = createMemo<string | null>(() => (view() ? (renderer() === 'graphviz' ? dotSrc() : renderer() === 'swimlane' ? '' : mermaidSrc()) : null));
+  const graphSrc = createMemo<string | null>(() => (view() ? (effectiveRenderer() === 'graphviz' ? dotSrc() : effectiveRenderer() === 'swimlane' ? '' : mermaidSrc()) : null));
   const graphStatus = createMemo<string>(() => {
     const v = view();
     if (!v) return '';
@@ -139,7 +145,7 @@ export function createDerived(state: State) {
   };
 
   return {
-    formIds, instanceMode, exploreVisible, currentExploration, filter, presentationOptions, opts, view,
+    formIds, effectiveRenderer, instanceMode, exploreVisible, currentExploration, filter, presentationOptions, opts, view,
     mermaidSrc, dotSrc, graphSrc, graphStatus, tooBig, formLabel, visibility, visibilityIn,
   };
 }

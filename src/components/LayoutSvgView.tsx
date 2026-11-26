@@ -101,7 +101,12 @@ export function LayoutSvgView(props: LayoutSvgViewProps) {
 
       <For each={props.layout.regions}>
         {(region) =>
-          region.kind === 'lane' ? (
+          region.kind === 'cluster' ? (
+            <g class="region cluster" data-region-id={region.id} pointer-events="none">
+              <rect x={region.x} y={region.y} width={region.width} height={region.height} rx="6" fill="#ffffff" fill-opacity="0.7" stroke={ACCENT_COLOUR} stroke-dasharray="4 3" />
+              <text x={region.x + 6} y={region.y + 12} font-size="10" font-weight="600" fill={ACCENT_COLOUR}>{regionLines(region)[0]}</text>
+            </g>
+          ) : region.kind === 'lane' ? (
             <g class="region lane" data-region-id={region.id}>
               <rect x={region.x} y={region.y} width={region.width} height={region.height} fill={REGION_FILL} />
               <text x={region.x + 8} y={region.y + 16} font-size="12" font-weight="600" fill={MUTED_COLOUR}>

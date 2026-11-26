@@ -15,10 +15,10 @@ export interface LayoutEdge {
   backward: boolean;
 }
 
-/** A labelled region: a lane (arm) or a column (event). */
+/** A labelled region: a lane (arm), a column (event) or a cluster (the fields of a form instance zoomed into). */
 export interface LayoutRegion {
   id: string;
-  kind: 'lane' | 'column';
+  kind: 'lane' | 'column' | 'cluster';
   label: string;
   /** `label` wrapped to fit the region, at most a few lines; the last ends in an ellipsis if the label was cut. */
   labelLines?: string[];

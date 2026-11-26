@@ -26,7 +26,8 @@ const settle = (write: () => void): void => {
 beforeEach(() => {
   vi.clearAllMocks();
   load(sampleXml, 'sample');
-  settle(() => store.setInstances(false));
+  // swimlane is the default renderer and implies instances; these tests exercise the plain Graphviz view
+  settle(() => { store.setInstances(false); store.presentation.setRenderer('graphviz'); });
 });
 
 afterEach(() => {
@@ -96,7 +97,7 @@ describe('loadText', () => {
     });
     load(sampleXml, 'sample');
     expect(store.presentation.dir()).toBe('LR');
-    expect(store.presentation.renderer()).toBe('graphviz');
+    expect(store.presentation.renderer()).toBe('swimlane');
     expect(store.instances()).toBe(false);
   });
 
@@ -320,5 +321,19 @@ describe('browser history', () => {
     expect(push).toHaveBeenCalled();
     const [state] = push.mock.calls.at(-1)!;
     expect(state).toEqual(expect.objectContaining({ tab: 'matrix' }));
+  });
+});
+
+describe('effectiveRenderer', () => {
+  it('uses swimlane only for a longitudinal project at form or event level, else Graphviz', () => {
+    settle(() => store.presentation.setRenderer('swimlane'));
+    settle(() => store.selection.setLevel('field'));
+    expect(store.effectiveRenderer()).toBe('graphviz');
+    settle(() => store.selection.setLevel('form'));
+    expect(store.effectiveRenderer()).toBe('swimlane');
+    settle(() => store.selection.setLevel('event'));
+    expect(store.effectiveRenderer()).toBe('swimlane');
+    settle(() => store.presentation.setRenderer('mermaid'));
+    expect(store.effectiveRenderer()).toBe('mermaid');
   });
 });

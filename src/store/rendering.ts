@@ -8,15 +8,14 @@ import { renderDot, renderMermaid } from '../lib/renderers';
 
 export function setupRendering(state: State, derived: Derived): void {
   const { setSvgEl, setSvgView, setBusy, setRenderMsg } = state;
-  const { renderer } = state.presentation;
-  const { graphSrc, tooBig, graphStatus, view } = derived;
+  const { effectiveRenderer, graphSrc, tooBig, graphStatus, view } = derived;
 
   // untracked: monotonic id so a stale async render is discarded when a newer one has started
   let token = 0;
   let svgNow: SVGSVGElement | null = null; // mirrors svgEl for the (untracked) render step below
   const setSvg = (v: SVGSVGElement | null): void => { svgNow = v; setSvgEl(v); };
   createEffect(
-    (): RenderInput => ({ source: graphSrc(), rendererName: renderer(), tooBig: tooBig(), status: graphStatus(), view: view() }),
+    (): RenderInput => ({ source: graphSrc(), rendererName: effectiveRenderer(), tooBig: tooBig(), status: graphStatus(), view: view() }),
     (input) => { renderGraph(input); },
   );
   async function renderGraph(input: RenderInput): Promise<void> {
