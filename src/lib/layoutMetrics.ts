@@ -146,6 +146,62 @@ export const countNodeOverlaps = (layout: Pick<Layout, 'nodes'>): number => {
   return count;
 };
 
+/** Bends of one polyline: interior points where the direction changes (collinear points do not count). */
+const polylineBends = (points: Point[]): number => {
+  let bends = 0;
+  for (let index = 1; index + 1 < points.length; index++) {
+    const before = points[index - 1];
+    const here = points[index];
+    const after = points[index + 1];
+    const cross = (here.x - before.x) * (after.y - here.y) - (here.y - before.y) * (after.x - here.x);
+    if (Math.abs(cross) > 1e-6) bends++;
+  }
+  return bends;
+};
+
+/** Bends in the edge routes: the total, and the mean and the largest per edge (curves count as none). */
+export const countBends = (layout: Pick<Layout, 'edges'>): { total: number; mean: number; max: number } => {
+  let total = 0;
+  let max = 0;
+  layout.edges.forEach((edge) => {
+    const bends = polylineBends(edge.points ?? []);
+    total += bends;
+    max = Math.max(max, bends);
+  });
+  return { total, mean: layout.edges.length ? total / layout.edges.length : 0, max };
+};
+
+/** Side of a cell of the grid the crossing count puts segments in. */
+const CROSSING_CELL = 160;
+
+/** Pairs of different edges whose polylines properly cross: a horizontal and a vertical segment meeting strictly inside both.
+ * Touching at an end (shared endpoints, a bend meeting a line) does not count, and a pair counts once however often it
+ * crosses. Segments are put in a coarse grid so each only looks at the ones near it; exact (no sampling) at any size. */
+export const countEdgeCrossings = (layout: Pick<Layout, 'edges'>): number => {
+  const { horizontal, vertical } = axisSegments(layout.edges);
+  const cells = new Map<string, AxisSegment[]>();
+  horizontal.forEach((segment) => {
+    for (let column = Math.floor(segment.start / CROSSING_CELL); column <= Math.floor(segment.end / CROSSING_CELL); column++) {
+      const key = `${column},${Math.floor(segment.line / CROSSING_CELL)}`;
+      const cell = cells.get(key);
+      if (cell) cell.push(segment); else cells.set(key, [segment]);
+    }
+  });
+  const pairs = new Set<string>();
+  vertical.forEach((segment) => {
+    const column = Math.floor(segment.line / CROSSING_CELL);
+    for (let row = Math.floor(segment.start / CROSSING_CELL); row <= Math.floor(segment.end / CROSSING_CELL); row++) {
+      cells.get(`${column},${row}`)?.forEach((candidate) => {
+        if (candidate.edgeIndex === segment.edgeIndex) return;
+        if (candidate.line <= segment.start || candidate.line >= segment.end) return;
+        if (segment.line <= candidate.start || segment.line >= candidate.end) return;
+        pairs.add(candidate.edgeIndex < segment.edgeIndex ? `${candidate.edgeIndex},${segment.edgeIndex}` : `${segment.edgeIndex},${candidate.edgeIndex}`);
+      });
+    }
+  });
+  return pairs.size;
+};
+
 /** Every consecutive pair of route points shares an x or a y. */
 export const isAxisAligned = (points: Point[]): boolean =>
   points.every((point, index) => index === 0

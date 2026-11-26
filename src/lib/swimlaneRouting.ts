@@ -30,8 +30,10 @@ export const SIDE_CLEARANCE = 10;
 export const GAP_MARGIN = 4;
 /** Free space between a band track and the nodes above it or the lane border below it. */
 export const BAND_MARGIN = 6;
-/** Cost of one bend, in pixels of route length. */
-const BEND_COST = 30;
+/** Cost of one bend, in pixels of route length. Higher means fewer bends but more long runs through the footer bands (more
+ * crossings); 55 with the longest routes first gave fewer bends and, on the sample and a real project, fewer crossings than 30
+ * with the shortest first. */
+const BEND_COST = 55;
 /** Cost of crossing a sub-column through a gap between its nodes: long routes rather take the footer band. */
 const GAP_CROSSING_COST = 40;
 /** Cost of every edge already crossing a gap, so routes spread over the gaps instead of piling into one. */
@@ -258,21 +260,20 @@ export function routeChannels(structure: ChannelStructure, geometry: ChannelGeom
   const seen = new Int32Array(stateCount);
   const closed = new Int32Array(stateCount);
   const firstSide = new Int8Array(stateCount);
-  const gapUses = new Int32Array(structure.gaps.length);
-  // ports already on each side of each node (right: 2 * node, left: 2 * node + 1, the order of SIDES)
+  const gapUses = new Int32Array(structure.gaps.length);  // ports already on each side of each node (right: 2 * node, left: 2 * node + 1, the order of SIDES)
   const sidePorts = new Int32Array(2 * geometry.nodes.length);
   const heap = new StateHeap();
   let stamp = 0;
 
   const routes: ChannelRoute[] = new Array(edges.length);
-  // short edges first: they claim the gaps next to them before long ones spread out
+  // long edges first: they get the straightest routes, and the short ones fit around them (fewer crossings than short first)
   const order = edges.map((_, index) => index);
   const reach = edges.map((edge) => {
     const source = geometry.nodes[edge.source];
     const target = geometry.nodes[edge.target];
     return Math.abs(source.x - target.x) + Math.abs(source.y - target.y);
   });
-  order.sort((first, second) => reach[first] - reach[second] || first - second);
+  order.sort((first, second) => reach[second] - reach[first] || first - second);
 
   order.forEach((edgeIndex) => {
     const { source, target } = edges[edgeIndex];
@@ -426,6 +427,19 @@ const pushInterval = (map: Map<number, number[]>, key: number, low: number, high
   if (intervals) intervals.push(low, high); else map.set(key, [low, high]);
 };
 
+/** A vertical piece in a gutter: its y-span, and from which side (-1 left, 1 right) a horizontal arm reaches each end. */
+interface VerticalPiece { edge: number; index: number; channel: number; low: number; high: number; lowArm: number; highArm: number }
+
+/** How many arms of `piece` cross `other`, when `other` stands between the arms' origin and the piece: on the piece's left
+ * (`otherIsLeft`) for arms coming from the left, on its right for arms from the right. */
+const armCrosses = (piece: VerticalPiece, otherIsLeft: boolean, other: VerticalPiece): number => {
+  const side = otherIsLeft ? -1 : 1;
+  let count = 0;
+  if (piece.lowArm === side && piece.low > other.low && piece.low < other.high) count++;
+  if (piece.highArm === side && piece.high > other.low && piece.high < other.high) count++;
+  return count;
+};
+
 /** Points of every route for this geometry, and the growth needed where tracks did not fit (empty when everything fits:
  * then no two edges share a stretch of line). */
 export function assignTracks(
@@ -445,7 +459,8 @@ export function assignTracks(
   }));
   bandPieces.sort((first, second) => first.band - second.band || first.low - second.low || first.high - second.high || first.edge - second.edge);
   // Greedy colouring in order of start needs as many rows as the most pieces over one x, which is the least possible; rows
-  // beyond the band are counted as growth (and used for now, to be placed properly once the band has grown).
+  // beyond the band are counted as growth (and used for now, to be placed properly once the band has grown). (Colouring by
+  // length instead, shortest or longest first, measured worse in crossings on big projects.)
   const bandRows = new Map<number, number[]>();
   let currentBand = -1;
   bandPieces.forEach((piece) => {
@@ -566,26 +581,55 @@ export function assignTracks(
   }
 
   // 3. vertical pieces: interval colouring of their y-spans per gutter, keyed by absolute x across all gutters
-  const verticalPieces: { edge: number; index: number; channel: number; low: number; high: number }[] = [];
+  const verticalPieces: VerticalPiece[] = [];
   const pieceX = routes.map((route) => new Array<number>(route.verticals.length).fill(NaN));
   routes.forEach((route, edge) => route.verticals.forEach((channel, index) => {
     const from = itemY[edge][index];
     const to = itemY[edge][index + 1];
     if (from === to) { pieceX[edge][index] = channelCenter(geometry, channel); return; }
-    verticalPieces.push({ edge, index, channel, low: Math.min(from, to), high: Math.max(from, to) });
+    // the horizontal arm at each end comes from the left (-1) or the right (1) of the gutter: a port stub from its node, or
+    // the gap or band piece towards the neighbouring vertical piece of the route
+    const armAt = (item: number): number => {
+      if (item === 0) return route.sourceSide === 'right' ? -1 : 1;
+      if (item === route.verticals.length) return route.targetSide === 'right' ? -1 : 1;
+      const other = route.verticals[item === index ? index - 1 : index + 1];
+      return Math.sign(channelCenter(geometry, other) - channelCenter(geometry, channel));
+    };
+    const fromArm = armAt(index);
+    const toArm = armAt(index + 1);
+    verticalPieces.push({
+      edge, index, channel, low: Math.min(from, to), high: Math.max(from, to),
+      lowArm: from < to ? fromArm : toArm, highArm: from < to ? toArm : fromArm,
+    });
   }));
   verticalPieces.sort((first, second) => first.channel - second.channel || first.low - second.low || first.high - second.high || first.edge - second.edge);
   const columns = new Map<number, number[]>();
   // tracks a gutter needs beyond its width, kept apart from the shared x index (they are not real positions yet)
   let overflow = new Map<number, number[]>();
   let overflowChannel = -1;
+  // Pieces of the gutter placed so far that are still alive at the current start, with their lattice column.
+  let alive: (VerticalPiece & { lattice: number })[] = [];
+  let aliveChannel = -1;
   verticalPieces.forEach((piece) => {
     const range = geometry.channels[piece.channel];
     const [first, last] = latticeRange(range.left, range.right);
+    if (aliveChannel !== piece.channel) { alive = []; aliveChannel = piece.channel; }
+    alive = alive.filter((other) => other.high + TRACK_SPACING > piece.low);
+    // of the free columns, the one where the fewest arms cross a piece of the gutter (ties: the leftmost)
     let chosen = Number.NaN;
+    let fewest = Infinity;
     for (let lattice = first; lattice <= last; lattice++) {
-      if (!intervalsClash(columns.get(lattice), piece.low, piece.high)) { chosen = lattice; break; }
+      if (intervalsClash(columns.get(lattice), piece.low, piece.high)) continue;
+      let crossings = 0;
+      for (const other of alive) {
+        if (other.lattice === lattice) continue;
+        const otherIsLeft = other.lattice < lattice;
+        crossings += armCrosses(piece, otherIsLeft, other) + armCrosses(other, !otherIsLeft, piece);
+      }
+      if (crossings < fewest) { fewest = crossings; chosen = lattice; }
+      if (crossings === 0) break;
     }
+    if (!Number.isNaN(chosen)) alive.push({ ...piece, lattice: chosen });
     if (Number.isNaN(chosen)) {
       if (overflowChannel !== piece.channel) { overflow = new Map(); overflowChannel = piece.channel; }
       let extra = last + 1;

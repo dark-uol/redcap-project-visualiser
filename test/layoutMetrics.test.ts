@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { countEdgesThroughNodes, countNodeOverlaps, countOverlappingSegments, isAxisAligned } from '../src/lib/layoutMetrics';
+import { countBends, countEdgeCrossings, countEdgesThroughNodes, countNodeOverlaps, countOverlappingSegments, isAxisAligned } from '../src/lib/layoutMetrics';
 import type { LayoutEdge, LayoutNode, Point } from '../src/lib/layout';
 
 const polyline = (from: string, to: string, ...points: [number, number][]): LayoutEdge =>
@@ -63,6 +63,50 @@ describe('countEdgesThroughNodes', () => {
   it('samples curves', () => {
     const edges: LayoutEdge[] = [{ from: 'a', to: 'b', curve: [{ x: 100, y: 15 }, { x: 150, y: 15 }, { x: 250, y: 15 }, { x: 300, y: 15 }], backward: false }];
     expect(countEdgesThroughNodes({ nodes, edges })).toBe(1);
+  });
+});
+
+describe('countBends', () => {
+  it('counts direction changes per edge, ignoring collinear points', () => {
+    const edges = [
+      polyline('a', 'b', [0, 0], [100, 0]),
+      polyline('c', 'd', [0, 10], [50, 10], [50, 40], [100, 40]),
+      polyline('e', 'f', [0, 20], [30, 20], [60, 20], [60, 50]),
+    ];
+    expect(countBends({ edges })).toEqual({ total: 3, mean: 1, max: 2 });
+  });
+
+  it('is zero for no edges', () => {
+    expect(countBends({ edges: [] })).toEqual({ total: 0, mean: 0, max: 0 });
+  });
+});
+
+describe('countEdgeCrossings', () => {
+  it('counts a pair of different edges that cross once, however often', () => {
+    const edges = [
+      polyline('a', 'b', [0, 50], [200, 50]),
+      polyline('c', 'd', [50, 0], [50, 100]),
+      polyline('e', 'f', [150, 0], [150, 100]),
+      polyline('g', 'h', [60, 0], [60, 20], [70, 20], [70, 80], [80, 80], [80, 0]),
+    ];
+    // a crosses c and e; a crosses g twice (one pair)
+    expect(countEdgeCrossings({ edges })).toBe(3);
+  });
+
+  it('ignores touching ends, shared endpoints, parallel lines and an edge crossing itself', () => {
+    const edges = [
+      polyline('a', 'b', [0, 50], [100, 50]),
+      polyline('a', 'c', [0, 50], [0, 100]),
+      polyline('d', 'e', [100, 0], [100, 50]),
+      polyline('f', 'g', [30, 0], [30, 50]),
+      polyline('h', 'i', [0, 70], [50, 70], [50, 90], [20, 90], [20, 60], [60, 60]),
+    ];
+    expect(countEdgeCrossings({ edges })).toBe(0);
+  });
+
+  it('finds crossings across grid cells', () => {
+    const edges = [polyline('a', 'b', [0, 500], [900, 500]), polyline('c', 'd', [450, 0], [450, 1000])];
+    expect(countEdgeCrossings({ edges })).toBe(1);
   });
 });
 

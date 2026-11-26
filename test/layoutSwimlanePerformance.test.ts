@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { layoutSwimlane } from '../src/lib/layoutSwimlane';
+import { countBends, countEdgeCrossings, countEdgesThroughNodes, countOverlappingSegments } from '../src/lib/layoutMetrics';
+import { TRACK_SPACING } from '../src/lib/swimlaneRouting';
 import type { EventDef, View, ViewEdge } from '../src/lib/types';
 import { node } from './fixtures';
 
@@ -54,5 +56,11 @@ describe('layoutSwimlane on a big project', () => {
     expect(milliseconds).toBeLessThan(4000);
     // tall columns wrap, so the height stays bounded however many nodes an event holds
     expect(layout.height).toBeLessThan(6000);
+    // routes stay clean and no more tangled than measured (before tuning: 4.70 bends per edge, 392,000 crossings; since:
+    // 4.46 and 411,000)
+    expect(countOverlappingSegments(layout, TRACK_SPACING - 1)).toBe(0);
+    expect(countEdgesThroughNodes(layout)).toBe(0);
+    expect(countBends(layout).mean).toBeLessThanOrEqual(4.7);
+    expect(countEdgeCrossings(layout)).toBeLessThanOrEqual(430000);
   }, 60000);
 });
