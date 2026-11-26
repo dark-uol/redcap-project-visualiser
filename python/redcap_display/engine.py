@@ -17,7 +17,11 @@ def _info_to_json(info: VisibilityInfo) -> Dict[str, Any]:
     return {
         "state": info.state,
         "reasons": list(info.reasons),
-        "missing": [{"variable": item.variable, "event": item.event} for item in info.missing],
+        # an instance is only named when there is one, so a project without repeating forms gets the output it always did
+        "missing": [
+            {"variable": item.variable, "event": item.event, **({} if item.instance is None else {"instance": item.instance})}
+            for item in info.missing
+        ],
     }
 
 
@@ -31,7 +35,13 @@ class Engine:
         data = json.loads(context) if isinstance(context, str) else context
         results, blank = evaluate_visibility_with_blank(
             self._model,
-            Context(values=data.get("values", {}), mode=data.get("mode", "form"), event=data.get("event"), today=data.get("today")),
+            Context(
+                values=data.get("values", {}),
+                mode=data.get("mode", "form"),
+                event=data.get("event"),
+                today=data.get("today"),
+                instances=data.get("instances", {}),
+            ),
         )
         return {key: _info_to_json(info) for key, info in results.items()}, sorted(blank)
 
@@ -39,6 +49,10 @@ class Engine:
         """``context`` is ``{"values": {event: {variable: value}}, "mode": "form"|"survey", "event": id|null, "today": "YYYY-MM-DD"}``.
 
         ``today`` is optional and is what ``"today"`` means in logic; without it the system clock's local date is used.
+
+        ``instances`` is optional and holds the values of repeating forms:
+        ``{event: {form: {instance: {variable: value}}}}`` (event ``""`` for no events). A field of a repeating form listed there
+        gets one result per instance, keyed ``variable#instance``; without it every field has the one result it always had.
         """
         return self._run(context)[0]
 

@@ -1,7 +1,7 @@
 /* The Python evaluation core (python/redcap_display) running in the browser through Pyodide. Pure: no Solid, no DOM. */
 import type { ParsedODM } from './types';
 import { rememberBlankFields } from './whatIf';
-import type { VisibilityInfo, WhatIfContext } from './whatIf';
+import type { VisibilityInfo, WhatIfContext, WhatIfValue } from './whatIf';
 
 /**
  * The Python sources, read straight from python/ so the browser runs exactly the files the Python tests cover.
@@ -12,19 +12,31 @@ const sources = import.meta.glob('../../python/redcap_display/*.py', { query: '?
 /** The part of a parsed project the Python engine reads: the TypeScript parser stays the only XML parser. */
 export function pythonMetadata(parsed: ParsedODM): unknown {
   return {
-    forms: parsed.forms.map((form) => ({ id: form.id })),
+    forms: parsed.forms.map((form) => ({ id: form.id, repeating: form.repeating })),
     fields: parsed.fields.map((item) => ({
       variable: item.variable, type: item.type, form: item.form, branching: item.branching, annotation: item.annotation,
       ...(item.synthetic ? { synthetic: true } : {}),
     })),
     formLogic: parsed.formLogic,
-    events: parsed.events.map((event) => ({ id: event.id, label: event.label, arm: event.arm, armName: event.armName, forms: event.forms })),
+    events: parsed.events.map((event) => ({ id: event.id, label: event.label, arm: event.arm, armName: event.armName, forms: event.forms, repeating: event.repeating })),
+    repeatingInstruments: parsed.repeatingInstruments,
   };
+}
+
+/**
+ * Values of repeating forms, which only the Python engine understands: event id ('' for no events) -> form id -> instance number -> variable -> value.
+ * A field of a repeating form listed here gets one result per instance, keyed `variable#instance`.
+ */
+export type InstanceValues = Readonly<Record<string, Readonly<Record<string, Readonly<Record<number, Readonly<Record<string, WhatIfValue>>>>>>>>;
+
+/** What the Python engine evaluates: the what-if context, plus the instances of repeating forms. */
+export interface PythonContext extends WhatIfContext {
+  instances?: InstanceValues;
 }
 
 export interface PythonVisibilityEngine {
   /** One call across the bridge per evaluation; the result has the shape `evaluateVisibility` returns. */
-  evaluate(context: WhatIfContext): Map<string, VisibilityInfo>;
+  evaluate(context: PythonContext): Map<string, VisibilityInfo>;
   /** The Python version the core runs on, e.g. "3.14.2". */
   readonly pythonVersion: string;
   destroy(): void;
@@ -81,7 +93,7 @@ export async function createPythonVisibility(parsed: ParsedODM, options: PythonR
   const pythonVersion = String(runtime.runPython('import sys\n".".join(map(str, sys.version_info[:3]))'));
   return {
     pythonVersion,
-    evaluate: function evaluate(context: WhatIfContext): Map<string, VisibilityInfo> {
+    evaluate: function evaluate(context: PythonContext): Map<string, VisibilityInfo> {
       const outcome = JSON.parse(proxy.evaluate_json(JSON.stringify({ ...context, today: context.today ?? localIsoDate() }))) as { results: Record<string, VisibilityInfo>; blank: string[] };
       const results = new Map(Object.entries(outcome.results));
       rememberBlankFields(results, outcome.blank);

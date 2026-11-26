@@ -49,6 +49,8 @@ class EventInfo:
     arm: str = ""
     arm_name: str = ""
     forms: List[str] = dataclass_field(default_factory=list)
+    #: A repeating event: every form in it repeats together, one instance per repetition of the event.
+    repeating: bool = False
 
 
 @dataclass
@@ -56,6 +58,10 @@ class Model:
     fields: Dict[str, FieldInfo]
     form_nodes: Dict[str, FormNode]
     events: List[EventInfo]
+    #: Forms whose definition says they repeat (``FormDef Repeating``).
+    repeating_forms: Set[str] = dataclass_field(default_factory=set)
+    #: ``(form, event)`` pairs named as repeating instruments.
+    repeating_instruments: List[Tuple[str, str]] = dataclass_field(default_factory=list)
 
     def event(self, event_id: Optional[str]) -> Optional[EventInfo]:
         if event_id is None:
@@ -64,6 +70,21 @@ class Model:
             if candidate.id == event_id:
                 return candidate
         return None
+
+    def repeats(self, form_id: str, event_id: Optional[str]) -> bool:
+        """Does ``form_id`` repeat in ``event_id`` (None: in some event)?
+
+        A repeating event repeats all its forms. Otherwise, when the form is named as a repeating instrument anywhere, the
+        (form, event) pair decides; else the form definition's own flag does. This is the same rule as ``isRepeatingInstance``
+        in ``src/lib/graph.ts``, and like it is an assumption not yet checked against a REDCap export.
+        """
+        event = self.event(event_id)
+        if event is not None and event.repeating:
+            return True
+        named_in = [event_name for (form, event_name) in self.repeating_instruments if form == form_id]
+        if named_in:
+            return event_id is None or event_id in named_in
+        return form_id in self.repeating_forms
 
 
 def build_model(parsed: Mapping[str, Any]) -> Model:
@@ -102,10 +123,17 @@ def build_model(parsed: Mapping[str, Any]) -> Model:
             arm=item.get("arm", ""),
             arm_name=item.get("armName", ""),
             forms=list(item.get("forms", [])),
+            repeating=bool(item.get("repeating", False)),
         )
         for item in (parsed.get("events") or [])
     ]
-    return Model(fields=fields, form_nodes=form_nodes, events=events)
+    return Model(
+        fields=fields,
+        form_nodes=form_nodes,
+        events=events,
+        repeating_forms={form["id"] for form in parsed.get("forms", []) if form.get("repeating")},
+        repeating_instruments=[(item["form"], item.get("event", "")) for item in (parsed.get("repeatingInstruments") or [])],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -115,10 +143,12 @@ def build_model(parsed: Mapping[str, Any]) -> Model:
 
 @dataclass(frozen=True)
 class MissingInput:
-    """A value the evaluation needs but does not have: the variable, and the event it lives in (None when no event is chosen)."""
+    """A value the evaluation needs but does not have: the variable, the event it lives in (None when no event is chosen) and,
+    for a repeating form, the instance."""
 
     variable: str
     event: Optional[str]
+    instance: Optional[int] = None
 
 
 @dataclass
@@ -142,6 +172,35 @@ class Context:
     event: Optional[str] = None
     #: The date ``"today"`` means in logic, as ``YYYY-MM-DD``. None: the system clock's local date, so set it when results must be reproducible.
     today: Optional[str] = None
+    #: Values of repeating forms: event id ('' for every event / no events) -> form id -> instance number -> variable -> value.
+    #: An instance listed here exists (even with no values); one not listed does not, and reads as blank. A repeating form
+    #: with no entry at all is read from ``values`` as before, so a context without instances behaves exactly as it always did.
+    #: Instance numbers may be ints or digit strings (JSON keys).
+    instances: Mapping[str, Mapping[str, Mapping[Any, Mapping[str, WhatIfValue]]]] = dataclass_field(default_factory=dict)
+    _numbered: Dict[Tuple[str, str], Dict[int, Mapping[str, WhatIfValue]]] = dataclass_field(init=False, repr=False, compare=False, default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for event, forms in self.instances.items():
+            for form, numbered in forms.items():
+                self._numbered[(event, form)] = {int(number): data for number, data in numbered.items()}
+
+    def instances_of(self, event: Optional[str], form: str) -> Optional[Dict[int, Mapping[str, WhatIfValue]]]:
+        """The numbered instances of ``form`` in ``event``, or None when the context holds none for it (the event's own entry wins over '')."""
+        found = self._numbered.get((ANY_EVENT if event is None else event, form)) or self._numbered.get((ANY_EVENT, form))
+        return found or None
+
+
+def cell_key(variable: str, instance: Optional[int]) -> str:
+    """The key of a result: the variable, plus ``#<instance>`` for a field of a repeating form with instances in the context."""
+    return variable if instance is None else variable + "#" + str(instance)
+
+
+@dataclass(frozen=True)
+class Cell:
+    """Where logic is being evaluated: an instance of a repeating form. Unqualified references to that form's fields mean this instance."""
+
+    form: str
+    instance: int
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +343,8 @@ class _Tracked:
     missing: List[MissingInput]
 
 
-Evaluate = Callable[[str], _Tracked]
+#: Judges a condition. The second argument is where it is evaluated: an instance of a repeating form, or None.
+Evaluate = Callable[[str, Optional[Cell]], _Tracked]
 
 
 def _unique_inputs(inputs: List[MissingInput]) -> List[MissingInput]:
@@ -313,21 +373,21 @@ def _combine(parts: List[_Contribution]) -> _Contribution:
     return _Contribution(state, reasons, missing)
 
 
-def _tag_contribution(annotation: str, mode: str, evaluate: Evaluate) -> _Contribution:
+def _tag_contribution(annotation: str, mode: str, evaluate: Evaluate, cell: Optional[Cell]) -> _Contribution:
     parts: List[_Contribution] = []
     for item in parse_action_tags(annotation):
         if isinstance(item, _Tag):
             hides = item.name == "HIDDEN" or (item.name == "HIDDEN-SURVEY" and mode == "survey") or (item.name == "HIDDEN-FORM" and mode == "form")
             parts.append(_Contribution("hidden" if hides else "shown", ["@" + item.name] if hides else [], []))
             continue
-        condition = evaluate(item.condition)
+        condition = evaluate(item.condition, cell)
         if condition.result is True:
-            parts.append(_tag_contribution(item.then_text, mode, evaluate))
+            parts.append(_tag_contribution(item.then_text, mode, evaluate, cell))
         elif condition.result is False:
-            parts.append(_tag_contribution(item.else_text, mode, evaluate))
+            parts.append(_tag_contribution(item.else_text, mode, evaluate, cell))
         else:
-            when_true = _tag_contribution(item.then_text, mode, evaluate)
-            when_false = _tag_contribution(item.else_text, mode, evaluate)
+            when_true = _tag_contribution(item.then_text, mode, evaluate, cell)
+            when_false = _tag_contribution(item.else_text, mode, evaluate, cell)
             if when_true.state == "shown" and when_false.state == "shown":
                 parts.append(_Contribution("shown", [], []))
             elif when_true.state == "hidden" and when_false.state == "hidden":
@@ -372,7 +432,8 @@ def _form_node_info(model: Model, node_id: str, context: Context, evaluate: Eval
     # no rule applies in this event: the form is not restricted
     if not applicable:
         return _shown()
-    results = [evaluate(logic) for logic in applicable]
+    # display logic belongs to the form, not to one of its instances: evaluated outside any instance
+    results = [evaluate(logic, None) for logic in applicable]
     if any(result.result is True for result in results):
         return _shown()
     if all(result.result is False for result in results):
@@ -385,23 +446,30 @@ def _form_node_info(model: Model, node_id: str, context: Context, evaluate: Eval
 
 
 def _field_outcome(
-    model: Model, field: FieldInfo, context: Context, evaluate: Evaluate, form_states: Dict[str, VisibilityInfo]
+    model: Model,
+    field: FieldInfo,
+    context: Context,
+    evaluate: Evaluate,
+    form_states: Dict[str, VisibilityInfo],
+    instance: Optional[int] = None,
 ) -> Tuple[VisibilityInfo, bool]:
-    """The field's visibility, and whether it is blank (hidden by branching logic or a hidden form, so it cannot hold an answer).
+    """The field's visibility (in ``instance`` of its repeating form, when given), and whether it is blank (hidden by branching
+    logic or a hidden form, so it cannot hold an answer).
 
     Action-tag hiding keeps the value: @HIDDEN fields often carry @DEFAULT or calculated values.
     """
     if not _form_used_in_event(model, field.form, context.event):
         return _not_in_event(), True
+    cell = None if instance is None else Cell(field.form, instance)
     parts: List[_Contribution] = []
     form_state = form_states.get("form:" + field.form) if ("form:" + field.form) in model.form_nodes else None
     if form_state is not None and form_state.state != "shown":
         parts.append(_Contribution(form_state.state, list(form_state.reasons), list(form_state.missing)))
     if field.annotation:
-        parts.append(_tag_contribution(field.annotation, context.mode, evaluate))
+        parts.append(_tag_contribution(field.annotation, context.mode, evaluate, cell))
     branching_false = False
     if field.branching and _js_strip(field.branching):
-        result = evaluate(field.branching)
+        result = evaluate(field.branching, cell)
         branching_false = result.result is False
         if branching_false:
             parts.append(_Contribution("hidden", ["branching logic false"], []))
@@ -436,11 +504,40 @@ def _joined(value: Optional[WhatIfValue]) -> Optional[str]:
     return ",".join(value) if isinstance(value, list) else value
 
 
-def _make_evaluate(model: Model, context: Context, blank_fields: Set[str]) -> Evaluate:
+#: A field's cell: its variable, and the instance of its repeating form (None for a field that is not one of several).
+BlankCells = Set[Tuple[str, Optional[int]]]
+
+
+def _make_evaluate(model: Model, context: Context, blank_cells: BlankCells) -> Evaluate:
     def target_event(ref: LogicFieldRef) -> Optional[str]:
         return ref.event or context.event
 
-    def lookup_field(ref: LogicFieldRef) -> Optional[str]:
+    def resolve_instance(ref: LogicFieldRef, field: FieldInfo, target: Optional[str], numbered: Dict[int, Any], cell: Optional[Cell]) -> int:
+        """The instance number a reference to a field of a repeating form means.
+
+        Unqualified, or ``current-instance``: the instance being evaluated when the reference is in the same form (or in the same
+        repeating event, whose forms share instance numbers); anywhere else the first instance. ``previous-instance`` and
+        ``next-instance`` are that number less or plus one; ``first-instance`` and ``last-instance`` are the lowest and highest
+        that exist; a number means that instance. These are assumptions about REDCap, not yet checked against its behaviour.
+        """
+        event = model.event(target)
+        shares_numbering = cell is not None and target == context.event and (cell.form == field.form or (event is not None and event.repeating))
+        current = cell.instance if cell is not None and shares_numbering else min(numbered)
+        spec = ref.instance
+        if spec == "first-instance":
+            return min(numbered)
+        if spec == "last-instance":
+            return max(numbered)
+        if spec == "previous-instance":
+            return current - 1
+        if spec == "next-instance":
+            return current + 1
+        if spec and spec != "current-instance":
+            return int(spec)
+        return current
+
+    def lookup_field(ref: LogicFieldRef, cell: Optional[Cell]) -> Tuple[Optional[str], Optional[int]]:
+        """The value of a reference (None: unknown), and the instance it was read from (None: not an instance of a repeating form)."""
         target = target_event(ref)
         field = model.fields.get(ref.name)
         is_checkbox = field is not None and field.type == "checkbox"
@@ -449,25 +546,45 @@ def _make_evaluate(model: Model, context: Context, blank_fields: Set[str]) -> Ev
         if target is not None and field is not None:
             definition = model.event(target)
             if definition is not None and field.form not in definition.forms:
-                return blank
-        # a field hidden by branching or form display logic counts as blank, as a participant would experience it
-        if target == context.event and ref.name in blank_fields:
-            return blank
+                return blank, None
+        repeats = field is not None and model.repeats(field.form, target)
+        numbered = context.instances_of(target, field.form) if field is not None and repeats else None
+        instance: Optional[int] = None
         value: Optional[WhatIfValue] = None
-        if target is not None:
-            value = context.values.get(target, {}).get(ref.name)
+        if numbered is not None:
+            assert field is not None
+            instance = resolve_instance(ref, field, target, numbered, cell)
+            if instance not in numbered:
+                return blank, instance  # an instance that does not exist reads as blank
+            # a field hidden in this instance counts as blank, as a participant would experience it
+            if target == context.event and (ref.name, instance) in blank_cells:
+                return blank, instance
+            value = numbered[instance].get(ref.name)
+        else:
+            if ref.instance and repeats:
+                return None, None  # an instance of a repeating form the context holds no instances of cannot be read
+            # a field hidden by branching or form display logic counts as blank, as a participant would experience it
+            if target == context.event and (ref.name, None) in blank_cells:
+                return blank, None
+            if target is not None:
+                value = context.values.get(target, {}).get(ref.name)
+            if value is None:
+                value = context.values.get(ANY_EVENT, {}).get(ref.name)
         if value is None:
-            value = context.values.get(ANY_EVENT, {}).get(ref.name)
-        if value is None:
-            return None
+            return None, instance
         if ref.code and is_checkbox:
             checked = value if isinstance(value, list) else [_js_strip(code) for code in value.split(",")]
-            return "1" if ref.code in checked else "0"
-        return _joined(value)
+            return ("1" if ref.code in checked else "0"), instance
+        return _joined(value), instance
 
     viewed_event = model.event(context.event)
+    instance_offsets = {"current-instance": 0, "previous-instance": -1, "next-instance": 1}
 
-    def lookup_smart(name: str) -> Optional[str]:
+    def lookup_smart(name: str, cell: Optional[Cell]) -> Optional[str]:
+        # the instance being evaluated answers its own smart variables; blank outside a repeating form
+        if name in instance_offsets:
+            number = None if cell is None else cell.instance + instance_offsets[name]
+            return "" if number is None or number < 1 else str(number)
         # the event the record is viewed in answers its own smart variables; anything else is a value the user sets
         if name == "event-name" and context.event is not None:
             return context.event
@@ -484,17 +601,18 @@ def _make_evaluate(model: Model, context: Context, blank_fields: Set[str]) -> Ev
         return _joined(value)
 
     class _Tracking:
-        def __init__(self) -> None:
+        def __init__(self, cell: Optional[Cell]) -> None:
+            self.cell = cell
             self.recorded: List[MissingInput] = []
 
         def field(self, ref: LogicFieldRef) -> Optional[str]:
-            value = lookup_field(ref)
+            value, instance = lookup_field(ref, self.cell)
             if value is None:
-                self.recorded.append(MissingInput(ref.name, target_event(ref)))
+                self.recorded.append(MissingInput(ref.name, target_event(ref), instance))
             return value
 
         def smart(self, name: str) -> Optional[str]:
-            value = lookup_smart(name)
+            value = lookup_smart(name, self.cell)
             if value is None:
                 self.recorded.append(MissingInput(smart_key(name), None))
             return value
@@ -502,8 +620,8 @@ def _make_evaluate(model: Model, context: Context, blank_fields: Set[str]) -> Ev
         def today(self) -> Optional[str]:
             return context.today
 
-    def evaluate(text: str) -> _Tracked:
-        tracking = _Tracking()
+    def evaluate(text: str, cell: Optional[Cell]) -> _Tracked:
+        tracking = _Tracking(cell)
         result = evaluate_condition(text, tracking).result
         return _Tracked(result, _unique_inputs(tracking.recorded) if result is None else [])
 
@@ -519,29 +637,41 @@ def evaluate_visibility_with_blank(model: Model, context: Context) -> Tuple[Dict
     """The visibility of every field and form node, and the fields it treated as blank (hidden by branching logic or a hidden form).
 
     The blank set lets a caller judge a piece of logic again exactly as it was judged here (TypeScript ``explainLogic``).
+
+    Keys are field variables and form node ids. A field of a repeating form the context holds instances of has one result per
+    instance instead, keyed ``variable#instance``; the blank set uses the same keys.
     """
+    # what to judge: each field once, or once per instance when it is in a repeating form the context holds instances of
+    cells: List[Tuple[FieldInfo, Optional[int]]] = []
+    for field in model.fields.values():
+        numbered = context.instances_of(context.event, field.form) if model.repeats(field.form, context.event) else None
+        if numbered:
+            cells.extend((field, number) for number in sorted(numbered))
+        else:
+            cells.append((field, None))
+
     current: Dict[str, VisibilityInfo] = {}
-    for variable in model.fields:
-        current[variable] = VisibilityInfo("unknown")
+    for field, instance in cells:
+        current[cell_key(field.variable, instance)] = VisibilityInfo("unknown")
     for node_id in model.form_nodes:
         current[node_id] = VisibilityInfo("unknown")
 
-    blank_fields: Set[str] = set()
+    blank_cells: BlankCells = set()
     for _round in range(MAX_ROUNDS):
         previous = current
-        evaluate = _make_evaluate(model, context, blank_fields)
+        evaluate = _make_evaluate(model, context, blank_cells)
         following: Dict[str, VisibilityInfo] = {}
-        next_blank: Set[str] = set()
+        next_blank: BlankCells = set()
         for node_id in model.form_nodes:
             following[node_id] = _form_node_info(model, node_id, context, evaluate)
-        for variable, field in model.fields.items():
-            info, blank = _field_outcome(model, field, context, evaluate, following)
-            following[variable] = info
+        for field, instance in cells:
+            info, blank = _field_outcome(model, field, context, evaluate, following, instance)
+            following[cell_key(field.variable, instance)] = info
             if blank:
-                next_blank.add(variable)
+                next_blank.add((field.variable, instance))
         changed = any(key not in previous or not previous[key].same_as(info) for key, info in following.items())
         current = following
-        blank_fields = next_blank
+        blank_cells = next_blank
         if not changed:
             break
-    return current, blank_fields
+    return current, {cell_key(variable, instance) for variable, instance in blank_cells}

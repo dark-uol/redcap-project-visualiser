@@ -120,11 +120,18 @@ def _strictly_equal(left: LogicValue, right: LogicValue) -> bool:
 
 @dataclass(frozen=True)
 class LogicFieldRef:
-    """A field reference as written in logic: ``[name]``, ``[name(code)]``, ``[event][name]``, ``[event][name(code)]``."""
+    """A field reference as written in logic: ``[name]``, ``[name(code)]``, ``[event][name]``, ``[event][name(code)]``,
+    each optionally followed by an instance: ``[name][2]``, ``[event][name][current-instance]``."""
 
     name: str
     code: str = ""
     event: str = ""
+    #: '' (not given), a number as text ('2'), or one of INSTANCE_NAMES ('current-instance', 'first-instance', ...).
+    instance: str = ""
+
+
+#: The smart variables that may follow a field reference to say which repeating instance is meant.
+INSTANCE_NAMES = frozenset(["current-instance", "previous-instance", "next-instance", "first-instance", "last-instance"])
 
 
 class LogicLookup(Protocol):
@@ -217,6 +224,7 @@ _SMART_BRACKET = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)+(?::[^\]]*)?")
 _NUMBER_START = re.compile(r"(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?")
 _WORD_START = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _EVENT_ONLY = re.compile(r"\[" + _WHITESPACE_CLASS + r"*([0-9][A-Za-z0-9_]*)" + _WHITESPACE_CLASS + r"*\]\[")
+_INSTANCE_NUMBER = re.compile(r"[0-9]+")
 _OPERATORS = ["<>", "!=", "<=", ">=", "==", "&&", "||", "=", "<", ">", "+", "-", "*", "/", "^", "!"]
 
 # A token is a tuple: (type, value). Types: number, string, field, smart, word, operator, open, close, comma.
@@ -236,6 +244,17 @@ def _read_bracket(text: str, position: int):
     raise LogicSyntaxError("bad bracket")
 
 
+def _read_instance(text: str, position: int):
+    """An instance bracket straight after a field reference: ``[2]`` or ``[current-instance]``. Returns (instance, end), or ('', position)."""
+    if position < len(text) and text[position] == "[":
+        close = text.find("]", position)
+        if close >= 0:
+            inner = js_trim(text[position + 1 : close])
+            if _INSTANCE_NUMBER.fullmatch(inner) or inner in INSTANCE_NAMES:
+                return inner, close + 1
+    return "", position
+
+
 def _tokenize(text: str) -> List[_Token]:
     tokens: List[_Token] = []
     position = 0
@@ -253,16 +272,26 @@ def _tokenize(text: str) -> List[_Token]:
                 if second[0] != "field" or second[1].event:
                     raise LogicSyntaxError("bad event prefix")
                 ref = second[1]
-                tokens.append(("field", LogicFieldRef(ref.name, ref.code, event_only.group(1))))
+                instance, end = _read_instance(text, end)
+                tokens.append(("field", LogicFieldRef(ref.name, ref.code, event_only.group(1), instance)))
                 position = end
                 continue
             first, position = _read_bracket(text, position)
+            if first[0] == "field":
+                # `[name][2]`: an instance follows the reference
+                instance, after = _read_instance(text, position)
+                if instance:
+                    ref = first[1]
+                    tokens.append(("field", LogicFieldRef(ref.name, ref.code, "", instance)))
+                    position = after
+                    continue
             if first[0] == "field" and position < length and text[position] == "[":
                 # Two adjacent field brackets: the first is the event prefix.
                 second, end = _read_bracket(text, position)
                 if second[0] == "field" and first[1].code == "":
                     ref = second[1]
-                    tokens.append(("field", LogicFieldRef(ref.name, ref.code, first[1].name)))
+                    instance, end = _read_instance(text, end)
+                    tokens.append(("field", LogicFieldRef(ref.name, ref.code, first[1].name, instance)))
                     position = end
                     continue
             tokens.append(first)

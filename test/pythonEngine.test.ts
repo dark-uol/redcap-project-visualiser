@@ -27,11 +27,30 @@ describe('Python core on Pyodide', () => {
     const report = JSON.parse(String(runtime.runPython([
       'import io, json, unittest',
       'stream = io.StringIO()',
-      'result = unittest.TextTestRunner(stream=stream, verbosity=0).run(unittest.defaultTestLoader.loadTestsFromNames(["tests.test_parity", "tests.test_clock"]))',
+      'result = unittest.TextTestRunner(stream=stream, verbosity=0).run(unittest.defaultTestLoader.loadTestsFromNames(["tests.test_parity", "tests.test_clock", "tests.test_instances"]))',
       'json.dumps({"ran": result.testsRun, "failures": len(result.failures), "errors": len(result.errors), "output": stream.getvalue()[-3000:]})',
     ].join('\n')))) as { ran: number; failures: number; errors: number; output: string };
     expect(report.output).toContain('OK');
-    expect([report.ran, report.failures, report.errors]).toEqual([7, 0, 0]);
+    expect([report.ran, report.failures, report.errors]).toEqual([29, 0, 0]);
+  }, SLOW);
+
+  it('evaluates instances of a repeating instrument across the bridge, with JSON keys for the instance numbers', async () => {
+    const parsed = parseODM(sampleXml);
+    const engine = await createPythonVisibility(parsed);
+    // in the sample, the Baseline Visit form repeats in the baseline event
+    const repeating = parsed.repeatingInstruments[0]!;
+    const inForm = parsed.fields.filter((item) => item.form === repeating.form && !item.synthetic);
+    expect(inForm.length).toBeGreaterThan(2);
+    const instances = { [repeating.event]: { [repeating.form]: { 1: {}, 2: {} } } };
+    const results = engine.evaluate({ values: { [ANY_EVENT]: {} }, mode: 'form', event: repeating.event, instances });
+    inForm.forEach((item) => {
+      expect(results.has(item.variable), item.variable).toBe(false);
+      expect(results.has(item.variable + '#1'), item.variable).toBe(true);
+      expect(results.has(item.variable + '#2'), item.variable).toBe(true);
+    });
+    const withoutInstances = engine.evaluate({ values: { [ANY_EVENT]: {} }, mode: 'form', event: repeating.event });
+    expect(withoutInstances.has(inForm[0]!.variable)).toBe(true);
+    engine.destroy();
   }, SLOW);
 
   it('gives Python the JavaScript clock\'s local date, whatever time zone Pyodide assumes', async () => {
